@@ -1,16 +1,196 @@
-.overlay {
-  position: absolute;
+/* Debug.module.css - Styles for the debug component */
+
+.debugOverlay {
+  position: fixed;
   top: 0;
-  background: rgba(0, 0, 0, 0.6);
-  padding: 1rem;
-  max-height: min(100%, 100vh);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: monospace;
+  color: white;
+}
+
+.debugPanel {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 20px;
+  max-width: 800px;
+  max-height: 80vh;
   overflow-y: auto;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
 }
 
-.detailsSection {
-  padding-left: 1rem;
+.debugHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #333;
 }
 
-.detailsSection > div {
-  padding-left: 1rem;
+.debugTitle {
+  font-size: 18px;
+  font-weight: bold;
+  color: #00ff00;
+}
+
+.debugClose {
+  background: #333;
+  border: none;
+  color: white;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.debugClose:hover {
+  background: #555;
+}
+
+.debugSection {
+  margin-bottom: 20px;
+  padding: 15px;
+  background: #2a2a2a;
+  border-radius: 6px;
+  border: 1px solid #444;
+}
+
+.debugSectionTitle {
+  font-size: 16px;
+  font-weight: bold;
+  margin-bottom: 10px;
+  color: #00ccff;
+}
+
+.debugGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+}
+
+.debugItem {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #444;
+}
+
+.debugItem:last-child {
+  border-bottom: none;
+}
+
+.debugLabel {
+  color: #ccc;
+  font-weight: 500;
+}
+
+.debugValue {
+  color: #00ff00;
+  font-family: monospace;
+  word-break: break-all;
+}
+
+.debugButton {
+  background: #0066cc;
+  border: none;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin: 5px;
+  font-size: 14px;
+}
+
+.debugButton:hover {
+  background: #0088ff;
+}
+
+.debugButton.danger {
+  background: #cc0000;
+}
+
+.debugButton.danger:hover {
+  background: #ff0000;
+}
+
+.debugSelect {
+  background: #333;
+  border: 1px solid #555;
+  color: white;
+  padding: 6px 10px;
+  border-radius: 4px;
+  margin: 5px;
+  font-size: 14px;
+}
+
+.debugSelect:focus {
+  outline: none;
+  border-color: #00ccff;
+}
+
+.debugLog {
+  background: #000;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 10px;
+  font-family: monospace;
+  font-size: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  color: #00ff00;
+}
+
+.debugLogEntry {
+  margin-bottom: 5px;
+  padding: 2px 0;
+}
+
+.debugLogEntry.error {
+  color: #ff6666;
+}
+
+.debugLogEntry.warn {
+  color: #ffcc00;
+}
+
+.debugLogEntry.info {
+  color: #00ccff;
+}
+
+.debugLogEntry.debug {
+  color: #00ff00;
+}
+
+.debugStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.debugStat {
+  background: #333;
+  padding: 10px;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.debugStatValue {
+  font-size: 18px;
+  font-weight: bold;
+  color: #00ff00;
+}
+
+.debugStatLabel {
+  font-size: 12px;
+  color: #ccc;
+  margin-top: 5px;
 }

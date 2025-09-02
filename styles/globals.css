@@ -1,67 +1,342 @@
-* {
+/* globals.css - Global styles for the LiveKit Meet application */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* LiveKit Video Component Styles */
+.lk-room-container {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: #000;
+}
+
+.lk-participant-tile {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #2d3748;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.lk-participant-tile-video {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.lk-participant-tile-video video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.lk-video-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #4a5568;
+  color: white;
+  font-size: 24px;
+  font-weight: bold;
+  border-radius: 8px;
+}
+
+.lk-participant-tile-info {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.lk-focus-layout {
+  height: 100vh;
+  width: 100vw;
+  padding: 20px;
   box-sizing: border-box;
 }
 
-html {
-  color-scheme: dark;
-  background-color: #111;
+.lk-focus-layout-main {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Animation classes */
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { 
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to { 
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from { 
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to { 
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Reset and base styles */
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
 }
 
 html,
 body {
-  overflow: hidden;
-  width: 100%;
-  height: 100%;
-  margin: 0px;
+  max-width: 100vw;
+  overflow-x: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))
+    )
+    rgb(var(--background-start-rgb));
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* LiveKit specific styles */
+.lk-button {
+  background-color: #3b82f6;
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.2s;
+  font-size: 1rem;
+}
+
+/* Room container styles */
+.lk-room-container {
+  width: 100vw;
+  height: 100vh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  background-color: #0f0f0f;
+  overflow: hidden;
+}
+
+/* Ensure the main container takes full height */
+main[data-lk-theme="default"] {
+  height: 100vh !important;
+  width: 100vw !important;
+  overflow: hidden;
+}
+
+/* Video conference container */
+.lk-video-conference {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+/* Ensure LiveKit components take full space */
+.lk-focus-layout {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+}
+
+.lk-focus-layout-container {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Remove any default margins/padding that might cause spacing issues */
+.lk-room-container * {
+  box-sizing: border-box;
+}
+
+/* Ensure video tracks take full available space */
+.lk-video-container {
+  width: 100%;
+  height: 100%;
+}
+
+/* Fix for any LiveKit component that might have default sizing */
+[data-lk-theme="default"] {
+  width: 100vw !important;
+  height: 100vh !important;
+  overflow: hidden !important;
+}
+
+/* PreJoin component styling */
+.lk-prejoin {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+}
+
+/* Ensure all LiveKit components take full space */
+.lk-focus-layout,
+.lk-grid-layout,
+.lk-speaker-layout {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+}
+
+.lk-button:hover {
+  background-color: #2563eb;
+}
+
+.lk-button:disabled {
+  background-color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.lk-button.secondary {
+  background-color: #6b7280;
+}
+
+.lk-button.secondary:hover {
+  background-color: #4b5563;
+}
+
+.lk-button.danger {
+  background-color: #dc2626;
+}
+
+.lk-button.danger:hover {
+  background-color: #b91c1c;
+}
+
+/* Form styles */
+input, textarea, select {
+  font-family: inherit;
+}
+
+/* Utility classes */
+.text-center {
+  text-align: center;
+}
+
+.mt-4 {
+  margin-top: 1rem;
+}
+
+.mb-4 {
+  margin-bottom: 1rem;
+}
+
+.p-4 {
+  padding: 1rem;
+}
+
+.flex {
   display: flex;
+}
+
+.flex-col {
   flex-direction: column;
 }
 
-.header {
-  max-width: 500px;
-  padding-inline: 2rem;
+.items-center {
+  align-items: center;
 }
 
-.header > img {
-  display: block;
-  margin: auto;
-  max-width: 100%;
+.justify-center {
+  justify-content: center;
 }
 
-.header > h2 {
-  font-family: 'TWK Everett', sans-serif;
-  font-style: normal;
-  font-weight: 400;
-  font-size: 1.25rem;
-  line-height: 144%;
-  text-align: center;
-  color: rgba(255, 255, 255, 0.6);
+.gap-4 {
+  gap: 1rem;
 }
 
-footer {
+.w-full {
   width: 100%;
-  padding: 1.5rem 2rem;
-  text-align: center;
-  color: rgba(255, 255, 255, 0.6);
-  background-color: var(--lk-bg);
-  border-top: 1px solid rgba(255, 255, 255, 0.15);
 }
 
-footer a,
-h2 a {
-  color: #ff6352;
-  text-decoration-color: #a33529;
-  text-underline-offset: 0.125em;
+.max-w-md {
+  max-width: 28rem;
 }
 
-footer a:hover,
-h2 a {
-  text-decoration-color: #ff6352;
-}
-
-h2 a {
-  text-decoration: none;
+.mx-auto {
+  margin-left: auto;
+  margin-right: auto;
 }

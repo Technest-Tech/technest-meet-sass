@@ -1,0 +1,21 @@
+# LiveKit Server Configuration
+# This file configures the LiveKit server for local development
+
+# Server settings
+port: 7880
+bind_addresses: ["0.0.0.0"]
+
+# API keys for authentication
+keys:
+  devkey: secret
+
+# Logging
+log_level: info
+
+# Room settings
+room:
+  # Allow room creation
+  auto_create: true
+
+# Development mode (no database required)
+development: true

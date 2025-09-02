@@ -26,3 +26,5 @@ export type ConnectionDetails = {
   participantName: string;
   participantToken: string;
 };
+
+

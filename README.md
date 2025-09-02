@@ -2,41 +2,55 @@
   <img src="./.github/assets/livekit-mark.png" alt="LiveKit logo" width="100" height="100">
 </a>
 
-# LiveKit Meet
+# NewMeet - Modern Video Conferencing
 
-<p>
-  <a href="https://meet.livekit.io"><strong>Try the demo</strong></a>
-  •
-  <a href="https://github.com/livekit/components-js">LiveKit Components</a>
-  •
-  <a href="https://docs.livekit.io/">LiveKit Docs</a>
-  •
-  <a href="https://livekit.io/cloud">LiveKit Cloud</a>
-  •
-  <a href="https://blog.livekit.io/">Blog</a>
-</p>
+NewMeet is a modern video conferencing application built with LiveKit open source technology, featuring beautiful Islamic-inspired design and seamless communication.
 
-<br>
+## 🚀 Quick Start
 
-LiveKit Meet is an open source video conferencing app built on [LiveKit Components](https://github.com/livekit/components-js), [LiveKit Cloud](https://cloud.livekit.io/), and Next.js. It's been completely redesigned from the ground up using our new components library.
+1. **Clone the repository**
+2. **Install dependencies**: `pnpm install`
+3. **Set up environment**: `./setup-env.sh`
+4. **Start the development server**: `pnpm dev`
+5. **Access the application**: `http://localhost:3000`
 
-![LiveKit Meet screenshot](./.github/assets/livekit-meet.jpg)
+## 🔐 Admin Access
 
-## Tech Stack
+- **Admin Login**: `http://localhost:3000/admin/login`
+- **Demo Credentials**: 
+  - Email: `admin@newmeet.com`
+  - Password: `admin123`
 
-- This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
-- App is built with [@livekit/components-react](https://github.com/livekit/components-js/) library.
+## 🏠 Room Access
 
-## Demo
+### Important: Room Links Require Type Parameter
 
-Give it a try at https://meet.livekit.io.
+Room links must include the access type parameter to work properly:
 
-## Dev Setup
+- **Host Access**: `/room/room-link?type=host`
+- **Guest Access**: `/room/room-link?type=guest`
 
-Steps to get a local dev setup up and running:
+### Examples:
+- ✅ **Correct**: `http://localhost:3000/room/sample-host?type=host`
+- ❌ **Incorrect**: `http://localhost:3000/room/sample-host`
 
-1. Run `pnpm install` to install all dependencies.
-2. Copy `.env.example` in the project root and rename it to `.env.local`.
-3. Update the missing environment variables in the newly created `.env.local` file.
-4. Run `pnpm dev` to start the development server and visit [http://localhost:3000](http://localhost:3000) to see the result.
-5. Start development 🎉
+### Why This Matters:
+- The `type` parameter determines whether you're joining as a host or guest
+- Hosts have additional permissions (can manage the room, record, etc.)
+- Guests have limited permissions (can join, speak, and view)
+- Without the type parameter, the system cannot determine your access level
+
+## 🛠️ Development
+
+- **Database**: `pnpm db:push` (after schema changes)
+- **Prisma Studio**: `pnpm db:studio`
+- **Build**: `pnpm build`
+- **Start**: `pnpm start`
+
+## 🔧 Troubleshooting
+
+See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) for common issues and solutions.
+
+## 📝 License
+
+This project is licensed under the MIT License.

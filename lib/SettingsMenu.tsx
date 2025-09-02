@@ -11,6 +11,7 @@ import {
 import styles from '../styles/SettingsMenu.module.css';
 import { CameraSettings } from './CameraSettings';
 import { MicrophoneSettings } from './MicrophoneSettings';
+
 /**
  * @alpha
  */
@@ -24,12 +25,18 @@ export function SettingsMenu(props: SettingsMenuProps) {
   const room = useRoomContext();
   const recordingEndpoint = process.env.NEXT_PUBLIC_LK_RECORD_ENDPOINT;
 
+  // Add debugging
+  React.useEffect(() => {
+    console.log('SettingsMenu mounted, layoutContext:', layoutContext);
+    console.log('Room:', room);
+  }, [layoutContext, room]);
+
   const settings = React.useMemo(() => {
     return {
       media: { camera: true, microphone: true, label: 'Media Devices', speaker: true },
       recording: recordingEndpoint ? { label: 'Recording' } : undefined,
     };
-  }, []);
+  }, [recordingEndpoint]);
 
   const tabs = React.useMemo(
     () => Object.keys(settings).filter((t) => t !== undefined) as Array<keyof typeof settings>,
@@ -63,6 +70,7 @@ export function SettingsMenu(props: SettingsMenuProps) {
       response = await fetch(recordingEndpoint + `/start?roomName=${room.name}`);
     }
     if (response.ok) {
+      // Success
     } else {
       console.error(
         'Error handling recording request, check server logs:',
@@ -70,6 +78,16 @@ export function SettingsMenu(props: SettingsMenuProps) {
         response.statusText,
       );
       setProcessingRecRequest(false);
+    }
+  };
+
+  const handleClose = () => {
+    console.log('Closing settings menu');
+    if (layoutContext?.widget.dispatch) {
+      layoutContext.widget.dispatch({ msg: 'toggle_settings' });
+    } else {
+      // Fallback: dispatch custom event
+      window.dispatchEvent(new CustomEvent('close_settings'));
     }
   };
 
@@ -144,7 +162,7 @@ export function SettingsMenu(props: SettingsMenuProps) {
       <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
         <button
           className={`lk-button`}
-          onClick={() => layoutContext?.widget.dispatch?.({ msg: 'toggle_settings' })}
+          onClick={handleClose}
         >
           Close
         </button>

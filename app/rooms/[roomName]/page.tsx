@@ -12,6 +12,8 @@ export default async function Page({
     region?: string;
     hq?: string;
     codec?: string;
+    name?: string;
+    type?: string; // Add type parameter for host/guest
   }>;
 }) {
   const _params = await params;
@@ -21,6 +23,10 @@ export default async function Page({
       ? _searchParams.codec
       : 'vp9';
   const hq = _searchParams.hq === 'true' ? true : false;
+  const userName = _searchParams.name || '';
+  const participantType = (_searchParams.type === 'host' || _searchParams.type === 'guest') 
+    ? _searchParams.type 
+    : 'guest'; // Default to guest if not specified
 
   return (
     <PageClientImpl
@@ -28,6 +34,8 @@ export default async function Page({
       region={_searchParams.region}
       hq={hq}
       codec={codec}
+      userName={userName}
+      participantType={participantType}
     />
   );
 }

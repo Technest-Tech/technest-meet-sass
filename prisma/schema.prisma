@@ -1,0 +1,53 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  role      String   @default("ADMIN") // ADMIN or MODERATOR
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Room {
+  id                String           @id @default(cuid())
+  name              String
+  description       String?
+  hostApproval      Boolean          @default(false)
+  maxParticipants   Int              @default(50)
+  isActive          Boolean          @default(true)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  participants      Participant[]
+  hostLink          String           @unique
+  guestLink         String           @unique
+
+  @@map("rooms")
+}
+
+model Participant {
+  id        String         @id @default(cuid())
+  name      String
+  type      String         // HOST or GUEST
+  roomId    String
+  used      Boolean        @default(false) // Track if this participant name has been used
+  room      Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  @@unique([roomId, name])
+  @@map("participants")
+}
+
+

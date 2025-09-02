@@ -6,27 +6,27 @@ import { Toaster } from 'react-hot-toast';
 
 export const metadata: Metadata = {
   title: {
-    default: 'LiveKit Meet | Conference app build with LiveKit open source',
+    default: 'Almajd Academy | Video Conferencing',
     template: '%s',
   },
   description:
-    'LiveKit is an open source WebRTC project that gives you everything needed to build scalable and real-time audio and/or video experiences in your applications.',
+    'Almajd Academy provides secure video conferencing for educational and business meetings. Access your meetings using room links provided by your administrator.',
   twitter: {
-    creator: '@livekitted',
-    site: '@livekitted',
+    creator: '@almajdacademy',
+    site: '@almajdacademy',
     card: 'summary_large_image',
   },
   openGraph: {
-    url: 'https://meet.livekit.io',
+    url: 'https://almajdacademy.com',
     images: [
       {
-        url: 'https://meet.livekit.io/images/livekit-meet-open-graph.png',
+        url: 'https://almajdacademy.com/images/almajd-open-graph.png',
         width: 2000,
         height: 1000,
         type: 'image/png',
       },
     ],
-    siteName: 'LiveKit Meet',
+    siteName: 'Almajd Academy',
   },
   icons: {
     icon: {
@@ -36,16 +36,16 @@ export const metadata: Metadata = {
     apple: [
       {
         rel: 'apple-touch-icon',
-        url: '/images/livekit-apple-touch.png',
+        url: '/images/newmeet-apple-touch.png',
         sizes: '180x180',
       },
-      { rel: 'mask-icon', url: '/images/livekit-safari-pinned-tab.svg', color: '#070707' },
+      { rel: 'mask-icon', url: '/images/newmeet-safari-pinned-tab.svg', color: '#667eea' },
     ],
   },
 };
 
 export const viewport: Viewport = {
-  themeColor: '#070707',
+  themeColor: '#667eea',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

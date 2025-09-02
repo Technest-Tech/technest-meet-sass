@@ -1,3 +1,5 @@
+'use client';
+
 import React from 'react';
 import {
   MediaDeviceMenu,
@@ -6,15 +8,23 @@ import {
   useLocalParticipant,
   VideoTrack,
 } from '@livekit/components-react';
-import { BackgroundBlur, VirtualBackground } from '@livekit/track-processors';
 import { isLocalTrack, LocalTrackPublication, Track } from 'livekit-client';
-import Desk from '../public/background-images/samantha-gades-BlIhVfXbi9s-unsplash.jpg';
-import Nature from '../public/background-images/ali-kazal-tbw_KQE3Cbg-unsplash.jpg';
 
-// Background image paths
+// Dynamically import track processors to avoid SSR issues
+let BackgroundBlur: any, VirtualBackground: any;
+
+// Only import track processors on the client side
+if (typeof window !== 'undefined') {
+  import('@livekit/track-processors').then(({ BackgroundBlur: BB, VirtualBackground: VB }) => {
+    BackgroundBlur = BB;
+    VirtualBackground = VB;
+  });
+}
+
+// Background image paths - using placeholder data URLs for demo
 const BACKGROUND_IMAGES = [
-  { name: 'Desk', path: Desk },
-  { name: 'Nature', path: Nature },
+  { name: 'Desk', path: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjNjY2NjY2Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIyNCIgZmlsbD0id2hpdGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5EZXNrIEJhY2tncm91bmQ8L3RleHQ+PC9zdmc+' },
+  { name: 'Nature', path: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjNDA2NjQwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIyNCIgZmlsbD0id2hpdGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5OYXR1cmUgQmFja2dyb3VuZDwvdGV4dD48L3N2Zz4=' },
 ];
 
 // Background options
@@ -22,17 +32,18 @@ type BackgroundType = 'none' | 'blur' | 'image';
 
 export function CameraSettings() {
   const { cameraTrack, localParticipant } = useLocalParticipant();
-  const [backgroundType, setBackgroundType] = React.useState<BackgroundType>(
-    (cameraTrack as LocalTrackPublication)?.track?.getProcessor()?.name === 'background-blur'
-      ? 'blur'
-      : (cameraTrack as LocalTrackPublication)?.track?.getProcessor()?.name === 'virtual-background'
-        ? 'image'
-        : 'none',
-  );
-
+  const [backgroundType, setBackgroundType] = React.useState<BackgroundType>('none');
   const [virtualBackgroundImagePath, setVirtualBackgroundImagePath] = React.useState<string | null>(
     null,
   );
+  const [processorsLoaded, setProcessorsLoaded] = React.useState(false);
+
+  // Check if processors are loaded
+  React.useEffect(() => {
+    if (BackgroundBlur && VirtualBackground) {
+      setProcessorsLoaded(true);
+    }
+  }, []);
 
   const camTrackRef: TrackReference | undefined = React.useMemo(() => {
     return cameraTrack
@@ -50,7 +61,7 @@ export function CameraSettings() {
   };
 
   React.useEffect(() => {
-    if (isLocalTrack(cameraTrack?.track)) {
+    if (isLocalTrack(cameraTrack?.track) && BackgroundBlur && VirtualBackground) {
       if (backgroundType === 'blur') {
         cameraTrack.track?.setProcessor(BackgroundBlur());
       } else if (backgroundType === 'image' && virtualBackgroundImagePath) {
@@ -82,94 +93,102 @@ export function CameraSettings() {
         </div>
       </section>
 
-      <div style={{ marginTop: '10px' }}>
-        <div style={{ marginBottom: '8px' }}>Background Effects</div>
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          <button
-            onClick={() => selectBackground('none')}
-            className="lk-button"
-            aria-pressed={backgroundType === 'none'}
-            style={{
-              border: backgroundType === 'none' ? '2px solid #0090ff' : '1px solid #d1d1d1',
-              minWidth: '80px',
-            }}
-          >
-            None
-          </button>
-
-          <button
-            onClick={() => selectBackground('blur')}
-            className="lk-button"
-            aria-pressed={backgroundType === 'blur'}
-            style={{
-              border: backgroundType === 'blur' ? '2px solid #0090ff' : '1px solid #d1d1d1',
-              minWidth: '80px',
-              backgroundColor: '#f0f0f0',
-              position: 'relative',
-              overflow: 'hidden',
-              height: '60px',
-            }}
-          >
-            <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: '#e0e0e0',
-                filter: 'blur(8px)',
-                zIndex: 0,
-              }}
-            />
-            <span
-              style={{
-                position: 'relative',
-                zIndex: 1,
-                backgroundColor: 'rgba(0,0,0,0.6)',
-                padding: '2px 5px',
-                borderRadius: '4px',
-                fontSize: '12px',
-              }}
-            >
-              Blur
-            </span>
-          </button>
-
-          {BACKGROUND_IMAGES.map((image) => (
+      {!processorsLoaded && (
+        <div style={{ marginTop: '10px', color: '#666', fontSize: '14px' }}>
+          Loading background effects...
+        </div>
+      )}
+      
+      {processorsLoaded && (
+        <div style={{ marginTop: '10px' }}>
+          <div style={{ marginBottom: '8px' }}>Background Effects</div>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             <button
-              key={image.path.src}
-              onClick={() => selectBackground('image', image.path.src)}
+              onClick={() => selectBackground('none')}
               className="lk-button"
-              aria-pressed={
-                backgroundType === 'image' && virtualBackgroundImagePath === image.path.src
-              }
+              aria-pressed={backgroundType === 'none'}
               style={{
-                backgroundImage: `url(${image.path.src})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-                width: '80px',
-                height: '60px',
-                border:
-                  backgroundType === 'image' && virtualBackgroundImagePath === image.path.src
-                    ? '2px solid #0090ff'
-                    : '1px solid #d1d1d1',
+                border: backgroundType === 'none' ? '2px solid #0090ff' : '1px solid #d1d1d1',
+                minWidth: '80px',
               }}
             >
+              None
+            </button>
+
+            <button
+              onClick={() => selectBackground('blur')}
+              className="lk-button"
+              aria-pressed={backgroundType === 'blur'}
+              style={{
+                border: backgroundType === 'blur' ? '2px solid #0090ff' : '1px solid #d1d1d1',
+                minWidth: '80px',
+                backgroundColor: '#f0f0f0',
+                position: 'relative',
+                overflow: 'hidden',
+                height: '60px',
+              }}
+            >
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  backgroundColor: '#e0e0e0',
+                  filter: 'blur(8px)',
+                  zIndex: 0,
+                }}
+              />
               <span
                 style={{
+                  position: 'relative',
+                  zIndex: 1,
                   backgroundColor: 'rgba(0,0,0,0.6)',
                   padding: '2px 5px',
                   borderRadius: '4px',
                   fontSize: '12px',
                 }}
               >
-                {image.name}
+                Blur
               </span>
             </button>
-          ))}
+
+            {BACKGROUND_IMAGES.map((image) => (
+              <button
+                key={image.path}
+                onClick={() => selectBackground('image', image.path)}
+                className="lk-button"
+                aria-pressed={
+                  backgroundType === 'image' && virtualBackgroundImagePath === image.path
+                }
+                style={{
+                  backgroundImage: `url(${image.path})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                  width: '80px',
+                  height: '60px',
+                  border:
+                    backgroundType === 'image' && virtualBackgroundImagePath === image.path
+                      ? '2px solid #0090ff'
+                      : '1px solid #d1d1d1',
+                }}
+              >
+                <span
+                  style={{
+                    backgroundColor: 'rgba(0,0,0,0.6)',
+                    padding: '2px 5px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                  }}
+                >
+                  {image.name}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
