@@ -19,7 +19,10 @@ export async function GET(req: NextRequest) {
     const { LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_URL } = process.env;
 
     const hostURL = new URL(LIVEKIT_URL!);
-    hostURL.protocol = 'https:';
+    // Keep the original protocol for local development
+    if (!hostURL.hostname.includes('localhost') && !hostURL.hostname.includes('127.0.0.1')) {
+      hostURL.protocol = 'https:';
+    }
 
     const egressClient = new EgressClient(hostURL.origin, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
     const activeEgresses = (await egressClient.listEgress({ roomName })).filter(
@@ -28,9 +31,24 @@ export async function GET(req: NextRequest) {
     if (activeEgresses.length === 0) {
       return new NextResponse('No active recording found', { status: 404 });
     }
-    await Promise.all(activeEgresses.map((info) => egressClient.stopEgress(info.egressId)));
+    const stoppedEgresses = await Promise.all(
+      activeEgresses.map(async (info) => {
+        await egressClient.stopEgress(info.egressId);
+        return {
+          egressId: info.egressId,
+          filename: info.file?.filepath || 'unknown.mp4',
+          status: 'stopped'
+        };
+      })
+    );
 
-    return new NextResponse(null, { status: 200 });
+    return new NextResponse(JSON.stringify({ 
+      recordings: stoppedEgresses,
+      message: 'Recording stopped successfully'
+    }), { 
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
   } catch (error) {
     if (error instanceof Error) {
       return new NextResponse(error.message, { status: 500 });

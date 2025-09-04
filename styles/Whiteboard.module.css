@@ -241,6 +241,19 @@
   flex: 1;
   padding: 0.5rem;
   background-color: #f3f4f6;
+  position: relative;
+}
+
+.whiteboardBackground {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  background-color: white;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  z-index: 0;
 }
 
 .canvas {
@@ -249,12 +262,14 @@
   border: 1px solid #d1d5db;
   border-radius: 0.375rem;
   cursor: crosshair;
-  background-color: white;
+  background-color: transparent;
   touch-action: none;
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
   user-select: none;
+  position: relative;
+  z-index: 2;
 }
 
 @media (max-width: 768px) {
@@ -559,4 +574,210 @@
 
 .notificationWarning {
   border-left: 4px solid #f59e0b;
+}
+
+/* Image Upload Styles */
+.imageUploadModal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.imageUploadContent {
+  background-color: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  width: 90vw;
+  max-width: 500px;
+  max-height: 90vh;
+  overflow: hidden;
+}
+
+.imageUploadHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.imageUploadHeader h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.imageUploadBody {
+  padding: 1.5rem;
+}
+
+.uploadArea {
+  border: 2px dashed #d1d5db;
+  border-radius: 0.5rem;
+  padding: 2rem;
+  text-align: center;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.uploadArea:hover {
+  border-color: #3b82f6;
+  background-color: #f8fafc;
+}
+
+.uploadAreaDragOver {
+  border-color: #10b981 !important;
+  background-color: #ecfdf5 !important;
+  transform: scale(1.02);
+}
+
+.fileInput {
+  display: none;
+}
+
+.uploadLabel {
+  display: block;
+  cursor: pointer;
+}
+
+.uploadIcon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.uploadText {
+  margin-bottom: 0.5rem;
+}
+
+.uploadText strong {
+  display: block;
+  font-size: 1.125rem;
+  color: #374151;
+  margin-bottom: 0.25rem;
+}
+
+.uploadText span {
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+.uploadFormats {
+  font-size: 0.75rem;
+  color: #9ca3af;
+}
+
+/* Background Image Styles */
+.backgroundImage {
+  object-fit: contain;
+  user-select: none;
+}
+
+/* Image Overlay Styles */
+.imageOverlay {
+  position: absolute;
+  z-index: 3;
+  user-select: none;
+}
+
+.removeImageButton {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background-color: #ef4444;
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s;
+}
+
+.removeImageButton:hover {
+  background-color: #dc2626;
+  transform: scale(1.1);
+}
+
+/* Responsive Image Upload */
+@media (max-width: 768px) {
+  .imageUploadContent {
+    width: 95vw;
+    margin: 1rem;
+  }
+  
+  .imageUploadHeader {
+    padding: 0.75rem;
+  }
+  
+  .imageUploadHeader h3 {
+    font-size: 1.125rem;
+  }
+  
+  .imageUploadBody {
+    padding: 1rem;
+  }
+  
+  .uploadArea {
+    padding: 1.5rem;
+  }
+  
+  .uploadIcon {
+    font-size: 2.5rem;
+  }
+  
+  .uploadText strong {
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .imageUploadContent {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+    margin: 0;
+  }
+  
+  .imageUploadHeader {
+    padding: 0.5rem;
+  }
+  
+  .imageUploadHeader h3 {
+    font-size: 1rem;
+  }
+  
+  .imageUploadBody {
+    padding: 0.75rem;
+  }
+  
+  .uploadArea {
+    padding: 1rem;
+  }
+  
+  .uploadIcon {
+    font-size: 2rem;
+  }
+  
+  .uploadText strong {
+    font-size: 0.875rem;
+  }
+  
+  .uploadText span {
+    font-size: 0.75rem;
+  }
+  
+  .uploadFormats {
+    font-size: 0.625rem;
+  }
 }

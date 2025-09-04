@@ -19,6 +19,17 @@ interface DrawingStroke {
   tool: 'pen' | 'eraser';
 }
 
+interface WhiteboardImage {
+  id: string;
+  src: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  originalWidth: number;
+  originalHeight: number;
+}
+
 interface WhiteboardProps {
   isOpen: boolean;
   onClose: () => void;
@@ -40,11 +51,19 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
   const [currentColor, setCurrentColor] = useState('#000000');
   const [currentWidth, setCurrentWidth] = useState(4);
   const [currentTool, setCurrentTool] = useState<'pen' | 'eraser'>('pen');
+  const [currentMode, setCurrentMode] = useState<'draw' | 'move'>('draw');
   const [strokes, setStrokes] = useState<DrawingStroke[]>([]);
   const [localStrokes, setLocalStrokes] = useState<DrawingStroke[]>([]);
   const [currentStroke, setCurrentStroke] = useState<DrawingStroke | null>(null);
   const [participantId, setParticipantId] = useState<string>('');
   const [isConnected, setIsConnected] = useState(false);
+  const [images, setImages] = useState<WhiteboardImage[]>([]);
+  const [localImages, setLocalImages] = useState<WhiteboardImage[]>([]);
+  const [showImageUpload, setShowImageUpload] = useState(false);
+  const [isDraggingImage, setIsDraggingImage] = useState(false);
+  const [draggedImageId, setDraggedImageId] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [isDragOver, setIsDragOver] = useState(false);
   
   // Throttle real-time updates to prevent overwhelming the data channel
   const lastUpdateTime = useRef<number>(0);
@@ -120,6 +139,8 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
           console.log('Clear command from:', participant.identity);
           setStrokes([]);
           setLocalStrokes([]);
+          setImages([]);
+          setLocalImages([]);
         } else if (data.type === 'whiteboard_toggle' && participant.identity !== participantId) {
           // Host is controlling whiteboard state for all participants
           console.log('Whiteboard toggle from:', participant.identity, 'action:', data.action);
@@ -135,6 +156,24 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
               onHostToggle(false);
             }
           }
+        } else if (data.type === 'image_add' && participant.identity !== participantId) {
+          // Add image from other participant
+          console.log('Adding image from:', participant.identity, {
+            imageId: data.image?.id,
+            imageSize: data.image?.src?.length,
+            imageDimensions: data.image ? `${data.image.width}x${data.image.height}` : 'unknown'
+          });
+          setImages(prev => [...prev, data.image]);
+        } else if (data.type === 'image_update' && participant.identity !== participantId) {
+          // Update image position/size from other participant
+          console.log('Updating image from:', participant.identity);
+          setImages(prev => 
+            prev.map(img => img.id === data.image.id ? data.image : img)
+          );
+        } else if (data.type === 'image_remove' && participant.identity !== participantId) {
+          // Remove image from other participant
+          console.log('Removing image from:', participant.identity);
+          setImages(prev => prev.filter(img => img.id !== data.imageId));
         }
       } catch (error) {
         console.error('Error parsing whiteboard data:', error);
@@ -175,10 +214,18 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
       console.log('Sending data:', {
         type: data.type,
         from: participantId,
-        to: 'all participants'
+        to: 'all participants',
+        dataSize: JSON.stringify(data).length
       });
       
       const encodedData = new TextEncoder().encode(JSON.stringify(data));
+      
+      // Check if data is too large (LiveKit has limits)
+      if (encodedData.length > 16384) { // 16KB limit
+        console.error('Data too large for LiveKit data channel:', encodedData.length, 'bytes');
+        alert(`Image is too large to share (${Math.round(encodedData.length/1024)}KB). Please try a smaller image or use a different format.`);
+        return;
+      }
       
       // Try to publish data with topic for better organization
       try {
@@ -221,7 +268,7 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
     return () => window.removeEventListener('resize', resizeCanvas);
   }, [isOpen]);
 
-  // Redraw canvas with all strokes
+  // Redraw canvas with all strokes (images are handled as overlays)
   const redrawCanvas = useCallback(() => {
     if (!canvasRef.current) return;
     
@@ -313,7 +360,7 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
   }, []);
 
   const startDrawing = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isOpen) return;
+    if (!isOpen || currentMode !== 'draw') return;
     
     setIsDrawing(true);
     const pos = getMousePos(e);
@@ -330,10 +377,10 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
     
     // Force immediate redraw to show the starting point
     setTimeout(() => redrawCanvas(), 0);
-  }, [isOpen, getMousePos, currentColor, currentWidth, currentTool, redrawCanvas]);
+  }, [isOpen, currentMode, getMousePos, currentColor, currentWidth, currentTool, redrawCanvas]);
 
   const draw = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawing || !currentStroke || !isOpen) return;
+    if (!isDrawing || !currentStroke || !isOpen || currentMode !== 'draw') return;
     
     const pos = getMousePos(e);
     const updatedStroke = {
@@ -363,7 +410,7 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
   }, [isDrawing, currentStroke, isOpen, getMousePos, sendDataToParticipants]);
 
   const stopDrawing = useCallback(() => {
-    if (!currentStroke || !isOpen) return;
+    if (!currentStroke || !isOpen || currentMode !== 'draw') return;
     
     setIsDrawing(false);
     
@@ -383,6 +430,8 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
   const clearWhiteboard = useCallback(() => {
     setStrokes([]);
     setLocalStrokes([]);
+    setImages([]);
+    setLocalImages([]);
     
     // Send clear command to other participants
     const message = { type: 'clear' };
@@ -398,6 +447,189 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
     link.href = canvas.toDataURL();
     link.click();
   }, []);
+
+  // Image handling functions
+  const handleImageUpload = useCallback((file: File) => {
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        if (!canvasRef.current) return;
+        
+        const canvas = canvasRef.current;
+        const maxWidth = canvas.width * 0.8;
+        const maxHeight = canvas.height * 0.8;
+        
+        let { width, height } = img;
+        
+        // Scale image to fit within canvas bounds
+        if (width > maxWidth || height > maxHeight) {
+          const scale = Math.min(maxWidth / width, maxHeight / height);
+          width *= scale;
+          height *= scale;
+        }
+        
+        // Create a compressed version for sharing
+        const tempCanvas = document.createElement('canvas');
+        const tempCtx = tempCanvas.getContext('2d');
+        if (!tempCtx) return;
+        
+        tempCanvas.width = width;
+        tempCanvas.height = height;
+        tempCtx.drawImage(img, 0, 0, width, height);
+        
+        // Try multiple compression levels to get under size limit
+        let compressedSrc = '';
+        let quality = 0.8;
+        let attempts = 0;
+        const maxAttempts = 5;
+        
+        while (attempts < maxAttempts) {
+          compressedSrc = tempCanvas.toDataURL('image/jpeg', quality);
+          
+          // Check if compressed size is acceptable
+          if (compressedSrc.length < 12000) { // Leave some buffer under 16KB limit
+            break;
+          }
+          
+          // Reduce quality and try again
+          quality -= 0.15;
+          attempts++;
+        }
+        
+        // If still too large, reduce dimensions
+        if (compressedSrc.length >= 12000) {
+          const scaleFactor = 0.8;
+          const newWidth = Math.floor(width * scaleFactor);
+          const newHeight = Math.floor(height * scaleFactor);
+          
+          tempCanvas.width = newWidth;
+          tempCanvas.height = newHeight;
+          tempCtx.drawImage(img, 0, 0, newWidth, newHeight);
+          
+          compressedSrc = tempCanvas.toDataURL('image/jpeg', 0.6);
+          
+          // Update dimensions
+          width = newWidth;
+          height = newHeight;
+        }
+        
+        // Final fallback: create a very small thumbnail
+        if (compressedSrc.length >= 12000) {
+          const thumbnailSize = 200; // Max 200px
+          const aspectRatio = img.width / img.height;
+          let thumbWidth, thumbHeight;
+          
+          if (aspectRatio > 1) {
+            thumbWidth = thumbnailSize;
+            thumbHeight = Math.floor(thumbnailSize / aspectRatio);
+          } else {
+            thumbHeight = thumbnailSize;
+            thumbWidth = Math.floor(thumbnailSize * aspectRatio);
+          }
+          
+          tempCanvas.width = thumbWidth;
+          tempCanvas.height = thumbHeight;
+          tempCtx.drawImage(img, 0, 0, thumbWidth, thumbHeight);
+          
+          compressedSrc = tempCanvas.toDataURL('image/jpeg', 0.5);
+          
+          // Update dimensions
+          width = thumbWidth;
+          height = thumbHeight;
+        }
+        
+        const newImage: WhiteboardImage = {
+          id: `img-${Date.now()}-${Math.random()}`,
+          src: compressedSrc,
+          x: (canvas.width - width) / 2,
+          y: (canvas.height - height) / 2,
+          width,
+          height,
+          originalWidth: img.width,
+          originalHeight: img.height
+        };
+        
+        setLocalImages(prev => [...prev, newImage]);
+        
+        // Send image to other participants
+        const message = {
+          type: 'image_add',
+          image: newImage
+        };
+        
+        console.log('Sending image to participants:', {
+          imageId: newImage.id,
+          imageSize: newImage.src.length,
+          imageDimensions: `${newImage.width}x${newImage.height}`
+        });
+        
+        sendDataToParticipants(message);
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+    setShowImageUpload(false);
+  }, [sendDataToParticipants]);
+
+  const updateImagePosition = useCallback((imageId: string, x: number, y: number) => {
+    setLocalImages(prev => 
+      prev.map(img => 
+        img.id === imageId ? { ...img, x, y } : img
+      )
+    );
+    
+    // Send update to other participants
+    const updatedImage = [...images, ...localImages].find(img => img.id === imageId);
+    if (updatedImage) {
+      const message = {
+        type: 'image_update',
+        image: { ...updatedImage, x, y }
+      };
+      sendDataToParticipants(message);
+    }
+  }, [images, localImages, sendDataToParticipants]);
+
+  const removeImage = useCallback((imageId: string) => {
+    setLocalImages(prev => prev.filter(img => img.id !== imageId));
+    
+    // Send removal to other participants
+    const message = {
+      type: 'image_remove',
+      imageId
+    };
+    sendDataToParticipants(message);
+  }, [sendDataToParticipants]);
+
+  // Drag and drop handlers
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    const imageFile = files.find(file => file.type.startsWith('image/'));
+    
+    if (imageFile) {
+      handleImageUpload(imageFile);
+    } else {
+      alert('Please drop an image file');
+    }
+  }, [handleImageUpload]);
 
   if (!isOpen) return null;
 
@@ -441,62 +673,101 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
 
         {/* Compact Toolbar */}
         <div className={styles.whiteboardToolbar}>
-          {/* Tool Selection */}
+          {/* Mode Selection */}
           <div className={styles.toolGroup}>
             <button
-              onClick={() => setCurrentTool('pen')}
+              onClick={() => setCurrentMode('draw')}
               className={`${styles.toolButton} ${styles.toolButtonIcon} ${
-                currentTool === 'pen' ? styles.active : ''
+                currentMode === 'draw' ? styles.active : ''
               }`}
-              title="Pen Tool"
+              title="Draw Mode"
             >
-              ✏️
+              🎨
             </button>
             <button
-              onClick={() => setCurrentTool('eraser')}
+              onClick={() => setCurrentMode('move')}
               className={`${styles.toolButton} ${styles.toolButtonIcon} ${
-                currentTool === 'eraser' ? styles.active : ''
+                currentMode === 'move' ? styles.active : ''
               }`}
-              title="Eraser Tool"
+              title="Move Images Mode"
             >
-              🧽
+              🖱️
             </button>
           </div>
 
-          {/* Color Selection */}
-          <div className={styles.toolGroup}>
-            <div className={styles.colorPalette}>
-              {COLORS.map((color) => (
-                <button
-                  key={color}
-                  onClick={() => setCurrentColor(color)}
-                  className={`${styles.colorButton} ${
-                    currentColor === color ? styles.active : ''
-                  }`}
-                  style={{ backgroundColor: color }}
-                  title={color}
-                />
-              ))}
+          {/* Tool Selection (only show in draw mode) */}
+          {currentMode === 'draw' && (
+            <div className={styles.toolGroup}>
+              <button
+                onClick={() => setCurrentTool('pen')}
+                className={`${styles.toolButton} ${styles.toolButtonIcon} ${
+                  currentTool === 'pen' ? styles.active : ''
+                }`}
+                title="Pen Tool"
+              >
+                ✏️
+              </button>
+              <button
+                onClick={() => setCurrentTool('eraser')}
+                className={`${styles.toolButton} ${styles.toolButtonIcon} ${
+                  currentTool === 'eraser' ? styles.active : ''
+                }`}
+                title="Eraser Tool"
+              >
+                🧽
+              </button>
             </div>
+          )}
+
+          {/* Image Upload Button */}
+          <div className={styles.toolGroup}>
+            <button
+              onClick={() => setShowImageUpload(true)}
+              className={`${styles.toolButton} ${styles.toolButtonIcon}`}
+              title="Upload Image"
+            >
+              🖼️
+            </button>
           </div>
 
-          {/* Brush Size */}
-          <div className={styles.toolGroup}>
-            <div className={styles.sizeButtons}>
-              {BRUSH_SIZES.map((size) => (
-                <button
-                  key={size}
-                  onClick={() => setCurrentWidth(size)}
-                  className={`${styles.sizeButton} ${
-                    currentWidth === size ? styles.active : ''
-                  }`}
-                  title={`Brush size: ${size}px`}
-                >
-                  {size}
-                </button>
-              ))}
+          {/* Color Selection (only show in draw mode) */}
+          {currentMode === 'draw' && (
+            <div className={styles.toolGroup}>
+              <div className={styles.colorPalette}>
+                {COLORS.map((color) => (
+                  <button
+                    key={color}
+                    onClick={() => setCurrentColor(color)}
+                    className={`${styles.colorButton} ${
+                      currentColor === color ? styles.active : ''
+                    }`}
+                    style={{ backgroundColor: color }}
+                    title={color}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Brush Size (only show in draw mode) */}
+          {currentMode === 'draw' && (
+            <div className={styles.toolGroup}>
+              <div className={styles.sizeButtons}>
+                {BRUSH_SIZES.map((size) => (
+                  <button
+                    key={size}
+                    onClick={() => setCurrentWidth(size)}
+                    className={`${styles.sizeButton} ${
+                      currentWidth === size ? styles.active : ''
+                    }`}
+                    title={`Brush size: ${size}px`}
+                  >
+                    {size}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Status Indicator */}
           <div className={styles.statusIndicator}>
@@ -509,6 +780,97 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
 
         {/* Canvas */}
         <div className={styles.whiteboardCanvas}>
+          {/* White Background */}
+          <div className={styles.whiteboardBackground}></div>
+          
+          {/* Background Images */}
+          {[...images, ...localImages].map((imageData) => (
+            <img
+              key={imageData.id}
+              src={imageData.src}
+              alt="Whiteboard image"
+              className={styles.backgroundImage}
+              style={{
+                position: 'absolute',
+                left: imageData.x,
+                top: imageData.y,
+                width: imageData.width,
+                height: imageData.height,
+                zIndex: 1,
+                pointerEvents: 'none'
+              }}
+            />
+          ))}
+          
+          {/* Image Interaction Overlays (only in move mode) */}
+          {currentMode === 'move' && [...images, ...localImages].map((imageData) => (
+            <div
+              key={`overlay-${imageData.id}`}
+              className={styles.imageOverlay}
+              style={{
+                position: 'absolute',
+                left: imageData.x,
+                top: imageData.y,
+                width: imageData.width,
+                height: imageData.height,
+                cursor: 'move',
+                border: '2px dashed transparent',
+                transition: 'border-color 0.2s',
+                zIndex: 3
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = '#3b82f6';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'transparent';
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDraggingImage(true);
+                setDraggedImageId(imageData.id);
+                const rect = e.currentTarget.getBoundingClientRect();
+                setDragOffset({
+                  x: e.clientX - rect.left,
+                  y: e.clientY - rect.top
+                });
+              }}
+              onMouseMove={(e) => {
+                if (isDraggingImage && draggedImageId === imageData.id) {
+                  e.preventDefault();
+                  const canvas = canvasRef.current;
+                  if (!canvas) return;
+                  
+                  const canvasRect = canvas.getBoundingClientRect();
+                  const newX = e.clientX - canvasRect.left - dragOffset.x;
+                  const newY = e.clientY - canvasRect.top - dragOffset.y;
+                  
+                  // Constrain to canvas bounds
+                  const constrainedX = Math.max(0, Math.min(newX, canvas.width - imageData.width));
+                  const constrainedY = Math.max(0, Math.min(newY, canvas.height - imageData.height));
+                  
+                  updateImagePosition(imageData.id, constrainedX, constrainedY);
+                }
+              }}
+              onMouseUp={() => {
+                setIsDraggingImage(false);
+                setDraggedImageId(null);
+              }}
+            >
+              <button
+                className={styles.removeImageButton}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  removeImage(imageData.id);
+                }}
+                title="Remove image"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          
           <canvas
             ref={canvasRef}
             className={styles.canvas}
@@ -547,11 +909,17 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
             <div className={styles.footerInfo}>
               <span>
                 {isHost ? '👑' : '👤'} • 
-                {currentTool === 'pen' ? '✏️' : '🧽'} • 
-                <span className={styles.colorIndicator} style={{ backgroundColor: currentColor }}></span> • 
-                {currentWidth}px
-                {isDrawing && (
-                  <span className={styles.drawingIndicator}> • ✏️</span>
+                {currentMode === 'draw' ? (
+                  <>
+                    {currentTool === 'pen' ? '✏️' : '🧽'} • 
+                    <span className={styles.colorIndicator} style={{ backgroundColor: currentColor }}></span> • 
+                    {currentWidth}px
+                    {isDrawing && (
+                      <span className={styles.drawingIndicator}> • ✏️</span>
+                    )}
+                  </>
+                ) : (
+                  <>🖱️ Move Mode</>
                 )}
               </span>
             </div>
@@ -564,6 +932,58 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
           </div>
         </div>
       </div>
+
+      {/* Image Upload Modal */}
+      {showImageUpload && (
+        <div className={styles.imageUploadModal}>
+          <div className={styles.imageUploadContent}>
+            <div className={styles.imageUploadHeader}>
+              <h3>Upload Image</h3>
+              <button
+                onClick={() => setShowImageUpload(false)}
+                className={styles.closeButton}
+              >
+                ✕
+              </button>
+            </div>
+            <div className={styles.imageUploadBody}>
+              <div 
+                className={`${styles.uploadArea} ${isDragOver ? styles.uploadAreaDragOver : ''}`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      handleImageUpload(file);
+                    }
+                  }}
+                  className={styles.fileInput}
+                  id="image-upload"
+                />
+                <label htmlFor="image-upload" className={styles.uploadLabel}>
+                  <div className={styles.uploadIcon}>
+                    {isDragOver ? '📤' : '📁'}
+                  </div>
+                  <div className={styles.uploadText}>
+                    <strong>
+                      {isDragOver ? 'Drop image here' : 'Click to select image'}
+                    </strong>
+                    <span>or drag and drop</span>
+                  </div>
+                  <div className={styles.uploadFormats}>
+                    Supports: JPG, PNG, GIF, WebP
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

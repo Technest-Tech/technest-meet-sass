@@ -91,7 +91,7 @@ export default function DirectRoomAccess() {
           </div>
           <h1 className="text-xl font-semibold text-gray-900 mb-2">Invalid Access Type</h1>
           <p className="text-gray-600 mb-4">
-            Access type must be either 'host' or 'guest'. You provided: {accessType}
+            Access type must be either &apos;host&apos; or &apos;guest&apos;. You provided: {accessType}
           </p>
           <button
             onClick={() => window.history.back()}

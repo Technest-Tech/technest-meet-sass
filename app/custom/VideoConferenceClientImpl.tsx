@@ -5,6 +5,8 @@ import { Room, RoomEvent, RoomConnectOptions, Track, TrackPublication, VideoPres
 import { RoomContext, VideoTrack, useLocalParticipant, useParticipants } from '@livekit/components-react';
 import { TrackToggle, MediaDeviceMenu } from '@livekit/components-react';
 import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
+import { RecordingControl } from '@/lib/RecordingControl';
+import { RecordingIndicator } from '@/lib/RecordingIndicator';
 import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
 import { ExternalE2EEKeyProvider } from 'livekit-client';
@@ -528,8 +530,12 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
         {/* Main video area with proper LiveKit components */}
         <VideoLayout room={room} />
         
-        {/* Picture-in-Picture for participants with both screen share and camera */}
+        {/* Picture-in-Picture for remote participants with both screen share and camera */}
         <PictureInPicture room={room} />
+        
+        {/* Recording Controls and Indicator */}
+        <RecordingControl isHost={true} />
+        <RecordingIndicator />
       </RoomContext.Provider>
     </div>
   );

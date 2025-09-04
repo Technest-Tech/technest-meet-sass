@@ -19,3 +19,16 @@ room:
 
 # Development mode (no database required)
 development: true
+
+# Recording configuration
+egress:
+  # Enable recording functionality
+  enabled: true
+  # Allow room composite recording
+  room_composite: true
+  # Allow track composite recording
+  track_composite: true
+  # Allow track recording
+  track: true
+  # Allow web recording
+  web: true

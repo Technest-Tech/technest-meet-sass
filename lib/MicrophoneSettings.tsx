@@ -1,29 +1,18 @@
 import React from 'react';
-import { useKrispNoiseFilter } from '@livekit/components-react/krisp';
 import { TrackToggle } from '@livekit/components-react';
 import { MediaDeviceMenu } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import { isLowPowerDevice } from './client-utils';
 
 export function MicrophoneSettings() {
-  const { isNoiseFilterEnabled, setNoiseFilterEnabled, isNoiseFilterPending } = useKrispNoiseFilter(
-    {
-      filterOptions: {
-        bufferOverflowMs: 100,
-        bufferDropMs: 200,
-        quality: isLowPowerDevice() ? 'low' : 'medium',
-        onBufferDrop: () => {
-          console.warn(
-            'krisp buffer dropped, noise filter versions >= 0.3.2 will automatically disable the filter',
-          );
-        },
-      },
-    },
-  );
+  // Note: Krisp noise filter is not available in this version
+  const isNoiseFilterEnabled = false;
+  const setNoiseFilterEnabled = () => {};
+  const isNoiseFilterPending = false;
 
   React.useEffect(() => {
-    // enable Krisp by default on non-low power devices
-    setNoiseFilterEnabled(!isLowPowerDevice());
+    // Note: Krisp noise filter is not available in this version
+    // setNoiseFilterEnabled(!isLowPowerDevice());
   }, []);
   return (
     <div
@@ -44,7 +33,7 @@ export function MicrophoneSettings() {
 
       <button
         className="lk-button"
-        onClick={() => setNoiseFilterEnabled(!isNoiseFilterEnabled)}
+        onClick={() => {/* Noise filter not available */}}
         disabled={isNoiseFilterPending}
         aria-pressed={isNoiseFilterEnabled}
       >

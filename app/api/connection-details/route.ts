@@ -110,7 +110,7 @@ async function createParticipantToken(userInfo: AccessTokenOptions, roomName: st
   // Also ensure the identity is properly formatted for LiveKit
   
   // Set explicit JWT algorithm to avoid compatibility issues
-  at.algorithm = 'HS256';
+  // Note: algorithm is set during token creation, not after
   
   // Base grant for all participants
   const grant: VideoGrant = {
@@ -125,7 +125,6 @@ async function createParticipantToken(userInfo: AccessTokenOptions, roomName: st
   if (participantType === 'host') {
     grant.roomAdmin = true; // Host can manage the room
     grant.roomCreate = true; // Host can create rooms
-    grant.roomUpdate = true; // Host can update room settings
     grant.canPublish = true; // Host can always publish
     grant.canPublishData = true; // Host can send data
     grant.canSubscribe = true; // Host can subscribe to all
@@ -133,7 +132,6 @@ async function createParticipantToken(userInfo: AccessTokenOptions, roomName: st
     // Guest permissions (more restricted)
     grant.roomAdmin = false; // Guests cannot manage the room
     grant.roomCreate = false; // Guests cannot create rooms
-    grant.roomUpdate = false; // Guests cannot update room settings
     grant.canPublish = true; // Guests can publish (camera/mic)
     grant.canPublishData = true; // Guests can send chat messages
     grant.canSubscribe = true; // Guests can subscribe to others
@@ -158,6 +156,7 @@ async function createParticipantToken(userInfo: AccessTokenOptions, roomName: st
       console.error('❌ Both async and sync token generation failed:', syncError);
       throw syncError;
     }
+
   }
   
   console.log('🎫 Generated token:', token ? 'Token exists' : 'Token is empty', 'Length:', token ? token.length : 0);
@@ -172,3 +171,4 @@ function getCookieExpirationTime(): string {
   now.setTime(expireTime);
   return now.toUTCString();
 }
+

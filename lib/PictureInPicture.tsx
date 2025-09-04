@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
-import { useParticipants, useLocalParticipant, VideoTrack } from '@livekit/components-react';
+import { useParticipants, useLocalParticipant, VideoTrack, TrackReference } from '@livekit/components-react';
 import { Track, TrackPublication } from 'livekit-client';
 import styles from '@/styles/PictureInPicture.module.css';
 
@@ -33,22 +33,7 @@ export function PictureInPicture({ room }: PictureInPictureProps) {
   const dragStart = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   
   // Test mode - set to true to show PiP for any camera-enabled participant
-  const TEST_MODE = true;
-
-  // Early return if room is not connected
-  if (!room || room.state !== 'connected') {
-    return null;
-  }
-
-  // Early return if no local participant
-  if (!localParticipant) {
-    return null;
-  }
-
-  // Early return if no PiP participants
-  if (!isVisible || pipParticipants.length === 0) {
-    return null;
-  }
+  const TEST_MODE = false;
 
   // Check if any participant has both screen share and camera active
   useEffect(() => {
@@ -59,44 +44,12 @@ export function PictureInPicture({ room }: PictureInPictureProps) {
 
     const checkParticipants = () => {
       const newPipParticipants: ParticipantWithPiP[] = [];
+      const addedParticipants = new Set<string>(); // Track added participants to prevent duplicates
 
       try {
-        // Check local participant
-        if (localParticipant) {
-          const screenShareTrack = localParticipant.getTrackPublication(Track.Source.ScreenShare);
-          const cameraTrack = localParticipant.getTrackPublication(Track.Source.Camera);
-          
-          const hasScreenShare = screenShareTrack?.isEnabled;
-          const hasCamera = cameraTrack?.isEnabled;
-          
-          console.log('Local participant tracks:', {
-            identity: localParticipant.identity,
-            screenShare: {
-              exists: !!screenShareTrack,
-              enabled: hasScreenShare,
-              track: !!screenShareTrack?.track,
-              source: screenShareTrack?.source
-            },
-            camera: {
-              exists: !!cameraTrack,
-              enabled: hasCamera,
-              track: !!cameraTrack?.track,
-              source: cameraTrack?.source
-            }
-          });
-          
-          // Show PiP if both screen share and camera are active
-          // OR if camera is active and we want to show it during screen sharing
-          if (hasCamera && (hasScreenShare || TEST_MODE)) { // Show camera in test mode
-            console.log('Adding local participant to PiP');
-            newPipParticipants.push({
-              participant: localParticipant,
-              hasScreenShare: hasScreenShare || false,
-              hasCamera: true,
-              isLocal: true
-            });
-          }
-        }
+        // Skip local participant - it's already shown in the main layout
+        // Only show remote participants in PiP to avoid duplicates
+        console.log('Skipping local participant in PiP to avoid duplicate video cards');
 
         // Check remote participants
         participants.forEach((participant) => {
@@ -122,16 +75,20 @@ export function PictureInPicture({ room }: PictureInPictureProps) {
               }
             });
             
-            // Show PiP if both screen share and camera are active
-            // OR if camera is active and we want to show it during screen sharing
-            if (hasCamera && (hasScreenShare || TEST_MODE)) { // Show camera in test mode
-              console.log(`Adding remote participant ${participant.identity} to PiP`);
-              newPipParticipants.push({
-                participant,
-                hasScreenShare: hasScreenShare || false,
-                hasCamera: true,
-                isLocal: false
-              });
+            // Show PiP only if both screen share and camera are active
+            // OR if in test mode (for debugging)
+            if (hasCamera && (hasScreenShare || TEST_MODE)) {
+              const participantKey = `remote-${participant.identity}-${participant.sid}`;
+              if (!addedParticipants.has(participantKey)) {
+                console.log(`Adding remote participant ${participant.identity} to PiP`);
+                newPipParticipants.push({
+                  participant,
+                  hasScreenShare: hasScreenShare || false,
+                  hasCamera: true,
+                  isLocal: false
+                });
+                addedParticipants.add(participantKey);
+              }
             }
           } catch (error) {
             console.error(`Error checking participant ${participant.identity}:`, error);
@@ -139,6 +96,16 @@ export function PictureInPicture({ room }: PictureInPictureProps) {
         });
 
         console.log('PiP participants found:', newPipParticipants.length);
+        console.log('PiP participant keys:', newPipParticipants.map(p => 
+          `pip-${p.isLocal ? 'local' : 'remote'}-${p.participant.identity}-${p.participant.sid}`
+        ));
+        console.log('PiP participants details:', newPipParticipants.map(p => ({
+          identity: p.participant.identity,
+          isLocal: p.isLocal,
+          hasScreenShare: p.hasScreenShare,
+          hasCamera: p.hasCamera,
+          sid: p.participant.sid
+        })));
         setPipParticipants(newPipParticipants);
         setIsVisible(newPipParticipants.length > 0);
         
@@ -215,6 +182,21 @@ export function PictureInPicture({ room }: PictureInPictureProps) {
     };
   }, [room, localParticipant, participants, positions]);
 
+  // Early return if room is not connected
+  if (!room || room.state !== 'connected') {
+    return null;
+  }
+
+  // Early return if no local participant
+  if (!localParticipant) {
+    return null;
+  }
+
+  // Early return if no PiP participants
+  if (!isVisible || pipParticipants.length === 0) {
+    return null;
+  }
+
   // Handle mouse events for dragging
   const handleMouseDown = (e: React.MouseEvent, participantId: string) => {
     e.preventDefault();
@@ -284,19 +266,27 @@ export function PictureInPicture({ room }: PictureInPictureProps) {
       
       {validPipParticipants
         .map((pipParticipant) => {
-          // Safety check for participant data
-          if (!pipParticipant?.participant?.sid || !pipParticipant?.participant?.identity) {
-            console.warn('PiP: Invalid participant data, skipping:', pipParticipant);
-            return null;
-          }
+          try {
+            // Safety check for participant data
+            if (!pipParticipant?.participant?.sid || !pipParticipant?.participant?.identity) {
+              console.warn('PiP: Invalid participant data, skipping:', pipParticipant);
+              return null;
+            }
 
           let cameraTrack;
           try {
+            // Validate participant exists and has the required method
+            if (!pipParticipant.participant || typeof pipParticipant.participant.getTrackPublication !== 'function') {
+              console.warn(`PiP: Invalid participant object for ${pipParticipant.participant?.identity || 'unknown'}`);
+              return null;
+            }
+            
             cameraTrack = pipParticipant.participant.getTrackPublication(Track.Source.Camera);
             console.log(`PiP: Camera track for ${pipParticipant.participant.identity}:`, {
               exists: !!cameraTrack,
               enabled: cameraTrack?.isEnabled,
               hasTrack: !!cameraTrack?.track,
+              hasMediaStreamTrack: !!cameraTrack?.track?.mediaStreamTrack,
               source: cameraTrack?.source,
               trackSid: cameraTrack?.trackSid
             });
@@ -305,51 +295,99 @@ export function PictureInPicture({ room }: PictureInPictureProps) {
             cameraTrack = null;
           }
           
+          // Comprehensive validation for cameraTrack
+          const isValidCameraTrack = cameraTrack && 
+                                   typeof cameraTrack === 'object' &&
+                                   cameraTrack.isEnabled && 
+                                   cameraTrack.track &&
+                                   cameraTrack.track.mediaStreamTrack;
+          
+          console.log(`PiP: Camera track validation for ${pipParticipant.participant.identity}:`, {
+            cameraTrack: !!cameraTrack,
+            isObject: cameraTrack && typeof cameraTrack === 'object',
+            isEnabled: cameraTrack?.isEnabled,
+            hasTrack: !!cameraTrack?.track,
+            hasMediaStreamTrack: !!cameraTrack?.track?.mediaStreamTrack,
+            isValid: isValidCameraTrack
+          });
+          
+          if (!isValidCameraTrack) {
+            console.warn(`PiP: Invalid camera track for ${pipParticipant.participant.identity}, skipping render`);
+            return null;
+          }
+          
+          // Create proper TrackReference for VideoTrack component
+          const trackRef: TrackReference = {
+            participant: pipParticipant.participant,
+            publication: cameraTrack,
+            source: Track.Source.Camera
+          };
+          
           const position = positions[pipParticipant.participant.sid] || { x: 0, y: 0 };
           
           return (
             <div
-              key={`pip-${pipParticipant.participant.sid}-${pipParticipant.participant.identity}`}
+              key={`pip-${pipParticipant.isLocal ? 'local' : 'remote'}-${pipParticipant.participant.identity}-${pipParticipant.participant.sid}`}
               className={styles.pipParticipant}
               style={{
                 transform: `translate(${position.x}px, ${position.y}px)`
               }}
               onMouseDown={(e) => handleMouseDown(e, pipParticipant.participant.sid)}
             >
-              {cameraTrack && cameraTrack.isEnabled && cameraTrack.track ? (
-                <div>
-                  <VideoTrack
-                    trackRef={cameraTrack}
-                    className={styles.pipVideo}
-                  />
-                  {/* Debug info */}
-                  <div style={{
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    transform: 'translate(-50%, -50%)',
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              <div>
+                {isValidCameraTrack ? (
+                  (() => {
+                    try {
+                      return (
+                        <VideoTrack
+                          trackRef={trackRef}
+                          className={styles.pipVideo}
+                        />
+                      );
+                    } catch (error) {
+                      console.error(`PiP: Error rendering VideoTrack for ${pipParticipant.participant.identity}:`, error);
+                      return (
+                        <div className={styles.pipVideo} style={{
+                          backgroundColor: '#333',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'white',
+                          fontSize: '12px'
+                        }}>
+                          Video Error
+                        </div>
+                      );
+                    }
+                  })()
+                ) : (
+                  <div className={styles.pipVideo} style={{
+                    backgroundColor: '#333',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                     color: 'white',
-                    padding: '4px',
-                    borderRadius: '4px',
-                    fontSize: '10px',
-                    pointerEvents: 'none'
+                    fontSize: '12px'
                   }}>
-                    Camera Active
+                    No Camera
                   </div>
+                )}
+                {/* Debug info */}
+                <div style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                  color: 'white',
+                  padding: '4px',
+                  borderRadius: '4px',
+                  fontSize: '10px',
+                  pointerEvents: 'none'
+                }}>
+                  Camera Active
                 </div>
-              ) : (
-                <div className={styles.pipPlaceholder}>
-                  {pipParticipant.participant.identity.charAt(0).toUpperCase()}
-                  <div style={{
-                    fontSize: '12px',
-                    marginTop: '8px',
-                    textAlign: 'center'
-                  }}>
-                    Camera: {cameraTrack ? 'Found' : 'Not Found'}
-                  </div>
-                </div>
-              )}
+              </div>
               
               {/* Participant info overlay */}
               <div className={styles.pipInfo}>
@@ -373,6 +411,10 @@ export function PictureInPicture({ room }: PictureInPictureProps) {
               </div>
             </div>
           );
+          } catch (error) {
+            console.error('PiP: Error rendering participant:', error, pipParticipant);
+            return null;
+          }
         })
         .filter(Boolean) // Remove any null values
       }
