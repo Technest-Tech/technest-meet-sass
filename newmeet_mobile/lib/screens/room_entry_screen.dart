@@ -15,7 +15,7 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
   final _formKey = GlobalKey<FormState>();
   final _roomNameController = TextEditingController();
   final _participantNameController = TextEditingController();
-  String _participantType = 'guest';
+  String _participantType = 'host';
   bool _isLoading = false;
   String? _error;
 
@@ -199,15 +199,16 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
                               ),
                             ],
                           ),
-                          child: const Icon(
-                            Icons.video_call_rounded,
-                            size: 60,
-                            color: Color(0xFF667eea),
+                          child: Image.asset(
+                            'assets/icons/logo.png',
+                            width: 60,
+                            height: 60,
+                            fit: BoxFit.contain,
                           ),
                         ),
                         const SizedBox(height: 24),
                         const Text(
-                          'NewMeet',
+                          'Almajd Meet',
                           style: TextStyle(
                             fontSize: 32,
                             fontWeight: FontWeight.bold,
@@ -303,77 +304,48 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
                         ),
                         const SizedBox(height: 24),
 
-                        // Participant Type Selection
-                        const Text(
-                          'Join as:',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF2D3748),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        
-                        // Guest Option
+                        // Host Only Indicator
                         Container(
+                          padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
+                            color: const Color(0xFF667eea).withOpacity(0.1),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: _participantType == 'guest' 
-                                  ? const Color(0xFF667eea) 
-                                  : Colors.grey.shade300,
-                              width: _participantType == 'guest' ? 2 : 1,
+                              color: const Color(0xFF667eea),
+                              width: 2,
                             ),
-                            color: _participantType == 'guest' 
-                                ? const Color(0xFF667eea).withOpacity(0.1)
-                                : Colors.grey.shade50,
                           ),
-                          child: RadioListTile<String>(
-                            title: const Text(
-                              'Guest',
-                              style: TextStyle(fontWeight: FontWeight.w500),
-                            ),
-                            subtitle: const Text('Can participate in the meeting'),
-                            value: 'guest',
-                            groupValue: _participantType,
-                            activeColor: const Color(0xFF667eea),
-                            onChanged: (value) {
-                              setState(() {
-                                _participantType = value!;
-                              });
-                            },
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        
-                        // Host Option
-                        Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: _participantType == 'host' 
-                                  ? const Color(0xFF667eea) 
-                                  : Colors.grey.shade300,
-                              width: _participantType == 'host' ? 2 : 1,
-                            ),
-                            color: _participantType == 'host' 
-                                ? const Color(0xFF667eea).withOpacity(0.1)
-                                : Colors.grey.shade50,
-                          ),
-                          child: RadioListTile<String>(
-                            title: const Text(
-                              'Host',
-                              style: TextStyle(fontWeight: FontWeight.w500),
-                            ),
-                            subtitle: const Text('Can control the meeting'),
-                            value: 'host',
-                            groupValue: _participantType,
-                            activeColor: const Color(0xFF667eea),
-                            onChanged: (value) {
-                              setState(() {
-                                _participantType = value!;
-                              });
-                            },
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.admin_panel_settings,
+                                color: Color(0xFF667eea),
+                                size: 24,
+                              ),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Host Mode',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF667eea),
+                                      ),
+                                    ),
+                                    Text(
+                                      'Full meeting control and whiteboard access',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Color(0xFF667eea),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -410,19 +382,26 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
                   
                   if (_error != null) const SizedBox(height: 24),
 
-                  // Join Button
+                  // Enhanced Join Button
                   Container(
-                    height: 56,
+                    height: 64,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(20),
                       gradient: const LinearGradient(
-                        colors: [Color(0xFF667eea), Color(0xFF764ba2)],
+                        colors: [Color(0xFF4CAF50), Color(0xFF2E7D32)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF667eea).withOpacity(0.3),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
+                          color: const Color(0xFF4CAF50).withOpacity(0.4),
+                          blurRadius: 16,
+                          offset: const Offset(0, 8),
+                        ),
+                        BoxShadow(
+                          color: const Color(0xFF2E7D32).withOpacity(0.2),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
                         ),
                       ],
                     ),
@@ -464,11 +443,12 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
                                 Icon(Icons.video_call_rounded, size: 24),
                                 SizedBox(width: 12),
                                 Text(
-                                  'Join Meeting',
+                                  'JOIN MEETING',
                                   style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w600,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
                                     color: Colors.white,
+                                    letterSpacing: 1.2,
                                   ),
                                 ),
                               ],
@@ -492,7 +472,7 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            'Rooms must be created through the admin dashboard first.',
+                            'Host mode: Full meeting control and whiteboard access. Rooms must be created through the admin dashboard first.',
                             style: TextStyle(
                               fontSize: 14,
                               color: Colors.white.withOpacity(0.8),

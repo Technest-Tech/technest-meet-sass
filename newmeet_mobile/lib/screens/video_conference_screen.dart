@@ -22,6 +22,8 @@ class VideoConferenceScreen extends StatefulWidget {
 }
 
 class _VideoConferenceScreenState extends State<VideoConferenceScreen> {
+  bool _isBottomControlsVisible = true;
+
   @override
   void initState() {
     super.initState();
@@ -248,38 +250,94 @@ class _VideoConferenceScreenState extends State<VideoConferenceScreen> {
               if (liveKitService.isWhiteboardOpen)
                 Positioned.fill(
                   child: WhiteboardWidget(
-                    onClose: () => liveKitService.toggleWhiteboard(),
+                    onClose: () {
+                      liveKitService.toggleWhiteboard();
+                      // Auto-show controls when whiteboard closes
+                      setState(() {
+                        _isBottomControlsVisible = true;
+                      });
+                    },
                     onSendData: (data) => liveKitService.sendWhiteboardData(data),
                   ),
                 ),
               
-              // Conference controls at the bottom
+              // Conference controls at the bottom (collapsible)
               Positioned(
                 bottom: 0,
                 left: 0,
                 right: 0,
-                child: ConferenceControls(
-                  participantType: widget.participantType,
-                  onToggleWhiteboard: () => liveKitService.toggleWhiteboard(),
-                  onToggleCamera: () => liveKitService.toggleCamera(),
-                  onToggleMicrophone: () => liveKitService.toggleMicrophone(),
-                  onStartScreenShare: () => liveKitService.startScreenSharing(),
-                  onStopScreenShare: () => liveKitService.stopScreenSharing(),
-                  onLeaveMeeting: () async {
-                    try {
-                      print('🚪 VideoConferenceScreen: User clicked Leave Meeting button');
-                      await liveKitService.disconnect();
-                      print('✅ VideoConferenceScreen: Successfully disconnected from meeting');
-                      if (mounted) {
-                        Navigator.pop(context, 'left_meeting');
-                      }
-                    } catch (e) {
-                      print('❌ VideoConferenceScreen: Error disconnecting: $e');
-                      if (mounted) {
-                        Navigator.pop(context, 'left_meeting');
-                      }
-                    }
-                  },
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Toggle button for controls
+                    if (liveKitService.isWhiteboardOpen)
+                      Container(
+                        width: double.infinity,
+                        height: 40,
+                        color: Colors.black87,
+                        child: Center(
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _isBottomControlsVisible = !_isBottomControlsVisible;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade700,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    _isBottomControlsVisible ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    _isBottomControlsVisible ? 'Hide Controls' : 'Show Controls',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    
+                    // Conference controls
+                    if (_isBottomControlsVisible)
+                      ConferenceControls(
+                        participantType: widget.participantType,
+                        onToggleWhiteboard: () => liveKitService.toggleWhiteboard(),
+                        onToggleCamera: () => liveKitService.toggleCamera(),
+                        onToggleMicrophone: () => liveKitService.toggleMicrophone(),
+                        onStartScreenShare: () => liveKitService.startScreenSharing(),
+                        onStopScreenShare: () => liveKitService.stopScreenSharing(),
+                        onLeaveMeeting: () async {
+                          try {
+                            print('🚪 VideoConferenceScreen: User clicked Leave Meeting button');
+                            await liveKitService.disconnect();
+                            print('✅ VideoConferenceScreen: Successfully disconnected from meeting');
+                            if (mounted) {
+                              Navigator.pop(context, 'left_meeting');
+                            }
+                          } catch (e) {
+                            print('❌ VideoConferenceScreen: Error disconnecting: $e');
+                            if (mounted) {
+                              Navigator.pop(context, 'left_meeting');
+                            }
+                          }
+                        },
+                      ),
+                  ],
                 ),
               ),
             ],

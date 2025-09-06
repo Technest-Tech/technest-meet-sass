@@ -39,11 +39,11 @@ class ConferenceControls extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Top row - Main controls
+                // Single row with all controls organized by priority
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    // Microphone Toggle
+                    // Audio Controls
                     _buildControlButton(
                       icon: liveKitService.localParticipant?.isMicrophoneEnabled() == true
                           ? Icons.mic
@@ -53,7 +53,7 @@ class ConferenceControls extends StatelessWidget {
                       onPressed: onToggleMicrophone,
                     ),
                     
-                    // Camera Toggle
+                    // Video Controls
                     _buildControlButton(
                       icon: liveKitService.localParticipant?.isCameraEnabled() == true
                           ? Icons.videocam
@@ -63,7 +63,18 @@ class ConferenceControls extends StatelessWidget {
                       onPressed: onToggleCamera,
                     ),
                     
-                    // Screen Share Toggle
+                    // Whiteboard Controls (Host only)
+                    if (participantType.toLowerCase() == 'host')
+                      _buildControlButton(
+                        icon: liveKitService.isWhiteboardOpen
+                            ? Icons.close
+                            : Icons.edit,
+                        label: 'Whiteboard',
+                        isActive: liveKitService.isWhiteboardOpen,
+                        onPressed: onToggleWhiteboard,
+                      ),
+                    
+                    // Screen Share Controls
                     _buildControlButton(
                       icon: liveKitService.isScreenSharing
                           ? Icons.stop_screen_share
@@ -79,7 +90,7 @@ class ConferenceControls extends StatelessWidget {
                               : onStartScreenShare),
                     ),
                     
-                    // Leave Meeting
+                    // Leave Meeting (Always last)
                     _buildControlButton(
                       icon: Icons.call_end,
                       label: 'Leave',
@@ -89,30 +100,6 @@ class ConferenceControls extends StatelessWidget {
                     ),
                   ],
                 ),
-                
-                const SizedBox(height: 16),
-                
-                // Bottom row - Additional controls (Host only)
-                if (participantType.toLowerCase() == 'host')
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      // Whiteboard Toggle
-                      _buildControlButton(
-                        icon: liveKitService.isWhiteboardOpen
-                            ? Icons.close
-                            : Icons.edit,
-                        label: 'Whiteboard',
-                        isActive: liveKitService.isWhiteboardOpen,
-                        onPressed: onToggleWhiteboard,
-                      ),
-                      
-                      // More controls can be added here
-                      const SizedBox(width: 60), // Spacer
-                      const SizedBox(width: 60), // Spacer
-                      const SizedBox(width: 60), // Spacer
-                    ],
-                  ),
               ],
             ),
           ),

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:permission_handler/permission_handler.dart';
@@ -25,6 +26,9 @@ class LiveKitService extends ChangeNotifier {
   // Store connection details for reconnection
   String? _lastLivekitUrl;
   String? _lastToken;
+  
+  // Data listener for whiteboard collaboration
+  lk.EventsListener<lk.RoomEvent>? _dataListener;
 
   // Getters
   lk.Room? get room => _room;
@@ -71,6 +75,10 @@ class LiveKitService extends ChangeNotifier {
       // Add event listeners
       print('👂 Adding event listeners...');
       _room!.addListener(_onRoomChanged);
+      
+      // Add data received listener for whiteboard collaboration
+      _dataListener = _room!.createListener();
+      _dataListener!.on<lk.DataReceivedEvent>(_onDataReceived);
 
           // Connect to room with enhanced stability options
       print('🔌 Connecting to LiveKit server...');
@@ -192,6 +200,8 @@ class LiveKitService extends ChangeNotifier {
       _disconnectionCount = 0;
       _lastLivekitUrl = null;
       _lastToken = null;
+      _dataListener?.dispose();
+      _dataListener = null;
       
       print('🔌 LiveKit: State reset completed');
       notifyListeners();
@@ -268,6 +278,18 @@ class LiveKitService extends ChangeNotifier {
   // Toggle whiteboard
   void toggleWhiteboard() {
     _isWhiteboardOpen = !_isWhiteboardOpen;
+    
+    // Send whiteboard toggle command to all participants (web version)
+    final action = _isWhiteboardOpen ? 'open' : 'close';
+    final data = {
+      'type': 'whiteboard_toggle',
+      'isHost': true,
+      'action': action,
+    };
+    
+    print('📤 LiveKit: Sending whiteboard toggle command - $action');
+    sendWhiteboardData(data);
+    
     notifyListeners();
   }
 
@@ -275,16 +297,29 @@ class LiveKitService extends ChangeNotifier {
   Future<void> sendWhiteboardData(Map<String, dynamic> data) async {
     if (_room?.localParticipant != null) {
       try {
-        final encodedData = data.toString().codeUnits;
+        // Convert to JSON string using dart:convert
+        final jsonString = jsonEncode(data);
+        final encodedData = jsonString.codeUnits;
         await _room!.localParticipant!.publishData(
           encodedData,
+          reliable: true,
           topic: 'whiteboard',
         );
+        print('📤 LiveKit: Whiteboard data sent - ${data['type']}');
       } catch (e) {
+        print('❌ LiveKit: Failed to send whiteboard data: $e');
         _error = e.toString();
         notifyListeners();
       }
     }
+  }
+
+  // Whiteboard data callback
+  Function(Map<String, dynamic>)? _onWhiteboardDataReceived;
+
+  // Set whiteboard data callback
+  void setWhiteboardDataCallback(Function(Map<String, dynamic>) callback) {
+    _onWhiteboardDataReceived = callback;
   }
 
   // Request permissions
@@ -360,6 +395,62 @@ class LiveKitService extends ChangeNotifier {
       notifyListeners();
     } else {
       print('⚠️ LiveKit: Room is null in _onRoomChanged');
+    }
+  }
+
+  // Data received handler for whiteboard collaboration
+  void _onDataReceived(lk.DataReceivedEvent event) {
+    try {
+      print('📥 LiveKit: Data received from ${event.participant?.identity}');
+      print('📥 LiveKit: Event topic: ${event.topic}');
+      print('📥 LiveKit: Data length: ${event.data.length}');
+      
+      // Check if this is whiteboard data (web version might not set topic)
+      if (event.topic == 'whiteboard' || event.topic == null) {
+        // Convert List<int> to String
+        final dataString = String.fromCharCodes(event.data);
+        print('📥 LiveKit: Whiteboard data string: $dataString');
+        print('📥 LiveKit: Data string length: ${dataString.length}');
+        print('📥 LiveKit: First 100 chars: ${dataString.length > 100 ? dataString.substring(0, 100) : dataString}');
+        
+        // Parse the data - it should be a JSON-like string
+        // The web version sends data as JSON, but we need to handle the format
+        final data = _parseWhiteboardData(dataString);
+        
+        if (data != null) {
+          print('📥 LiveKit: Parsed data: $data');
+          if (_onWhiteboardDataReceived != null) {
+            print('📥 LiveKit: Forwarding whiteboard data to callback');
+            _onWhiteboardDataReceived!(data);
+          } else {
+            print('⚠️ LiveKit: No whiteboard callback set');
+          }
+        } else {
+          print('❌ LiveKit: Failed to parse whiteboard data');
+        }
+      } else {
+        print('📥 LiveKit: Ignoring non-whiteboard data with topic: ${event.topic}');
+      }
+    } catch (e) {
+      print('❌ LiveKit: Error processing received data: $e');
+    }
+  }
+
+  // Parse whiteboard data from string
+  Map<String, dynamic>? _parseWhiteboardData(String dataString) {
+    try {
+      // Try to parse as JSON first
+      final data = jsonDecode(dataString);
+      if (data is Map<String, dynamic>) {
+        return data;
+      }
+      
+      print('⚠️ LiveKit: Data is not a Map: $dataString');
+      return null;
+    } catch (e) {
+      print('❌ LiveKit: Error parsing whiteboard data as JSON: $e');
+      print('❌ LiveKit: Raw data: $dataString');
+      return null;
     }
   }
 
@@ -480,6 +571,7 @@ class LiveKitService extends ChangeNotifier {
   void dispose() {
     _stopConnectionMonitoring();
     _room?.removeListener(_onRoomChanged);
+    _dataListener?.dispose();
     disconnect();
     super.dispose();
   }
