@@ -20,15 +20,10 @@ room:
 # Development mode (no database required)
 development: true
 
-# Recording configuration
-egress:
-  # Enable recording functionality
-  enabled: true
-  # Allow room composite recording
-  room_composite: true
-  # Allow track composite recording
-  track_composite: true
-  # Allow track recording
-  track: true
-  # Allow web recording
-  web: true
+# RTC configuration
+rtc:
+  # Use external IP for development to allow mobile emulator access
+  use_external_ip: true
+  # Additional ports for RTC
+  tcp_port: 7881
+  udp_port: 7882

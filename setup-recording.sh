@@ -121,3 +121,4 @@ echo "2. Restart your Next.js application: npm run dev"
 echo "3. Join a meeting as a host to test recording functionality"
 echo ""
 echo "📖 For more information, see the RECORDING_README.md file"
+

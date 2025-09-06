@@ -239,3 +239,4 @@ Potential improvements for the recording feature:
 - [ ] Automatic recording cleanup
 - [ ] Recording thumbnails
 - [ ] Recording search and indexing
+
