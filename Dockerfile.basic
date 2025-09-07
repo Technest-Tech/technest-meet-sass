@@ -16,6 +16,9 @@ RUN npm install
 # Copy source code
 COPY . .
 
+# Create data directory for database
+RUN mkdir -p /app/data
+
 # Generate Prisma client
 RUN npx prisma generate
 
@@ -26,8 +29,9 @@ RUN npm run build
 RUN addgroup -g 1001 -S nodejs
 RUN adduser -S nextjs -u 1001
 
-# Change ownership of the app directory
+# Change ownership of the app directory including data directory
 RUN chown -R nextjs:nodejs /app
+RUN chmod 755 /app/data
 USER nextjs
 
 # Expose port

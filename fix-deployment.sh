@@ -6,6 +6,11 @@ echo "🔧 Fixing NewMeet deployment issues..."
 echo "Stopping services..."
 docker-compose -f docker-compose.prod.yml down
 
+# Ensure data directory exists with proper permissions
+echo "Creating data directory..."
+mkdir -p data
+chmod 755 data
+
 # Rebuild backend with OpenSSL fix
 echo "Rebuilding backend with OpenSSL..."
 docker-compose -f docker-compose.prod.yml build newmeet-backend
