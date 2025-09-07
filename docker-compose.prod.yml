@@ -32,12 +32,6 @@ services:
       - "7882:7882/udp"
     environment:
       - LIVEKIT_KEYS=${LIVEKIT_API_KEY}:${LIVEKIT_API_SECRET}
-      - LIVEKIT_PORT=7880
-      - LIVEKIT_BIND_ADDRESSES=0.0.0.0:7880
-      - LIVEKIT_TCP_PORT=7881
-      - LIVEKIT_TCP_BIND_ADDRESSES=0.0.0.0:7881
-      - LIVEKIT_UDP_PORT=7882
-      - LIVEKIT_UDP_BIND_ADDRESSES=0.0.0.0:7882
     volumes:
       - ./livekit.yaml:/config.yaml
     command: --config /config.yaml
