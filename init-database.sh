@@ -15,11 +15,20 @@ fi
 
 # Initialize database
 echo "Creating database schema..."
-docker-compose -f docker-compose.prod.yml exec -T newmeet-backend npm run db:push
+# Run as root to ensure proper permissions
+docker-compose -f docker-compose.prod.yml exec -T --user root newmeet-backend sh -c "
+  mkdir -p /app/data
+  chmod 777 /app/data
+  chown -R nextjs:nodejs /app/data
+  su nextjs -c 'npm run db:push'
+"
 
 # Create admin user
 echo "Creating admin user..."
-docker-compose -f docker-compose.prod.yml exec -T newmeet-backend node -e "
+docker-compose -f docker-compose.prod.yml exec -T --user root newmeet-backend sh -c "
+  chmod 777 /app/data
+  chown -R nextjs:nodejs /app/data
+  su nextjs -c 'node -e \"
 const bcrypt = require('bcryptjs');
 const { PrismaClient } = require('@prisma/client');
 
@@ -46,6 +55,7 @@ async function createAdmin() {
 }
 
 createAdmin();
+\"'
 "
 
 echo "✅ Database initialization completed!"
