@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# NewMeet Production Deployment Script
-# This script automates the deployment process
+# NewMeet Production Deployment Script (Root Version)
+# This script can be run as root for easier initial setup
 
 set -e  # Exit on any error
 
-echo "🚀 Starting NewMeet Production Deployment..."
+echo "🚀 Starting NewMeet Production Deployment (Root Mode)..."
 
 # Colors for output
 RED='\033[0;31m'
@@ -31,47 +31,38 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Check if running as root
-if [[ $EUID -eq 0 ]]; then
-   print_error "This script should not be run as root. Please run as a regular user with sudo privileges."
-   print_status "Creating application user and switching..."
-   
-   # Create application user if it doesn't exist
-   if ! id "newmeet" &>/dev/null; then
-       useradd -m -s /bin/bash newmeet
-       usermod -aG docker newmeet
-       print_success "Created 'newmeet' user"
-   fi
-   
-   # Switch to newmeet user and run the script
-   print_status "Switching to 'newmeet' user and continuing deployment..."
-   sudo -u newmeet bash -c "cd $(pwd) && $0"
-   exit $?
-fi
-
 # Check if Docker is installed
 if ! command -v docker &> /dev/null; then
-    print_error "Docker is not installed. Please install Docker first."
-    exit 1
+    print_status "Installing Docker..."
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sh get-docker.sh
+    print_success "Docker installed!"
 fi
 
 # Check if Docker Compose is installed
 if ! command -v docker-compose &> /dev/null; then
-    print_error "Docker Compose is not installed. Please install Docker Compose first."
-    exit 1
+    print_status "Installing Docker Compose..."
+    curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    chmod +x /usr/local/bin/docker-compose
+    print_success "Docker Compose installed!"
 fi
 
-# Check if Git is installed
-if ! command -v git &> /dev/null; then
-    print_error "Git is not installed. Please install Git first."
-    exit 1
+# Create application user if it doesn't exist
+if ! id "newmeet" &>/dev/null; then
+    print_status "Creating application user..."
+    useradd -m -s /bin/bash newmeet
+    usermod -aG docker newmeet
+    print_success "Created 'newmeet' user"
+else
+    print_status "Application user 'newmeet' already exists"
 fi
-
-print_status "Prerequisites check passed!"
 
 # Create necessary directories
 print_status "Creating necessary directories..."
-mkdir -p data uploads ssl
+mkdir -p /home/newmeet/app/data
+mkdir -p /home/newmeet/app/uploads
+mkdir -p /home/newmeet/app/ssl
+chown -R newmeet:newmeet /home/newmeet/app
 
 # Setup environment if .env.production doesn't exist
 if [ ! -f .env.production ]; then

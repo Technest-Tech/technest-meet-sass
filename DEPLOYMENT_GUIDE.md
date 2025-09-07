@@ -26,12 +26,33 @@ git push -u origin main
 - Note the IP address
 
 ### 3. **Deploy to Server**
+
+**Option A: Quick Deploy (Run as Root)**
+```bash
+# SSH into your server
+ssh root@YOUR_DROPLET_IP
+
+# Clone and deploy (handles everything automatically)
+git clone https://github.com/yourusername/newmeet.git
+cd newmeet
+./deploy-root.sh
+```
+
+**Option B: Standard Deploy (Non-root User)**
 ```bash
 # SSH into your server
 ssh root@YOUR_DROPLET_IP
 
 # Install Docker
 curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh
+
+# Create application user
+useradd -m -s /bin/bash newmeet
+usermod -aG docker newmeet
+
+# Switch to application user
+su - newmeet
+cd /home/newmeet
 
 # Clone and deploy
 git clone https://github.com/yourusername/newmeet.git
