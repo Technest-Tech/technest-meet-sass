@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     
     // Filter completed recordings
     const completedRecordings = egresses.filter(
-      (egress) => egress.status === 2 && egress.file?.filepath // Status 2 = completed
+      (egress) => egress.status === 2 // Status 2 = completed
     );
 
     if (completedRecordings.length === 0) {
@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
       // Instead, return the recording info and let the client handle download
       return new NextResponse(JSON.stringify({
         egressId: specificRecording.egressId,
-        filename: specificRecording.file?.filepath || 'unknown.mp4',
+        filename: `${roomName}-${specificRecording.egressId}.mp4`,
         status: specificRecording.status,
         downloadUrl: `/api/record/file?egressId=${specificRecording.egressId}`,
         message: 'Recording ready for download'
@@ -57,11 +57,9 @@ export async function GET(req: NextRequest) {
     return new NextResponse(JSON.stringify({
       recordings: completedRecordings.map(egress => ({
         egressId: egress.egressId,
-        filename: egress.file?.filepath || 'unknown.mp4',
+        filename: `${roomName}-${egress.egressId}.mp4`,
         status: egress.status,
-        downloadUrl: `/api/record/file?egressId=${egress.egressId}`,
-        createdAt: egress.createdAt,
-        endedAt: egress.endedAt
+        downloadUrl: `/api/record/file?egressId=${egress.egressId}`
       })),
       message: 'Completed recordings retrieved successfully'
     }), {
