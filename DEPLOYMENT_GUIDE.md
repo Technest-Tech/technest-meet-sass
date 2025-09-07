@@ -6,6 +6,8 @@
 - Docker installed locally
 - Git repository
 
+**Note:** No S3 or external storage required - recordings are stored locally on the server
+
 ---
 
 ## 🚀 Quick Start (5 Steps)

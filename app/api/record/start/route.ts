@@ -1,4 +1,4 @@
-import { EgressClient, EncodedFileOutput, S3Upload } from 'livekit-server-sdk';
+import { EgressClient, EncodedFileOutput } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function GET(req: NextRequest) {
@@ -20,11 +20,6 @@ export async function GET(req: NextRequest) {
       LIVEKIT_API_KEY,
       LIVEKIT_API_SECRET,
       LIVEKIT_URL,
-      S3_KEY_ID,
-      S3_KEY_SECRET,
-      S3_BUCKET,
-      S3_ENDPOINT,
-      S3_REGION,
     } = process.env;
 
     const hostURL = new URL(LIVEKIT_URL!);
@@ -40,29 +35,13 @@ export async function GET(req: NextRequest) {
       return new NextResponse('Meeting is already being recorded', { status: 409 });
     }
 
-    // Check if we're in local development mode
-    const isLocalDev = S3_KEY_ID === 'local-dev' || S3_BUCKET === 'local-dev';
-    
+    // Use local file storage (no S3)
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `${timestamp}-${roomName}.mp4`;
     
-    const fileOutput = isLocalDev 
-      ? new EncodedFileOutput({
-          filepath: filename,
-        })
-      : new EncodedFileOutput({
-          filepath: filename,
-          output: {
-            case: 's3',
-            value: new S3Upload({
-              endpoint: S3_ENDPOINT,
-              accessKey: S3_KEY_ID,
-              secret: S3_KEY_SECRET,
-              region: S3_REGION,
-              bucket: S3_BUCKET,
-            }),
-          },
-        });
+    const fileOutput = new EncodedFileOutput({
+      filepath: filename,
+    });
 
     const egressInfo = await egressClient.startRoomCompositeEgress(
       roomName,

@@ -19,12 +19,4 @@ echo "NEXT_PUBLIC_LIVEKIT_URL=wss://api.newmeet.com:7880" >> .env.production
 # Database URL
 echo "DATABASE_URL=file:/app/data/prod.db" >> .env.production
 
-# S3 Configuration (update with your values)
-echo "S3_KEY_ID=your-s3-access-key" >> .env.production
-echo "S3_KEY_SECRET=your-s3-secret-key" >> .env.production
-echo "S3_BUCKET=your-recording-bucket" >> .env.production
-echo "S3_ENDPOINT=https://s3.amazonaws.com" >> .env.production
-echo "S3_REGION=us-east-1" >> .env.production
-
 echo "Environment setup complete!"
-echo "Please update S3 credentials in .env.production"

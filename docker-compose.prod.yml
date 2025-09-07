@@ -5,7 +5,7 @@ services:
   newmeet-backend:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.simple
     container_name: newmeet-backend
     ports:
       - "3000:3000"
@@ -17,11 +17,6 @@ services:
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
       - LIVEKIT_URL=${LIVEKIT_URL}
       - NEXT_PUBLIC_LIVEKIT_URL=${NEXT_PUBLIC_LIVEKIT_URL}
-      - S3_KEY_ID=${S3_KEY_ID}
-      - S3_KEY_SECRET=${S3_KEY_SECRET}
-      - S3_BUCKET=${S3_BUCKET}
-      - S3_ENDPOINT=${S3_ENDPOINT}
-      - S3_REGION=${S3_REGION}
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads

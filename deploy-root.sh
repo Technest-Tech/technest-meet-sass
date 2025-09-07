@@ -68,8 +68,7 @@ chown -R newmeet:newmeet /home/newmeet/app
 if [ ! -f .env.production ]; then
     print_status "Setting up production environment..."
     ./setup-env.sh
-    print_warning "Please update S3 credentials in .env.production before continuing!"
-    read -p "Press Enter to continue after updating S3 credentials..."
+    print_success "Environment setup complete!"
 fi
 
 # Build and start services
