@@ -88,7 +88,7 @@ docker-compose -f docker-compose.prod.yml ps
 
 # Initialize database
 print_status "Initializing database..."
-docker-compose -f docker-compose.prod.yml exec -T newmeet-backend pnpm run db:push
+docker-compose -f docker-compose.prod.yml exec -T newmeet-backend npm run db:push
 
 # Create admin user
 print_status "Creating admin user..."
