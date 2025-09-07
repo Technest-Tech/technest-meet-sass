@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # NewMeet Backend
+  newmeet-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: newmeet-backend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:/app/data/prod.db
+      - JWT_SECRET=${JWT_SECRET}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      - LIVEKIT_URL=${LIVEKIT_URL}
+      - NEXT_PUBLIC_LIVEKIT_URL=${NEXT_PUBLIC_LIVEKIT_URL}
+      - S3_KEY_ID=${S3_KEY_ID}
+      - S3_KEY_SECRET=${S3_KEY_SECRET}
+      - S3_BUCKET=${S3_BUCKET}
+      - S3_ENDPOINT=${S3_ENDPOINT}
+      - S3_REGION=${S3_REGION}
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+    depends_on:
+      - livekit-server
+
+  # LiveKit Server
+  livekit-server:
+    image: livekit/livekit-server:latest
+    container_name: livekit-server
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    environment:
+      - LIVEKIT_KEYS=${LIVEKIT_API_KEY}:${LIVEKIT_API_SECRET}
+      - LIVEKIT_PORT=7880
+      - LIVEKIT_BIND_ADDRESSES=0.0.0.0:7880
+      - LIVEKIT_TCP_PORT=7881
+      - LIVEKIT_TCP_BIND_ADDRESSES=0.0.0.0:7881
+      - LIVEKIT_UDP_PORT=7882
+      - LIVEKIT_UDP_BIND_ADDRESSES=0.0.0.0:7882
+    volumes:
+      - ./livekit.yaml:/config.yaml
+    command: --config /config.yaml
+    restart: unless-stopped
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    restart: unless-stopped
+    depends_on:
+      - newmeet-backend

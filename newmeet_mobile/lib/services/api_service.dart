@@ -3,7 +3,8 @@ import 'package:http/http.dart' as http;
 import '../models/room.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://192.168.1.4:3000'; // Your Mac's IP address
+  // Production API URL - Update this with your deployed backend URL
+  static const String baseUrl = 'https://api.newmeet.com';
   
   // Validate room exists
   static Future<RoomValidation> validateRoom(String roomLink, String type) async {

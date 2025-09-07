@@ -30,9 +30,27 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
+.env.production
 
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
+
+# Database files
+prisma/dev.db
+prisma/dev.db-journal
+data/
+uploads/
+
+# SSL certificates (keep private)
+ssl/
+
+# Flutter
+newmeet_mobile/build/
+newmeet_mobile/.dart_tool/
+newmeet_mobile/.packages
+newmeet_mobile/.pub-cache/
+newmeet_mobile/.pub/
+newmeet_mobile/pubspec.lock
