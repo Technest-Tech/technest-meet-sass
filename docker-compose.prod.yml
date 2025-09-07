@@ -5,7 +5,7 @@ services:
   newmeet-backend:
     build:
       context: .
-      dockerfile: Dockerfile.simple
+      dockerfile: Dockerfile.basic
     container_name: newmeet-backend
     ports:
       - "3000:3000"
