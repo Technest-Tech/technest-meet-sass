@@ -1,47 +1,30 @@
-# Use Node.js 18 Alpine for smaller image size
-FROM node:18-alpine AS base
+FROM node:18-alpine
 
-# Install pnpm
-RUN npm install -g pnpm
+# Install dependencies for native modules
+RUN apk add --no-cache openssl
 
 # Set working directory
 WORKDIR /app
 
 # Copy package files
-COPY package.json pnpm-lock.yaml ./
+COPY package*.json ./
+COPY pnpm-lock.yaml ./
 
 # Install dependencies
+RUN npm install -g pnpm
 RUN pnpm install --frozen-lockfile
 
 # Copy source code
 COPY . .
 
+# Create data directory for database
+RUN mkdir -p /app/data
+
 # Generate Prisma client
-RUN pnpm run db:generate
+RUN npx prisma generate
 
 # Build the application
-RUN pnpm run build
-
-# Production stage
-FROM node:18-alpine AS production
-
-# Install pnpm
-RUN npm install -g pnpm
-
-# Set working directory
-WORKDIR /app
-
-# Copy package files
-COPY package.json pnpm-lock.yaml ./
-
-# Install all dependencies (including dev dependencies for build tools)
-RUN pnpm install --frozen-lockfile
-
-# Copy built application from base stage
-COPY --from=base /app/.next ./.next
-COPY --from=base /app/public ./public
-COPY --from=base /app/prisma ./prisma
-COPY --from=base /app/node_modules/.prisma ./node_modules/.prisma
+RUN npm run build
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs
@@ -49,14 +32,13 @@ RUN adduser -S nextjs -u 1001
 
 # Change ownership of the app directory
 RUN chown -R nextjs:nodejs /app
+RUN chmod 755 /app/data
+
+# Switch to non-root user
 USER nextjs
 
 # Expose port
 EXPOSE 3000
 
-# Set environment variables
-ENV NODE_ENV=production
-ENV PORT=3000
-
 # Start the application
-CMD ["pnpm", "start"]
+CMD ["npm", "start"]

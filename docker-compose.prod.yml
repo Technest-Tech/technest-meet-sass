@@ -14,7 +14,7 @@ services:
       - LIVEKIT_API_KEY=almajd-meet-api-key-prod-2024
       - LIVEKIT_API_SECRET=almajd-meet-api-secret-production-2024-secure-key
       - LIVEKIT_URL=http://livekit-server:7880
-      - NEXT_PUBLIC_LIVEKIT_URL=ws://64.227.52.146:7880
+      - NEXT_PUBLIC_LIVEKIT_URL=ws://64.227.52.146/rtc
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads
