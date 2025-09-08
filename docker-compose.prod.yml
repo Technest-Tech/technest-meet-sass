@@ -31,7 +31,7 @@ services:
       - "7881:7881"
       - "7882:7882/udp"
     environment:
-      - LIVEKIT_KEYS=almajd-meet-api-key-prod-2024: almajd-meet-api-secret-production-2024-secure-key
+      - "LIVEKIT_KEYS=almajd-meet-api-key-prod-2024: almajd-meet-api-secret-production-2024-secure-key"
     volumes:
       - ./livekit.yaml:/config.yaml
     command: --config /config.yaml
