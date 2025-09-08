@@ -1,5 +1,5 @@
 services:
-  # NewMeet Backend
+  # Almajd Meet Backend
   newmeet-backend:
     build:
       context: .
@@ -10,11 +10,11 @@ services:
     environment:
       - NODE_ENV=production
       - DATABASE_URL=file:/app/data/prod.db
-      - JWT_SECRET=your-jwt-secret-key-here
-      - LIVEKIT_API_KEY=devkey
-      - LIVEKIT_API_SECRET=secret
+      - JWT_SECRET=almajd-meet-jwt-secret-2024-production-key-64chars-minimum
+      - LIVEKIT_API_KEY=almajd-meet-api-key-prod-2024
+      - LIVEKIT_API_SECRET=almajd-meet-api-secret-production-2024-secure-key
       - LIVEKIT_URL=http://livekit-server:7880
-      - NEXT_PUBLIC_LIVEKIT_URL=http://localhost:7880
+      - NEXT_PUBLIC_LIVEKIT_URL=ws://64.227.52.146:7880
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads
@@ -31,7 +31,7 @@ services:
       - "7881:7881"
       - "7882:7882/udp"
     environment:
-      - LIVEKIT_KEYS=devkey: secret
+      - LIVEKIT_KEYS=almajd-meet-api-key-prod-2024:almajd-meet-api-secret-production-2024-secure-key
     volumes:
       - ./livekit.yaml:/config.yaml
     command: --config /config.yaml
