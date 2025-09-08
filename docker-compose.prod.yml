@@ -10,11 +10,11 @@ services:
     environment:
       - NODE_ENV=production
       - DATABASE_URL=file:/app/data/prod.db
-      - JWT_SECRET=${JWT_SECRET}
-      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
-      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
-      - LIVEKIT_URL=${LIVEKIT_URL}
-      - NEXT_PUBLIC_LIVEKIT_URL=${NEXT_PUBLIC_LIVEKIT_URL}
+      - JWT_SECRET=your-jwt-secret-key-here
+      - LIVEKIT_API_KEY=devkey
+      - LIVEKIT_API_SECRET=secret
+      - LIVEKIT_URL=http://livekit-server:7880
+      - NEXT_PUBLIC_LIVEKIT_URL=http://localhost:7880
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads
@@ -31,7 +31,7 @@ services:
       - "7881:7881"
       - "7882:7882/udp"
     environment:
-      - LIVEKIT_KEYS=${LIVEKIT_API_KEY}:${LIVEKIT_API_SECRET}
+      - LIVEKIT_KEYS=devkey: secret
     volumes:
       - ./livekit.yaml:/config.yaml
     command: --config /config.yaml
