@@ -9,7 +9,7 @@ services:
       - "7881:7881"  # TCP fallback
       - "7882:7882/udp"  # UDP for media traffic
     environment:
-      LIVEKIT_KEYS: "devkey: secret"
+      # LIVEKIT_KEYS: "devkey: secret"  # Commented out to use livekit.yaml config
       LIVEKIT_PORT: "7880"
       LIVEKIT_BIND_ADDRESSES: "0.0.0.0:7880"
       LIVEKIT_TCP_PORT: "7881"

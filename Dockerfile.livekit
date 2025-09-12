@@ -1,0 +1,10 @@
+FROM livekit/livekit-server:latest
+
+# Copy LiveKit configuration
+COPY livekit.yaml /config.yaml
+
+# Expose ports
+EXPOSE 7880 7881 7882/udp
+
+# Start LiveKit server
+CMD ["--config", "/config.yaml"]

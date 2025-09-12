@@ -33,37 +33,37 @@ export default function LoginPage() {
         router.push('/admin/dashboard');
       } else {
         const { error } = await response.json();
-        setError(error || 'Login failed');
+        setError(error || 'فشل تسجيل الدخول');
       }
     } catch (error) {
-      setError('An error occurred. Please try again.');
+      setError('حدث خطأ. يرجى المحاولة مرة أخرى.');
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-50 via-white to-secondary-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-primary-50 via-white to-secondary-50 flex items-center justify-center p-4" dir="rtl">
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-100 rounded-full mb-4">
             <Users className="w-8 h-8 text-primary-600" />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h1>
-          <p className="text-gray-600">Sign in to your admin account</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">مرحباً بعودتك</h1>
+          <p className="text-gray-600">سجل دخولك إلى حسابك الإداري</p>
         </div>
 
         {/* Login Form */}
-        <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
+        <div className="bg-white rounded-2xl shadow-xl p-6 sm:p-8 border border-gray-100">
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Email Field */}
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2 text-right">
+                عنوان البريد الإلكتروني
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
                   <Mail className="h-5 w-5 text-gray-400" />
                 </div>
                 <input
@@ -71,8 +71,8 @@ export default function LoginPage() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
-                  placeholder="Enter your email"
+                  className="block w-full pr-10 pl-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors text-right"
+                  placeholder="أدخل بريدك الإلكتروني"
                   required
                 />
               </div>
@@ -80,11 +80,11 @@ export default function LoginPage() {
 
             {/* Password Field */}
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                Password
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2 text-right">
+                كلمة المرور
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
                   <Lock className="h-5 w-5 text-gray-400" />
                 </div>
                 <input
@@ -92,14 +92,14 @@ export default function LoginPage() {
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors"
-                  placeholder="Enter your password"
+                  className="block w-full pr-10 pl-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors text-right"
+                  placeholder="أدخل كلمة المرور"
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                  className="absolute inset-y-0 left-0 pl-3 flex items-center"
                 >
                   {showPassword ? (
                     <EyeOff className="h-5 w-5 text-gray-400 hover:text-gray-600" />
@@ -113,7 +113,7 @@ export default function LoginPage() {
             {/* Error Message */}
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                <p className="text-sm text-red-600">{error}</p>
+                <p className="text-sm text-red-600 text-right">{error}</p>
               </div>
             )}
 
@@ -128,11 +128,11 @@ export default function LoginPage() {
             >
               {isLoading ? (
                 <div className="flex items-center">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Signing in...
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white ml-2"></div>
+                  جاري تسجيل الدخول...
                 </div>
               ) : (
-                'Sign In'
+                'تسجيل الدخول'
               )}
             </button>
           </form>
@@ -140,9 +140,9 @@ export default function LoginPage() {
           {/* Demo Credentials */}
           <div className="mt-6 p-4 bg-gray-50 rounded-lg">
             <p className="text-xs text-gray-600 text-center">
-              <strong>Demo Credentials:</strong><br />
-              Email: admin@newmeet.com<br />
-              Password: admin123
+              <strong>بيانات تجريبية:</strong><br />
+              البريد الإلكتروني: admin@newmeet.com<br />
+              كلمة المرور: admin123
             </p>
           </div>
         </div>
@@ -150,7 +150,7 @@ export default function LoginPage() {
         {/* Footer */}
         <div className="text-center mt-6">
           <p className="text-sm text-gray-500">
-            NewMeet Admin Control Panel
+            لوحة تحكم NewMeet الإدارية
           </p>
         </div>
       </div>

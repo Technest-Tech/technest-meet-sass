@@ -3,10 +3,11 @@ import { RoomServiceClient } from 'livekit-server-sdk';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { roomId: string } }
+  { params }: { params: Promise<{ roomId: string }> }
 ) {
   try {
-    console.log('🔧 End Meeting API called with params:', params);
+    const resolvedParams = await params;
+    console.log('🔧 End Meeting API called with params:', resolvedParams);
     
     const { roomName } = await request.json();
     console.log('📝 Request body roomName:', roomName);
@@ -77,15 +78,6 @@ export async function POST(
     }
 
     try {
-      // Get room info to check if it exists
-      let roomInfo;
-      try {
-        roomInfo = await roomService.getRoom(roomName);
-      } catch (error) {
-        console.log(`Room ${roomName} not found or already deleted:`, error);
-        // Continue with participant removal even if room info can't be retrieved
-      }
-      
       // Get list of participants
       let participants = [];
       try {

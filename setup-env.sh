@@ -1,38 +1,22 @@
 #!/bin/bash
 
-# Setup environment variables for NewMeet video conferencing app
+echo "Setting up NewMeet production environment..."
 
-echo "Setting up environment variables for NewMeet..."
+# Generate secure JWT secret
+JWT_SECRET=$(openssl rand -base64 32)
+echo "JWT_SECRET=$JWT_SECRET" >> .env.production
 
-# Create .env.local file
-cat > .env.local << EOF
-# Database
-DATABASE_URL="file:./dev.db"
+# Generate LiveKit API key and secret
+LIVEKIT_API_KEY=$(openssl rand -hex 16)
+LIVEKIT_API_SECRET=$(openssl rand -hex 32)
+echo "LIVEKIT_API_KEY=$LIVEKIT_API_KEY" >> .env.production
+echo "LIVEKIT_API_SECRET=$LIVEKIT_API_SECRET" >> .env.production
 
-# JWT Authentication
-JWT_SECRET="your-super-secret-jwt-key-change-this-in-production"
+# Set LiveKit URL
+echo "LIVEKIT_URL=wss://api.newmeet.com:7880" >> .env.production
+echo "NEXT_PUBLIC_LIVEKIT_URL=wss://api.newmeet.com:7880" >> .env.production
 
-# LiveKit Configuration
-LIVEKIT_API_KEY="devkey"
-LIVEKIT_API_SECRET="secret"
-LIVEKIT_URL="ws://localhost:7880"
+# Database URL
+echo "DATABASE_URL=file:/app/data/prod.db" >> .env.production
 
-# Next.js
-NEXT_PUBLIC_LIVEKIT_URL="ws://localhost:7880"
-
-# Show settings menu
-NEXT_PUBLIC_SHOW_SETTINGS_MENU="true"
-
-# Show debug mode
-NEXT_PUBLIC_SHOW_DEBUG="true"
-EOF
-
-echo "✅ Created .env.local file with necessary environment variables"
-echo ""
-echo "📝 Please restart your development server for the changes to take effect:"
-echo "   pnpm dev"
-echo ""
-echo "🔧 The following issues should now be resolved:"
-echo "   - Settings menu will be visible"
-echo "   - Control buttons (camera/microphone) will appear"
-echo "   - Basic video conferencing controls will be available"
+echo "Environment setup complete!"

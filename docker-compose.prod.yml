@@ -1,0 +1,50 @@
+services:
+  # Almajd Meet Backend
+  newmeet-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.basic
+    container_name: newmeet-backend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:/app/data/prod.db
+      - JWT_SECRET=almajd-meet-jwt-secret-2024-production-key-64chars-minimum
+      - LIVEKIT_API_KEY=almajd-meet-api-key-prod-2024
+      - LIVEKIT_API_SECRET=almajd-meet-api-secret-production-2024-secure-key
+      - LIVEKIT_URL=http://livekit-server:7880
+      - NEXT_PUBLIC_LIVEKIT_URL=ws://64.227.52.146/rtc
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+    depends_on:
+      - livekit-server
+
+  # LiveKit Server
+  livekit-server:
+    image: livekit/livekit-server:latest
+    container_name: livekit-server
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    environment:
+      - "LIVEKIT_KEYS=almajd-meet-api-key-prod-2024: almajd-meet-api-secret-production-2024-secure-key"
+    volumes:
+      - ./livekit.yaml:/config.yaml
+    command: --config /config.yaml
+    restart: unless-stopped
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx-simple.conf:/etc/nginx/nginx.conf
+    restart: unless-stopped
+    depends_on:
+      - newmeet-backend

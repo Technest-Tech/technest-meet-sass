@@ -1,0 +1,42 @@
+# Simple Dockerfile for NewMeet
+FROM node:18-alpine
+
+# Install pnpm with proper setup
+RUN npm install -g pnpm@latest
+RUN pnpm config set store-dir /root/.pnpm-store
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package.json pnpm-lock.yaml ./
+
+# Install dependencies with verbose output for debugging
+RUN pnpm install --frozen-lockfile --reporter=default
+
+# Copy source code
+COPY . .
+
+# Generate Prisma client
+RUN pnpm run db:generate
+
+# Build the application
+RUN pnpm run build
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs
+RUN adduser -S nextjs -u 1001
+
+# Change ownership of the app directory
+RUN chown -R nextjs:nodejs /app
+USER nextjs
+
+# Expose port
+EXPOSE 3000
+
+# Set environment variables
+ENV NODE_ENV=production
+ENV PORT=3000
+
+# Start the application
+CMD ["pnpm", "start"]
