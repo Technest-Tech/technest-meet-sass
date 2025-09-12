@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 const API_KEY = process.env.LIVEKIT_API_KEY || 'devkey';
 const API_SECRET = process.env.LIVEKIT_API_SECRET || 'secret';
 const LIVEKIT_URL = process.env.LIVEKIT_URL || 'ws://localhost:7880';
+const PUBLIC_LIVEKIT_URL = process.env.NEXT_PUBLIC_LIVEKIT_URL || 'ws://localhost:7880';
 
 const COOKIE_KEY = 'random-participant-postfix';
 
@@ -31,9 +32,11 @@ export async function GET(request: NextRequest) {
     if (!LIVEKIT_URL) {
       throw new Error('LIVEKIT_URL is not defined');
     }
-    const livekitServerUrl = region ? getLiveKitURL(LIVEKIT_URL, region) : LIVEKIT_URL;
+    // Use the public URL for client connections, internal URL for server operations
+    const clientLivekitUrl = region ? getLiveKitURL(PUBLIC_LIVEKIT_URL, region) : PUBLIC_LIVEKIT_URL;
+    const serverLivekitUrl = region ? getLiveKitURL(LIVEKIT_URL, region) : LIVEKIT_URL;
     let randomParticipantPostfix = request.cookies.get(COOKIE_KEY)?.value;
-    if (livekitServerUrl === undefined) {
+    if (clientLivekitUrl === undefined || serverLivekitUrl === undefined) {
       throw new Error('Invalid region');
     }
 
@@ -66,13 +69,14 @@ export async function GET(request: NextRequest) {
       },
       roomName,
       participantType,
+      serverLivekitUrl,
     );
 
     console.log('✅ Token generated successfully, length:', participantToken ? participantToken.length : 0);
     
     // Return connection details
     const data: ConnectionDetails = {
-      serverUrl: livekitServerUrl,
+      serverUrl: clientLivekitUrl,
       roomName: roomName,
       participantToken: participantToken,
       participantName: participantName,
@@ -92,7 +96,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function createParticipantToken(userInfo: AccessTokenOptions, roomName: string, participantType: string) {
+async function createParticipantToken(userInfo: AccessTokenOptions, roomName: string, participantType: string, serverUrl: string) {
   console.log('🔑 Creating token with:', { 
     apiKey: API_KEY ? '***' : 'undefined', 
     apiSecret: API_SECRET ? '***' : 'undefined',
