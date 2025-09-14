@@ -1,10 +1,11 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/room.dart';
+import '../config/app_config.dart';
 
 class ApiService {
-  // Production API URL - Update this with your deployed backend URL
-  static const String baseUrl = 'https://api.newmeet.com';
+  // Use configuration for base URL
+  static String get baseUrl => AppConfig.baseUrl;
   
   // Validate room exists
   static Future<RoomValidation> validateRoom(String roomLink, String type) async {

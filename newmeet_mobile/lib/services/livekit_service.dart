@@ -5,6 +5,7 @@ import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:permission_handler/permission_handler.dart';
 import 'api_service.dart';
 import 'screen_capture_service.dart';
+import '../config/app_config.dart';
 
 class LiveKitService extends ChangeNotifier {
   lk.Room? _room;

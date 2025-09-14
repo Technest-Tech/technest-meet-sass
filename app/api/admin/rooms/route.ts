@@ -71,8 +71,8 @@ export async function POST(request: NextRequest) {
         .replace(/-+/g, '-') // Replace multiple hyphens with single
         .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
       
-      // Ensure the sanitized name is not empty or too short
-      if (!sanitizedName || sanitizedName.length < 3) {
+      // Ensure the sanitized name is not empty
+      if (!sanitizedName || sanitizedName.length < 1) {
         sanitizedName = 'room';
       }
       
@@ -228,8 +228,8 @@ export async function PUT(request: NextRequest) {
           .replace(/-+/g, '-') // Replace multiple hyphens with single
           .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
         
-        // Ensure the sanitized name is not empty or too short
-        if (!sanitizedName || sanitizedName.length < 3) {
+        // Ensure the sanitized name is not empty
+        if (!sanitizedName || sanitizedName.length < 1) {
           sanitizedName = 'room';
         }
         
