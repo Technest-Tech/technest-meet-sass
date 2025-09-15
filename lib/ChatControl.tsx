@@ -24,17 +24,14 @@ export function ChatControl({ isHost = false }: ChatControlProps) {
       {/* Chat Control Button */}
       <button
         onClick={toggleChat}
-        className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 shadow-lg hover:shadow-xl relative ${
-          isChatOpen
-            ? 'bg-green-600 text-white shadow-green-500/50'
-            : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 hover:border-gray-400'
-        }`}
+        className={`mobile-chat-button ${isChatOpen ? 'active' : ''}`}
         title={isChatOpen ? 'Close Chat' : 'Open Chat'}
       >
-        <span className="flex items-center gap-2">
-          💬 {isChatOpen ? 'Close' : 'Chat'}
+        <span className="mobile-button-content">
+          <span className="mobile-button-icon">💬</span>
+          <span className="mobile-button-label">Chat</span>
           {unreadCount > 0 && !isChatOpen && (
-            <span className="bg-red-500 text-white text-xs rounded-full px-2 py-1 min-w-[20px] h-5 flex items-center justify-center font-bold">
+            <span className="mobile-badge">
               {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )}

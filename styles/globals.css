@@ -369,29 +369,316 @@ main[data-lk-theme="default"] {
   transition: all 0.3s ease;
 }
 
+/* Mobile button content structure */
+.mobile-button-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  position: relative;
+}
+
+.mobile-button-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.mobile-button-label {
+  font-size: 10px;
+  font-weight: 500;
+  color: white;
+  text-align: center;
+  line-height: 1;
+}
+
+.mobile-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  background-color: #ef4444;
+  color: white;
+  font-size: 8px;
+  font-weight: bold;
+  border-radius: 50%;
+  min-width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(0, 0, 0, 0.9);
+}
+
+/* Mobile chat button */
+.mobile-chat-button {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  padding: 8px 12px;
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 60px;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+}
+
+.mobile-chat-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(1.05);
+}
+
+.mobile-chat-button.active {
+  background: rgba(34, 197, 94, 0.8);
+  border-color: rgba(34, 197, 94, 1);
+}
+
+.mobile-chat-button:active {
+  transform: scale(0.95);
+}
+
+/* Mobile settings button */
+.mobile-settings-button {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: 12px !important;
+  padding: 8px 12px !important;
+  color: white !important;
+  min-width: 60px !important;
+  min-height: 50px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  touch-action: manipulation !important;
+}
+
+.mobile-settings-button:hover {
+  background: rgba(255, 255, 255, 0.2) !important;
+  transform: scale(1.05) !important;
+}
+
+.mobile-settings-button:active {
+  transform: scale(0.95) !important;
+}
+
+/* Mobile host controls */
+.mobile-host-control {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobile-host-control button {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: 12px !important;
+  padding: 8px 12px !important;
+  color: white !important;
+  min-width: 60px !important;
+  min-height: 50px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  touch-action: manipulation !important;
+  transition: all 0.2s ease !important;
+}
+
+.mobile-host-control button:hover {
+  background: rgba(255, 255, 255, 0.2) !important;
+  transform: scale(1.05) !important;
+}
+
+.mobile-host-control button:active {
+  transform: scale(0.95) !important;
+}
+
+.mobile-host-control button[data-recording="true"] {
+  background: rgba(239, 68, 68, 0.8) !important;
+  border-color: rgba(239, 68, 68, 1) !important;
+}
+
+.mobile-host-control button[data-whiteboard="true"] {
+  background: rgba(59, 130, 246, 0.8) !important;
+  border-color: rgba(59, 130, 246, 1) !important;
+}
+
+/* Mobile whiteboard button */
+.mobile-whiteboard-button {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: 12px !important;
+  padding: 8px 12px !important;
+  color: white !important;
+  min-width: 60px !important;
+  min-height: 50px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  touch-action: manipulation !important;
+  transition: all 0.2s ease !important;
+}
+
+.mobile-whiteboard-button:hover {
+  background: rgba(255, 255, 255, 0.2) !important;
+  transform: scale(1.05) !important;
+}
+
+.mobile-whiteboard-button:active {
+  transform: scale(0.95) !important;
+}
+
+.mobile-whiteboard-button[data-whiteboard="true"] {
+  background: rgba(59, 130, 246, 0.8) !important;
+  border-color: rgba(59, 130, 246, 1) !important;
+}
+
+/* Mobile recording button */
+.mobile-recording-button {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: 12px !important;
+  padding: 8px 12px !important;
+  color: white !important;
+  min-width: 60px !important;
+  min-height: 50px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  touch-action: manipulation !important;
+  transition: all 0.2s ease !important;
+  cursor: pointer !important;
+}
+
+.mobile-recording-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2) !important;
+  transform: scale(1.05) !important;
+}
+
+.mobile-recording-button:active:not(:disabled) {
+  transform: scale(0.95) !important;
+}
+
+.mobile-recording-button:disabled {
+  opacity: 0.6 !important;
+  cursor: not-allowed !important;
+}
+
+.mobile-recording-button[data-recording="true"] {
+  background: rgba(220, 38, 38, 0.8) !important;
+  border-color: rgba(220, 38, 38, 1) !important;
+}
+
+.mobile-recording-button[data-recording="false"] {
+  background: rgba(34, 197, 94, 0.8) !important;
+  border-color: rgba(34, 197, 94, 1) !important;
+}
+
 @media (max-width: 768px) {
   .mobile-control-bar {
-    gap: 8px !important;
-    padding: 12px !important;
-    border-radius: 20px !important;
-    max-width: 95vw;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    padding: 12px 16px !important;
+    padding-bottom: max(12px, env(safe-area-inset-bottom)) !important;
+    min-height: 60px !important;
   }
   
-  .mobile-control-bar::-webkit-scrollbar {
-    display: none;
+  .lk-button-group {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 2px !important;
+  }
+  
+  .lk-button-group button {
+    background: rgba(255, 255, 255, 0.1) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    border-radius: 12px !important;
+    padding: 8px 12px !important;
+    color: white !important;
+    min-width: 60px !important;
+    min-height: 50px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    touch-action: manipulation !important;
+    transition: all 0.2s ease !important;
+  }
+  
+  .lk-button-group button:hover {
+    background: rgba(255, 255, 255, 0.2) !important;
+    transform: scale(1.05) !important;
+  }
+  
+  .lk-button-group button:active {
+    transform: scale(0.95) !important;
+  }
+  
+  .lk-button-group button[data-lk-enabled="true"] {
+    background: rgba(34, 197, 94, 0.8) !important;
+    border-color: rgba(34, 197, 94, 1) !important;
+  }
+  
+  .lk-button-group button[data-lk-enabled="false"] {
+    background: rgba(239, 68, 68, 0.8) !important;
+    border-color: rgba(239, 68, 68, 1) !important;
   }
 }
 
 @media (max-width: 480px) {
   .mobile-control-bar {
-    gap: 6px !important;
+    padding: 10px 12px !important;
+    padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
+    min-height: 55px !important;
+  }
+  
+  .mobile-button-icon {
+    font-size: 16px;
+  }
+  
+  .mobile-button-label {
+    font-size: 9px;
+  }
+  
+  .mobile-chat-button,
+  .mobile-settings-button,
+  .mobile-recording-button,
+  .mobile-whiteboard-button,
+  .lk-button-group button {
+    min-width: 55px !important;
+    min-height: 45px !important;
+    padding: 6px 10px !important;
+  }
+  
+  /* Adjust video layout for small screens */
+  .lk-focus-layout {
     padding: 10px !important;
-    border-radius: 16px !important;
-    bottom: 10px !important;
+    padding-bottom: 70px !important;
+  }
+}
+
+/* Ensure body doesn't scroll on mobile */
+@media (max-width: 768px) {
+  body {
+    overflow-x: hidden !important;
+    position: fixed !important;
+    width: 100% !important;
+    height: 100% !important;
+  }
+  
+  html {
+    overflow-x: hidden !important;
+  }
+  
+  /* Ensure the main container takes full height */
+  .lk-room-container {
+    height: 100vh !important;
+    overflow: hidden !important;
+  }
+  
+  /* Make sure video layout doesn't cause scrolling */
+  .lk-focus-layout {
+    height: calc(100vh - 60px) !important;
+    overflow: hidden !important;
   }
 }
 

@@ -85,14 +85,14 @@ export function WhiteboardControl({ isHost }: WhiteboardControlProps) {
       {isHost && (
         <button
           onClick={toggleWhiteboard}
-          className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 shadow-lg hover:shadow-xl ${
-            isWhiteboardOpen
-              ? 'bg-blue-600 text-white shadow-blue-500/50'
-              : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 hover:border-gray-400'
-          }`}
+          className="mobile-whiteboard-button"
+          data-whiteboard={isWhiteboardOpen}
           title={isWhiteboardOpen ? 'Close Whiteboard for All' : 'Open Whiteboard for All'}
         >
-          {isWhiteboardOpen ? '📋 Close for All' : '📋 Open for All'}
+          <span className="mobile-button-content">
+            <span className="mobile-button-icon">📋</span>
+            <span className="mobile-button-label">Board</span>
+          </span>
         </button>
       )}
 

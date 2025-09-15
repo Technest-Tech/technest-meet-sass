@@ -12,11 +12,16 @@ import { useSetupE2EE } from '@/lib/useSetupE2EE';
 import { ExternalE2EEKeyProvider } from 'livekit-client';
 import { PictureInPicture } from '@/lib/PictureInPicture';
 import { ChatControl } from '@/lib/ChatControl';
+import { WhiteboardControl } from '@/lib/WhiteboardControl';
+import { SimpleRecordingControl } from '@/lib/SimpleRecordingControl';
 
 interface VideoConferenceClientImplProps {
   liveKitUrl: string;
   token: string;
   codec?: string;
+  isHost?: boolean;
+  canRecord?: boolean;
+  roomName?: string;
 }
 
 // Video participant component
@@ -109,7 +114,11 @@ function VideoLayout({ room }: { room: Room }) {
   }
 
   return (
-    <div className="lk-focus-layout" style={{ height: '100vh', padding: '20px' }}>
+    <div className="lk-focus-layout" style={{ 
+      height: '100vh', 
+      padding: '20px',
+      paddingBottom: '80px' // Space for bottom control bar
+    }}>
       <div className="lk-focus-layout-main" style={{ height: '100%' }}>
         {/* Local participant (main view) */}
         <div style={{ 
@@ -489,49 +498,76 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
         {/* Responsive Control Bar */}
         <div className="mobile-control-bar" style={{
           position: 'fixed',
-          bottom: '20px',
-          left: '50%',
-          transform: 'translateX(-50%)',
+          bottom: '0px',
+          left: '0',
+          right: '0',
           zIndex: 1000,
           display: 'flex',
-          gap: '10px',
-          padding: '15px',
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          borderRadius: '25px',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '12px 16px',
+          paddingBottom: 'max(12px, env(safe-area-inset-bottom))',
+          backgroundColor: 'rgba(0, 0, 0, 0.9)',
           backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255, 255, 255, 0.1)'
+          borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+          minHeight: '60px'
         }}>
-          <section className="lk-button-group">
-            <TrackToggle source={Track.Source.Camera}>Camera</TrackToggle>
-            <div className="lk-button-group-menu">
-              <MediaDeviceMenu kind="videoinput" />
+          {/* Left side - Camera and Microphone */}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <section className="lk-button-group">
+              <TrackToggle source={Track.Source.Camera}>
+                <span className="mobile-button-content">
+                  <span className="mobile-button-icon">📹</span>
+                  <span className="mobile-button-label">Camera</span>
+                </span>
+              </TrackToggle>
+            </section>
+            
+            <section className="lk-button-group">
+              <TrackToggle source={Track.Source.Microphone}>
+                <span className="mobile-button-content">
+                  <span className="mobile-button-icon">🎤</span>
+                  <span className="mobile-button-label">Mic</span>
+                </span>
+              </TrackToggle>
+            </section>
+          </div>
+
+          {/* Center - Host Controls (if host) */}
+          {props.isHost && (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <div className="mobile-host-control">
+                <SimpleRecordingControl isHost={true} />
+              </div>
+              <div className="mobile-host-control">
+                <WhiteboardControl isHost={true} />
+              </div>
             </div>
-          </section>
-          
-          <section className="lk-button-group">
-            <TrackToggle source={Track.Source.Microphone}>Microphone</TrackToggle>
-            <div className="lk-button-group-menu">
-              <MediaDeviceMenu kind="audioinput" />
+          )}
+
+          {/* Center - Settings (if not host or as fallback) */}
+          {!props.isHost && (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                className="lk-button lk-button-settings mobile-settings-button"
+                onClick={() => {
+                  const event = new CustomEvent('toggle_settings');
+                  window.dispatchEvent(event);
+                }}
+                title="Settings"
+              >
+                <span className="mobile-button-content">
+                  <span className="mobile-button-icon">⚙️</span>
+                  <span className="mobile-button-label">Settings</span>
+                </span>
+              </button>
             </div>
-          </section>
-          
-          <section className="lk-button-group">
-          <button
-            className="lk-button lk-button-settings"
-            onClick={() => {
-              // Toggle settings menu
-              const event = new CustomEvent('toggle_settings');
-              window.dispatchEvent(event);
-            }}
-            title="Settings"
-          >
-            <span className="settings-icon">⚙️</span>
-            <span className="settings-text">Settings</span>
-          </button>
-          </section>
-          
-          {/* Chat Control */}
-          <ChatControl />
+          )}
+
+          {/* Right side - Chat */}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <ChatControl isHost={props.isHost} />
+          </div>
         </div>
 
         {/* Main video area with proper LiveKit components */}

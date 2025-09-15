@@ -179,65 +179,49 @@ export function SimpleRecordingControl({ isHost }: SimpleRecordingControlProps) 
     <button
       onClick={toggleRecording}
       disabled={processingRecRequest}
-      style={{
-        padding: '12px 16px',
-        backgroundColor: isRecording 
-          ? 'rgba(220, 38, 38, 0.9)' 
-          : 'rgba(34, 197, 94, 0.9)',
-        color: 'white',
-        border: '1px solid rgba(255, 255, 255, 0.2)',
-        borderRadius: '8px',
-        cursor: processingRecRequest ? 'not-allowed' : 'pointer',
-        fontSize: '14px',
-        fontWeight: '500',
-        backdropFilter: 'blur(10px)',
-        opacity: processingRecRequest ? 0.6 : 1,
-        transition: 'all 0.2s ease',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        minWidth: '140px',
-        justifyContent: 'center'
-      }}
+      className="mobile-recording-button"
+      data-recording={isRecording}
       title={
         isRecording 
           ? 'Stop screen recording'
           : 'Start screen recording'
       }
     >
-      {processingRecRequest ? (
-        <>
-          <div style={{
-            width: '12px',
-            height: '12px',
-            border: '2px solid rgba(255,255,255,0.3)',
-            borderTop: '2px solid white',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite'
-          }} />
-          Processing...
-        </>
-              ) : isRecording ? (
+      <span className="mobile-button-content">
+        {processingRecRequest ? (
           <>
-            <div style={{
+            <span className="mobile-button-icon" style={{
+              width: '12px',
+              height: '12px',
+              border: '2px solid rgba(255,255,255,0.3)',
+              borderTop: '2px solid white',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite'
+            }} />
+            <span className="mobile-button-label">Processing</span>
+          </>
+        ) : isRecording ? (
+          <>
+            <span className="mobile-button-icon" style={{
               width: '8px',
               height: '8px',
               backgroundColor: 'white',
               borderRadius: '2px'
             }} />
-            Stop Screen Recording
+            <span className="mobile-button-label">Stop</span>
           </>
         ) : (
           <>
-            <div style={{
+            <span className="mobile-button-icon" style={{
               width: '8px',
               height: '8px',
               backgroundColor: 'white',
               borderRadius: '50%'
             }} />
-            Record Screen
+            <span className="mobile-button-label">Record</span>
           </>
         )}
+      </span>
       
       <style jsx>{`
         @keyframes spin {
