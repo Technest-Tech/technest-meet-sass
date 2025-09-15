@@ -278,14 +278,15 @@
 /* Mobile Responsive */
 @media (max-width: 768px) {
   .chatOverlay {
-    padding: 20px;
+    padding: 10vh 10vw;
   }
   
   .chatPanel {
-    width: 100%;
-    height: calc(100vh - 40px);
+    width: 80vw;
+    height: 80vh;
+    max-width: none;
     max-height: none;
-    min-height: 300px;
+    min-height: auto;
     border-radius: 15px;
   }
   
@@ -334,11 +335,15 @@
 /* Extra small mobile devices */
 @media (max-width: 480px) {
   .chatOverlay {
-    padding: 15px;
+    padding: 10vh 10vw;
   }
   
   .chatPanel {
-    height: calc(100vh - 30px);
+    width: 80vw;
+    height: 80vh;
+    max-width: none;
+    max-height: none;
+    min-height: auto;
     border-radius: 10px;
   }
   
@@ -373,11 +378,15 @@
 /* Very small mobile devices */
 @media (max-width: 360px) {
   .chatOverlay {
-    padding: 12px;
+    padding: 10vh 10vw;
   }
   
   .chatPanel {
-    height: calc(100vh - 24px);
+    width: 80vw;
+    height: 80vh;
+    max-width: none;
+    max-height: none;
+    min-height: auto;
     border-radius: 8px;
   }
   
