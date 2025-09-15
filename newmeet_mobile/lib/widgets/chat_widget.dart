@@ -177,7 +177,12 @@ class _ChatWidgetState extends State<ChatWidget> {
             children: [
               // Chat Header
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  top: 20,
+                  bottom: 16,
+                ),
                 decoration: const BoxDecoration(
                   color: Color(0xFF16213e),
                   borderRadius: BorderRadius.only(
@@ -226,18 +231,25 @@ class _ChatWidgetState extends State<ChatWidget> {
               Expanded(
                 child: _messages.isEmpty
                     ? const Center(
-                        child: Text(
-                          'No messages yet. Start the conversation!',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 16,
-                            fontStyle: FontStyle.italic,
+                        child: Padding(
+                          padding: EdgeInsets.all(20),
+                          child: Text(
+                            'No messages yet. Start the conversation!',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 16,
+                              fontStyle: FontStyle.italic,
+                            ),
+                            textAlign: TextAlign.center,
                           ),
                         ),
                       )
                     : ListView.builder(
                         controller: _scrollController,
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 16,
+                        ),
                         itemCount: _messages.length,
                         itemBuilder: (context, index) {
                           final message = _messages[index];
@@ -248,7 +260,12 @@ class _ChatWidgetState extends State<ChatWidget> {
               
               // Input Area
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  top: 20,
+                  bottom: MediaQuery.of(context).padding.bottom + 20, // Add safe area bottom padding
+                ),
                 decoration: const BoxDecoration(
                   color: Color(0xFF16213e),
                   borderRadius: BorderRadius.only(
@@ -259,38 +276,48 @@ class _ChatWidgetState extends State<ChatWidget> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: TextField(
-                        controller: _messageController,
-                        enabled: _isConnected,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: InputDecoration(
-                          hintText: _isConnected ? 'Type a message...' : 'Connecting...',
-                          hintStyle: const TextStyle(color: Colors.white54),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(25),
-                            borderSide: const BorderSide(color: Colors.white24),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(25),
-                            borderSide: const BorderSide(color: Colors.white24),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(25),
-                            borderSide: const BorderSide(color: Colors.blue),
-                          ),
-                          filled: true,
-                          fillColor: Colors.white.withOpacity(0.1),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
-                          ),
+                      child: Container(
+                        constraints: const BoxConstraints(
+                          minHeight: 48, // Ensure minimum touch target size
                         ),
-                        maxLength: 500,
-                        onSubmitted: (_) => _sendMessage(),
+                        child: TextField(
+                          controller: _messageController,
+                          enabled: _isConnected,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16, // Prevent zoom on iOS
+                          ),
+                          decoration: InputDecoration(
+                            hintText: _isConnected ? 'Type a message...' : 'Connecting...',
+                            hintStyle: const TextStyle(color: Colors.white54),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(25),
+                              borderSide: const BorderSide(color: Colors.white24),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(25),
+                              borderSide: const BorderSide(color: Colors.white24),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(25),
+                              borderSide: const BorderSide(color: Colors.blue),
+                            ),
+                            filled: true,
+                            fillColor: Colors.white.withOpacity(0.1),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 18,
+                              vertical: 14,
+                            ),
+                          ),
+                          maxLength: 500,
+                          onSubmitted: (_) => _sendMessage(),
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 12),
                     Container(
+                      width: 48,
+                      height: 48,
                       decoration: const BoxDecoration(
                         color: Colors.blue,
                         shape: BoxShape.circle,
@@ -300,6 +327,7 @@ class _ChatWidgetState extends State<ChatWidget> {
                         icon: const Icon(
                           Icons.send,
                           color: Colors.white,
+                          size: 20,
                         ),
                       ),
                     ),
