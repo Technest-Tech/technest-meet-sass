@@ -86,7 +86,7 @@ export function SettingsControl({ isHost, canRecord }: SettingsControlProps) {
         >
           <div
             style={{
-              backgroundColor: 'white',
+              backgroundColor: '#2d3748',
               borderRadius: '12px',
               padding: '20px',
               maxWidth: '500px',
@@ -109,7 +109,7 @@ export function SettingsControl({ isHost, canRecord }: SettingsControlProps) {
                 border: 'none',
                 fontSize: '24px',
                 cursor: 'pointer',
-                color: '#6b7280',
+                color: '#e5e7eb',
                 width: '30px',
                 height: '30px',
                 display: 'flex',
@@ -119,12 +119,12 @@ export function SettingsControl({ isHost, canRecord }: SettingsControlProps) {
                 transition: 'all 0.2s ease'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#f3f4f6';
-                e.currentTarget.style.color = '#374151';
+                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                e.currentTarget.style.color = '#ffffff';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.backgroundColor = 'transparent';
-                e.currentTarget.style.color = '#6b7280';
+                e.currentTarget.style.color = '#e5e7eb';
               }}
             >
               ×
