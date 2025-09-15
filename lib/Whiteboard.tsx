@@ -38,10 +38,10 @@ interface WhiteboardProps {
 }
 
 const COLORS = [
-  '#000000', '#FF0000', '#0000FF'
+  '#000000', '#FF0000'
 ];
 
-const BRUSH_SIZES = [2, 4, 8];
+const BRUSH_SIZES = [2, 8];
 
 export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: WhiteboardProps) {
   const room = useRoomContext();
@@ -635,145 +635,96 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
   return (
     <div className={styles.whiteboardOverlay}>
       <div className={styles.whiteboardContainer}>
-        {/* Compact Header */}
-        <div className={styles.whiteboardHeader}>
-          <div className={styles.headerTitle}>
-            <h2 className={styles.whiteboardTitle}>Collaborative Whiteboard</h2>
-            {!isHost && (
-              <div className={styles.hostControlIndicator}>
-                <span className={styles.hostControlText}>👑 Controlled by Host</span>
-              </div>
-            )}
-          </div>
-          <div className={styles.headerButtons}>
+
+        {/* Compact Top Toolbar - All Controls */}
+        <div className={styles.compactToolbar}>
+          {/* Action Buttons */}
+          <div className={styles.toolGroup}>
             <button
               onClick={downloadWhiteboard}
-              className={`${styles.headerButton} ${styles.downloadButton}`}
-              title="Download whiteboard as image"
+              className={`${styles.compactButton} ${styles.downloadButton}`}
+              title="Download"
             >
               💾
             </button>
             <button
               onClick={clearWhiteboard}
-              className={`${styles.headerButton} ${styles.clearButton}`}
-              title="Clear whiteboard"
+              className={`${styles.compactButton} ${styles.clearButton}`}
+              title="Clear"
             >
               🗑️
             </button>
             <button
               onClick={onClose}
-              className={`${styles.headerButton} ${styles.closeButton}`}
-              title="Close whiteboard"
+              className={`${styles.compactButton} ${styles.closeButton}`}
+              title="Close"
             >
               ✕
             </button>
           </div>
-        </div>
 
-        {/* Compact Toolbar */}
-        <div className={styles.whiteboardToolbar}>
-          {/* Mode Selection */}
+          {/* Drawing Tools */}
           <div className={styles.toolGroup}>
             <button
-              onClick={() => setCurrentMode('draw')}
-              className={`${styles.toolButton} ${styles.toolButtonIcon} ${
-                currentMode === 'draw' ? styles.active : ''
+              onClick={() => setCurrentTool('pen')}
+              className={`${styles.compactButton} ${
+                currentTool === 'pen' ? styles.active : ''
               }`}
-              title="Draw Mode"
+              title="Pen"
             >
-              🎨
+              ✏️
             </button>
             <button
-              onClick={() => setCurrentMode('move')}
-              className={`${styles.toolButton} ${styles.toolButtonIcon} ${
-                currentMode === 'move' ? styles.active : ''
+              onClick={() => setCurrentTool('eraser')}
+              className={`${styles.compactButton} ${
+                currentTool === 'eraser' ? styles.active : ''
               }`}
-              title="Move Images Mode"
+              title="Eraser"
             >
-              🖱️
+              🧽
             </button>
           </div>
 
-          {/* Tool Selection (only show in draw mode) */}
-          {currentMode === 'draw' && (
-            <div className={styles.toolGroup}>
+          {/* Colors */}
+          <div className={styles.toolGroup}>
+            {COLORS.map((color) => (
               <button
-                onClick={() => setCurrentTool('pen')}
-                className={`${styles.toolButton} ${styles.toolButtonIcon} ${
-                  currentTool === 'pen' ? styles.active : ''
+                key={color}
+                onClick={() => setCurrentColor(color)}
+                className={`${styles.compactColorButton} ${
+                  currentColor === color ? styles.active : ''
                 }`}
-                title="Pen Tool"
-              >
-                ✏️
-              </button>
-              <button
-                onClick={() => setCurrentTool('eraser')}
-                className={`${styles.toolButton} ${styles.toolButtonIcon} ${
-                  currentTool === 'eraser' ? styles.active : ''
-                }`}
-                title="Eraser Tool"
-              >
-                🧽
-              </button>
-            </div>
-          )}
+                style={{ backgroundColor: color }}
+                title={color}
+              />
+            ))}
+          </div>
 
-          {/* Image Upload Button */}
+          {/* Brush Sizes */}
+          <div className={styles.toolGroup}>
+            {BRUSH_SIZES.map((size) => (
+              <button
+                key={size}
+                onClick={() => setCurrentWidth(size)}
+                className={`${styles.compactSizeButton} ${
+                  currentWidth === size ? styles.active : ''
+                }`}
+                title={`Size: ${size}px`}
+              >
+                {size}
+              </button>
+            ))}
+          </div>
+
+          {/* Image Upload */}
           <div className={styles.toolGroup}>
             <button
               onClick={() => setShowImageUpload(true)}
-              className={`${styles.toolButton} ${styles.toolButtonIcon}`}
+              className={styles.compactButton}
               title="Upload Image"
             >
               🖼️
             </button>
-          </div>
-
-          {/* Color Selection (only show in draw mode) */}
-          {currentMode === 'draw' && (
-            <div className={styles.toolGroup}>
-              <div className={styles.colorPalette}>
-                {COLORS.map((color) => (
-                  <button
-                    key={color}
-                    onClick={() => setCurrentColor(color)}
-                    className={`${styles.colorButton} ${
-                      currentColor === color ? styles.active : ''
-                    }`}
-                    style={{ backgroundColor: color }}
-                    title={color}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Brush Size (only show in draw mode) */}
-          {currentMode === 'draw' && (
-            <div className={styles.toolGroup}>
-              <div className={styles.sizeButtons}>
-                {BRUSH_SIZES.map((size) => (
-                  <button
-                    key={size}
-                    onClick={() => setCurrentWidth(size)}
-                    className={`${styles.sizeButton} ${
-                      currentWidth === size ? styles.active : ''
-                    }`}
-                    title={`Brush size: ${size}px`}
-                  >
-                    {size}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Status Indicator */}
-          <div className={styles.statusIndicator}>
-            <div className={`${styles.statusDot} ${
-              isConnected ? styles.connected : styles.disconnected
-            }`} />
-            {isConnected ? 'Connected' : 'Disconnected'}
           </div>
         </div>
 
@@ -902,34 +853,6 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
           />
         </div>
 
-        {/* Compact Footer */}
-        <div className={styles.whiteboardFooter}>
-          <div className={styles.footerContent}>
-            <div className={styles.footerInfo}>
-              <span>
-                {isHost ? '👑' : '👤'} • 
-                {currentMode === 'draw' ? (
-                  <>
-                    {currentTool === 'pen' ? '✏️' : '🧽'} • 
-                    <span className={styles.colorIndicator} style={{ backgroundColor: currentColor }}></span> • 
-                    {currentWidth}px
-                    {isDrawing && (
-                      <span className={styles.drawingIndicator}> • ✏️</span>
-                    )}
-                  </>
-                ) : (
-                  <>🖱️ Move Mode</>
-                )}
-              </span>
-            </div>
-            <div className={styles.footerInfo}>
-              <span>
-                {strokes.length + localStrokes.length} strokes • 
-                {room?.numParticipants || 1} participants
-              </span>
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Image Upload Modal */}

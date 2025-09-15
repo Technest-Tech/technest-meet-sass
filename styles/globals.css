@@ -682,21 +682,79 @@ main[data-lk-theme="default"] {
   }
 }
 
-/* Mobile responsive control bar styles */
+/* Ensure LiveKit control bar is visible on mobile */
 @media (max-width: 768px) {
+  .lk-control-bar {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 9999 !important;
+    background: rgba(0, 0, 0, 0.95) !important;
+    backdrop-filter: blur(10px) !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+    padding: 8px 12px !important;
+    min-height: 60px !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    width: 100vw !important;
+    box-sizing: border-box !important;
+  }
+  
+  /* Ensure the control bar is not hidden by other elements */
+  .lk-room-container {
+    padding-bottom: 60px !important;
+  }
+  
+  /* Make sure video content doesn't overlap with control bar */
+  .lk-focus-layout {
+    padding-bottom: 80px !important;
+  }
+  
+  .lk-control-bar .lk-button-group {
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 8px !important;
+  }
+  
   .lk-button {
-    padding: 0.5rem 1rem;
-    font-size: 0.875rem;
-    min-width: 44px;
-    min-height: 44px;
-    touch-action: manipulation;
+    padding: 8px 12px !important;
+    font-size: 14px !important;
+    min-width: 48px !important;
+    min-height: 48px !important;
+    touch-action: manipulation !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: rgba(255, 255, 255, 0.1) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    border-radius: 8px !important;
+    color: white !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+  }
+  
+  .lk-button:hover {
+    background: rgba(255, 255, 255, 0.2) !important;
+    transform: scale(1.05) !important;
+  }
+  
+  .lk-button:active {
+    transform: scale(0.95) !important;
   }
   
   .lk-button-group {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.25rem;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 8px !important;
+    visibility: visible !important;
+    opacity: 1 !important;
   }
   
   .lk-button-group button {
@@ -766,6 +824,237 @@ main[data-lk-theme="default"] {
   
   .settings-text {
     font-size: 0.625rem;
+  }
+}
+
+/* Additional mobile control bar visibility fixes */
+@media (max-width: 768px) {
+  /* Force LiveKit control bar to be visible */
+  [data-lk-theme="default"] .lk-control-bar,
+  .lk-control-bar {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 9999 !important;
+    background: rgba(0, 0, 0, 0.95) !important;
+    backdrop-filter: blur(10px) !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+    padding: 8px 12px !important;
+    min-height: 60px !important;
+    width: 100vw !important;
+    box-sizing: border-box !important;
+  }
+  
+  /* Ensure dropdowns don't overlap with other elements */
+  .more-controls-dropdown {
+    position: fixed !important;
+    bottom: 80px !important;
+    right: 20px !important;
+    z-index: 99999 !important;
+    max-width: calc(100vw - 40px) !important;
+  }
+  
+  /* Ensure More button appears above user cards and other elements */
+  .more-controls-container {
+    z-index: 99999 !important;
+    position: relative !important;
+  }
+  
+  .more-controls-button {
+    z-index: 99999 !important;
+    position: relative !important;
+  }
+  
+  /* Ensure user cards and participant tiles don't overlap with More button */
+  .lk-participant-tile,
+  .lk-participant-tile-info,
+  .lk-video-placeholder,
+  .lk-focus-layout-main > div,
+  .lk-focus-layout > div,
+  .lk-video-container,
+  .lk-participant-tile-video {
+    z-index: 1 !important;
+    position: relative !important;
+  }
+  
+  /* Ensure all video elements stay below More button */
+  .lk-focus-layout,
+  .lk-focus-layout-main,
+  .lk-video-conference {
+    z-index: 1 !important;
+    position: relative !important;
+  }
+  
+  /* Ensure participant info doesn't interfere with controls */
+  .lk-participant-tile-info {
+    z-index: 2 !important;
+  }
+  
+  /* Ensure More button is always visible and clickable */
+  .more-controls-container,
+  .more-controls-button {
+    pointer-events: auto !important;
+    position: relative !important;
+    z-index: 99999 !important;
+  }
+  
+  /* Ensure More button appears above all video elements */
+  .more-controls-container * {
+    z-index: inherit !important;
+  }
+  
+  /* Force More button to appear above everything */
+  [class*="more-controls"] {
+    z-index: 99999 !important;
+    position: relative !important;
+  }
+  
+  /* Ensure More button appears above any stacked user cards */
+  .more-controls-container {
+    z-index: 99999 !important;
+    position: fixed !important;
+    top: auto !important;
+    bottom: 100px !important;
+    right: 20px !important;
+  }
+  
+  /* Ensure device selection menus don't overlap but don't force them to be visible */
+  .lk-device-menu,
+  .lk-media-device-menu,
+  .lk-device-select,
+  .lk-media-device-select,
+  [data-lk-source="microphone"] + div,
+  [data-lk-source="camera"] + div {
+    z-index: 9998 !important;
+  }
+  
+  /* Ensure LiveKit dropdowns and menus are properly positioned but not forced visible */
+  .lk-dropdown,
+  .lk-menu,
+  .lk-popover {
+    z-index: 9998 !important;
+  }
+  
+  /* Hide all LiveKit dropdowns and menus by default */
+  .lk-dropdown:not([data-lk-open="true"]):not(.lk-open),
+  .lk-menu:not([data-lk-open="true"]):not(.lk-open),
+  .lk-popover:not([data-lk-open="true"]):not(.lk-open) {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+  }
+  
+  /* Ensure LiveKit buttons are clickable and can trigger dropdowns */
+  .lk-control-bar .lk-button {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+    user-select: none !important;
+  }
+  
+  /* Ensure dropdown triggers work properly */
+  .lk-control-bar .lk-button[data-lk-source="microphone"],
+  .lk-control-bar .lk-button[data-lk-source="camera"] {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+  }
+  
+  /* Ensure dropdown arrow icons are clickable */
+  .lk-control-bar .lk-button svg,
+  .lk-control-bar .lk-button .lk-button-icon {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+  }
+  
+  /* Ensure MediaDeviceMenu components work properly */
+  .lk-media-device-menu {
+    position: relative !important;
+  }
+  
+  .lk-media-device-menu button {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+  }
+  
+  /* Hide device menus by default - they should only show when clicked */
+  .lk-device-menu:not([data-lk-open="true"]),
+  .lk-media-device-menu:not([data-lk-open="true"]),
+  .lk-device-select:not([data-lk-open="true"]),
+  .lk-media-device-select:not([data-lk-open="true"]),
+  .lk-device-menu:not(.lk-open),
+  .lk-media-device-menu:not(.lk-open),
+  .lk-device-select:not(.lk-open),
+  .lk-media-device-select:not(.lk-open) {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+  }
+  
+  /* Ensure device menus are visible when they should be open */
+  .lk-device-menu[data-lk-open="true"],
+  .lk-media-device-menu[data-lk-open="true"],
+  .lk-device-select[data-lk-open="true"],
+  .lk-media-device-select[data-lk-open="true"],
+  .lk-device-menu.lk-open,
+  .lk-media-device-menu.lk-open,
+  .lk-device-select.lk-open,
+  .lk-media-device-select.lk-open {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    position: absolute !important;
+    z-index: 10001 !important;
+  }
+  
+  /* Ensure LiveKit dropdowns are visible when open */
+  .lk-dropdown[data-lk-open="true"],
+  .lk-menu[data-lk-open="true"],
+  .lk-popover[data-lk-open="true"],
+  .lk-dropdown.lk-open,
+  .lk-menu.lk-open,
+  .lk-popover.lk-open {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    z-index: 10001 !important;
+    position: absolute !important;
+    background: rgba(0, 0, 0, 0.9) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    border-radius: 8px !important;
+    padding: 8px !important;
+    min-width: 200px !important;
+  }
+  
+  /* Ensure all LiveKit buttons are visible */
+  [data-lk-theme="default"] .lk-control-bar .lk-button,
+  .lk-control-bar .lk-button {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    min-width: 48px !important;
+    min-height: 48px !important;
+    padding: 8px 12px !important;
+    background: rgba(255, 255, 255, 0.1) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    border-radius: 8px !important;
+    color: white !important;
+    cursor: pointer !important;
+  }
+  
+  /* Ensure button groups are visible */
+  [data-lk-theme="default"] .lk-control-bar .lk-button-group,
+  .lk-control-bar .lk-button-group {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    flex-direction: row !important;
+    gap: 8px !important;
+    align-items: center !important;
   }
 }
 

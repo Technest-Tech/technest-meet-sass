@@ -207,9 +207,10 @@ Do you want to continue?`;
   };
 
   return (
-    <div ref={dropdownRef} style={{ position: 'relative' }}>
+    <div ref={dropdownRef} className="more-controls-container" style={{ position: 'relative' }}>
       {/* More Button */}
       <button
+        className="more-controls-button"
         onClick={toggleDropdown}
         style={{
           padding: '12px 16px',
@@ -250,19 +251,20 @@ Do you want to continue?`;
       {/* Dropdown Menu */}
       {isDropdownOpen && (
         <div
+          className="more-controls-dropdown"
           style={{
-            position: 'absolute',
-            bottom: '100%',
-            right: '0',
-            marginBottom: '8px',
+            position: 'fixed',
+            bottom: '80px',
+            right: '20px',
             backgroundColor: 'rgba(17, 24, 39, 0.95)',
             backdropFilter: 'blur(12px)',
             borderRadius: '12px',
             padding: '12px',
             minWidth: '180px',
+            maxWidth: 'calc(100vw - 40px)',
             boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.1)',
             border: '1px solid rgba(255, 255, 255, 0.1)',
-            zIndex: 1001,
+            zIndex: 99999,
             display: 'flex',
             flexDirection: 'column',
             gap: '6px'
