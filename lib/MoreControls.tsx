@@ -117,6 +117,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting }: More
     setIsRemoving(participantIdentity);
 
     try {
+      console.log(`🔧 Attempting to remove participant: ${participantIdentity} from room: ${roomName}`);
       const response = await fetch(`/api/admin/rooms/${roomName}/remove-participant`, {
         method: 'POST',
         headers: {
@@ -130,10 +131,21 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting }: More
 
       if (response.ok) {
         const result = await response.json();
-        setParticipantNotification({
-          message: result.message,
-          type: 'success'
-        });
+        console.log(`✅ Participant removal successful:`, result);
+        
+        // Verify this was a participant removal, not an end meeting
+        if (result.action === 'remove_participant_only') {
+          setParticipantNotification({
+            message: result.message,
+            type: 'success'
+          });
+        } else {
+          console.warn('⚠️ Unexpected response from remove participant API:', result);
+          setParticipantNotification({
+            message: 'Participant removed, but unexpected response received',
+            type: 'info'
+          });
+        }
         setTimeout(() => setParticipantNotification(null), 3000);
       } else {
         const error = await response.json();

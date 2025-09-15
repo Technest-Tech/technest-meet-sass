@@ -43,6 +43,7 @@ export function ParticipantManager({ isHost, roomName }: ParticipantManagerProps
     setIsRemoving(participantIdentity);
 
     try {
+      console.log(`🔧 Attempting to remove participant: ${participantIdentity} from room: ${roomName}`);
       const response = await fetch(`/api/admin/rooms/${roomName}/remove-participant`, {
         method: 'POST',
         headers: {
@@ -56,10 +57,21 @@ export function ParticipantManager({ isHost, roomName }: ParticipantManagerProps
 
       if (response.ok) {
         const result = await response.json();
-        setNotification({
-          message: result.message,
-          type: 'success'
-        });
+        console.log(`✅ Participant removal successful:`, result);
+        
+        // Verify this was a participant removal, not an end meeting
+        if (result.action === 'remove_participant_only') {
+          setNotification({
+            message: result.message,
+            type: 'success'
+          });
+        } else {
+          console.warn('⚠️ Unexpected response from remove participant API:', result);
+          setNotification({
+            message: 'Participant removed, but unexpected response received',
+            type: 'info'
+          });
+        }
         
         // Clear notification after 3 seconds
         setTimeout(() => setNotification(null), 3000);

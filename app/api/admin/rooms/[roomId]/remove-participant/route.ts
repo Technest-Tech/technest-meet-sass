@@ -10,6 +10,9 @@ export async function POST(
     const body = await request.json();
     const { participantIdentity, roomName } = body;
 
+    console.log('🔧 Remove Participant API called with params:', { roomId });
+    console.log('📝 Request body:', { participantIdentity, roomName });
+
     if (!participantIdentity) {
       return NextResponse.json(
         { error: 'Participant identity is required' },
@@ -88,10 +91,11 @@ export async function POST(
 
       // Remove the participant
       try {
+        console.log(`Attempting to remove participant: ${participantIdentity} from room: ${roomName}`);
         await roomService.removeParticipant(roomName, participantIdentity);
-        console.log(`Successfully removed participant: ${participantIdentity}`);
+        console.log(`✅ Successfully removed participant: ${participantIdentity}`);
       } catch (error) {
-        console.error(`Failed to remove participant ${participantIdentity}:`, error);
+        console.error(`❌ Failed to remove participant ${participantIdentity}:`, error);
         return NextResponse.json(
           { 
             error: 'Failed to remove participant',
@@ -105,7 +109,8 @@ export async function POST(
         success: true,
         message: `Participant "${participantIdentity}" has been removed from the meeting`,
         participantRemoved: participantIdentity,
-        roomName: roomName
+        roomName: roomName,
+        action: 'remove_participant_only' // Explicitly indicate this is only participant removal
       });
 
     } catch (error) {
