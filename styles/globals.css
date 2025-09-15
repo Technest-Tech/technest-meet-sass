@@ -939,10 +939,49 @@ main[data-lk-theme="default"] {
     z-index: 9998 !important;
   }
   
-  /* Hide all LiveKit dropdowns and menus by default */
-  .lk-dropdown:not([data-lk-open="true"]):not(.lk-open),
-  .lk-menu:not([data-lk-open="true"]):not(.lk-open),
-  .lk-popover:not([data-lk-open="true"]):not(.lk-open) {
+  /* Hide device dropdowns by default on page load */
+  .lk-device-menu,
+  .lk-media-device-menu,
+  .lk-device-select,
+  .lk-media-device-select,
+  .lk-control-bar [role="menu"],
+  .lk-control-bar [role="listbox"] {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+  }
+  
+  /* Show device dropdowns only when they have proper open state */
+  .lk-device-menu[data-lk-open="true"],
+  .lk-media-device-menu[data-lk-open="true"],
+  .lk-device-select[data-lk-open="true"],
+  .lk-media-device-select[data-lk-open="true"],
+  .lk-device-menu.lk-open,
+  .lk-media-device-menu.lk-open,
+  .lk-device-select.lk-open,
+  .lk-media-device-select.lk-open,
+  .lk-control-bar [role="menu"][aria-expanded="true"],
+  .lk-control-bar [role="listbox"][aria-expanded="true"] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+  
+  /* Force hide any dropdown that might be initialized as open on page load */
+  .lk-control-bar .lk-device-menu:not([data-lk-open="true"]):not(.lk-open),
+  .lk-control-bar .lk-media-device-menu:not([data-lk-open="true"]):not(.lk-open),
+  .lk-control-bar .lk-device-select:not([data-lk-open="true"]):not(.lk-open),
+  .lk-control-bar .lk-media-device-select:not([data-lk-open="true"]):not(.lk-open) {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+  }
+  
+  /* Additional selectors to catch any LiveKit dropdown variations */
+  .lk-control-bar [data-lk-source="microphone"] + div:not([data-lk-open="true"]):not(.lk-open),
+  .lk-control-bar [data-lk-source="camera"] + div:not([data-lk-open="true"]):not(.lk-open),
+  .lk-control-bar [data-lk-source="microphone"] ~ div:not([data-lk-open="true"]):not(.lk-open),
+  .lk-control-bar [data-lk-source="camera"] ~ div:not([data-lk-open="true"]):not(.lk-open) {
     display: none !important;
     visibility: hidden !important;
     opacity: 0 !important;
@@ -972,6 +1011,7 @@ main[data-lk-theme="default"] {
   /* Ensure MediaDeviceMenu components work properly */
   .lk-media-device-menu {
     position: relative !important;
+    z-index: 10001 !important;
   }
   
   .lk-media-device-menu button {
@@ -979,55 +1019,56 @@ main[data-lk-theme="default"] {
     cursor: pointer !important;
   }
   
-  /* Hide device menus by default - they should only show when clicked */
-  .lk-device-menu:not([data-lk-open="true"]),
-  .lk-media-device-menu:not([data-lk-open="true"]),
-  .lk-device-select:not([data-lk-open="true"]),
-  .lk-media-device-select:not([data-lk-open="true"]),
-  .lk-device-menu:not(.lk-open),
-  .lk-media-device-menu:not(.lk-open),
-  .lk-device-select:not(.lk-open),
-  .lk-media-device-select:not(.lk-open) {
-    display: none !important;
-    visibility: hidden !important;
-    opacity: 0 !important;
+  /* Ensure device selection buttons are clickable */
+  .lk-control-bar .lk-button[data-lk-source="microphone"],
+  .lk-control-bar .lk-button[data-lk-source="camera"] {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+    position: relative !important;
   }
   
-  /* Ensure device menus are visible when they should be open */
-  .lk-device-menu[data-lk-open="true"],
-  .lk-media-device-menu[data-lk-open="true"],
-  .lk-device-select[data-lk-open="true"],
-  .lk-media-device-select[data-lk-open="true"],
-  .lk-device-menu.lk-open,
-  .lk-media-device-menu.lk-open,
-  .lk-device-select.lk-open,
-  .lk-media-device-select.lk-open {
-    display: block !important;
-    visibility: visible !important;
-    opacity: 1 !important;
+  /* Ensure device selection dropdowns work */
+  .lk-control-bar .lk-button[data-lk-source="microphone"] + *,
+  .lk-control-bar .lk-button[data-lk-source="camera"] + * {
+    z-index: 10001 !important;
     pointer-events: auto !important;
-    position: absolute !important;
+  }
+  
+  /* Allow LiveKit device menus to work normally - don't force hide them */
+  
+  /* Ensure device menus have proper z-index when they are open (let LiveKit handle visibility) */
+  .lk-device-menu,
+  .lk-media-device-menu,
+  .lk-device-select,
+  .lk-media-device-select {
     z-index: 10001 !important;
   }
   
-  /* Ensure LiveKit dropdowns are visible when open */
-  .lk-dropdown[data-lk-open="true"],
-  .lk-menu[data-lk-open="true"],
-  .lk-popover[data-lk-open="true"],
-  .lk-dropdown.lk-open,
-  .lk-menu.lk-open,
-  .lk-popover.lk-open {
-    display: block !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    pointer-events: auto !important;
+  /* Ensure LiveKit dropdowns have proper styling when open (let LiveKit handle visibility) */
+  .lk-dropdown,
+  .lk-menu,
+  .lk-popover {
     z-index: 10001 !important;
-    position: absolute !important;
+  }
+  
+  /* Ensure any LiveKit menu that appears is properly styled */
+  .lk-control-bar [role="menu"],
+  .lk-control-bar [role="listbox"],
+  .lk-control-bar .lk-menu,
+  .lk-control-bar .lk-dropdown {
+    z-index: 10001 !important;
     background: rgba(0, 0, 0, 0.9) !important;
     border: 1px solid rgba(255, 255, 255, 0.2) !important;
     border-radius: 8px !important;
     padding: 8px !important;
     min-width: 200px !important;
+    pointer-events: auto !important;
+  }
+  
+  /* Ensure only one dropdown is visible at a time */
+  .lk-control-bar .lk-device-menu[data-lk-open="true"] ~ .lk-device-menu:not([data-lk-open="true"]),
+  .lk-control-bar .lk-media-device-menu[data-lk-open="true"] ~ .lk-media-device-menu:not([data-lk-open="true"]) {
+    display: none !important;
   }
   
   /* Ensure all LiveKit buttons are visible */
