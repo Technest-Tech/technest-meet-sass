@@ -298,20 +298,20 @@ export default function AdminDashboard() {
                     <div className="flex items-center space-x-reverse space-x-2">
                       <input
                         type="text"
-                        value={`${window.location.origin}/${room.hostLink}?h`}
+                        value={`${window.location.origin}/${room.hostLink}/h`}
                         readOnly
                         onClick={(e) => (e.target as HTMLInputElement).select()}
                         className="flex-1 text-xs bg-gray-50 border border-gray-200 rounded px-2 py-1 text-gray-600 text-right cursor-pointer"
                       />
                       <button
-                        onClick={(e) => copyToClipboard(`${window.location.origin}/${room.hostLink}?h`, e)}
+                        onClick={(e) => copyToClipboard(`${window.location.origin}/${room.hostLink}/h`, e)}
                         className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
                         title="نسخ الرابط"
                       >
                         <Copy className="w-4 h-4" />
                       </button>
                       <a
-                        href={`/${room.hostLink}?h`}
+                        href={`/${room.hostLink}/h`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="p-1 text-primary-600 hover:text-primary-700 transition-colors"
@@ -327,20 +327,20 @@ export default function AdminDashboard() {
                     <div className="flex items-center space-x-reverse space-x-2">
                       <input
                         type="text"
-                        value={`${window.location.origin}/${room.guestLink}?g`}
+                        value={`${window.location.origin}/${room.guestLink}/g`}
                         readOnly
                         onClick={(e) => (e.target as HTMLInputElement).select()}
                         className="flex-1 text-xs bg-gray-50 border border-gray-200 rounded px-2 py-1 text-gray-600 text-right cursor-pointer"
                       />
                       <button
-                        onClick={(e) => copyToClipboard(`${window.location.origin}/${room.guestLink}?g`, e)}
+                        onClick={(e) => copyToClipboard(`${window.location.origin}/${room.guestLink}/g`, e)}
                         className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
                         title="نسخ الرابط"
                       >
                         <Copy className="w-4 h-4" />
                       </button>
                       <a
-                        href={`/${room.guestLink}?g`}
+                        href={`/${room.guestLink}/g`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="p-1 text-primary-600 hover:text-primary-700 transition-colors"

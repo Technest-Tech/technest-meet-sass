@@ -112,6 +112,7 @@ Do you want to continue?`;
       {/* Participant Manager Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
+        data-participants-trigger="true"
         style={{
           padding: '12px 16px',
           backgroundColor: 'rgba(59, 130, 246, 0.9)',

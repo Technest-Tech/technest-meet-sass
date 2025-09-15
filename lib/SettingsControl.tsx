@@ -24,6 +24,7 @@ export function SettingsControl({ isHost, canRecord }: SettingsControlProps) {
       {/* Vid Background Control Button */}
       <button
         onClick={toggleSettings}
+        data-settings-trigger="true"
         title={isSettingsOpen ? 'Close Video Background Settings' : 'Open Video Background Settings'}
         style={{
           padding: '12px 16px',

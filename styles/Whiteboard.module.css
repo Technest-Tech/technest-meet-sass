@@ -366,6 +366,19 @@
     font-weight: bold;
   }
   
+  /* Ensure clear button is also prominent on mobile */
+  .clearButton {
+    background-color: #dc2626 !important;
+    box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
+    border: 2px solid #ffffff;
+    position: relative;
+    z-index: 100;
+    min-width: 3rem !important;
+    min-height: 3rem !important;
+    font-size: 1.25rem !important;
+    font-weight: bold;
+  }
+  
   .closeButton:hover,
   .closeButton:active {
     background-color: #b91c1c !important;
@@ -373,7 +386,19 @@
     box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
   }
   
+  .clearButton:hover,
+  .clearButton:active {
+    background-color: #b91c1c !important;
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
+  }
+  
   .closeButton:focus {
+    outline: 3px solid #fbbf24 !important;
+    outline-offset: 2px;
+  }
+  
+  .clearButton:focus {
     outline: 3px solid #fbbf24 !important;
     outline-offset: 2px;
   }
@@ -415,6 +440,8 @@
     flex-shrink: 0;
     display: flex;
     align-items: center;
+    position: relative;
+    z-index: 10;
   }
   
   .headerButton {
@@ -517,6 +544,11 @@
   
   .headerButtons {
     gap: 0.25rem;
+    position: relative;
+    z-index: 10;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
   }
   
   .headerButton {
@@ -529,6 +561,16 @@
   
   /* Make close button even more prominent on small screens */
   .closeButton {
+    min-width: 2.75rem !important;
+    min-height: 2.75rem !important;
+    font-size: 1rem !important;
+    background-color: #dc2626 !important;
+    box-shadow: 0 3px 10px rgba(220, 38, 38, 0.4) !important;
+    border: 2px solid #ffffff !important;
+  }
+  
+  /* Make clear button even more prominent on small screens */
+  .clearButton {
     min-width: 2.75rem !important;
     min-height: 2.75rem !important;
     font-size: 1rem !important;
@@ -604,6 +646,18 @@
   
   /* Ultra-prominent close button for extra small screens */
   .closeButton {
+    min-width: 2.5rem !important;
+    min-height: 2.5rem !important;
+    font-size: 0.875rem !important;
+    background-color: #dc2626 !important;
+    box-shadow: 0 2px 8px rgba(220, 38, 38, 0.5) !important;
+    border: 2px solid #ffffff !important;
+    position: relative;
+    z-index: 200;
+  }
+  
+  /* Ultra-prominent clear button for extra small screens */
+  .clearButton {
     min-width: 2.5rem !important;
     min-height: 2.5rem !important;
     font-size: 0.875rem !important;

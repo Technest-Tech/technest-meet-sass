@@ -181,6 +181,7 @@ export function SimpleRecordingControl({ isHost }: SimpleRecordingControlProps) 
       disabled={processingRecRequest}
       className="mobile-recording-button"
       data-recording={isRecording}
+      data-recording-trigger="true"
       title={
         isRecording 
           ? 'Stop screen recording'

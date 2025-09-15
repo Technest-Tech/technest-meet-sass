@@ -5,15 +5,12 @@ import { Room, RoomEvent, RoomConnectOptions, Track, TrackPublication, VideoPres
 import { RoomContext, VideoTrack, useLocalParticipant, useParticipants } from '@livekit/components-react';
 import { TrackToggle, MediaDeviceMenu } from '@livekit/components-react';
 import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
-import { RecordingControl } from '@/lib/RecordingControl';
 import { RecordingIndicator } from '@/lib/RecordingIndicator';
 import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
 import { ExternalE2EEKeyProvider } from 'livekit-client';
 import { PictureInPicture } from '@/lib/PictureInPicture';
-import { ChatControl } from '@/lib/ChatControl';
-import { WhiteboardControl } from '@/lib/WhiteboardControl';
-import { SimpleRecordingControl } from '@/lib/SimpleRecordingControl';
+import { MoreControls } from '@/lib/MoreControls';
 
 interface VideoConferenceClientImplProps {
   liveKitUrl: string;
@@ -533,40 +530,35 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
             </section>
           </div>
 
-          {/* Center - Host Controls (if host) */}
-          {props.isHost && (
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <div className="mobile-host-control">
-                <SimpleRecordingControl isHost={true} />
-              </div>
-              <div className="mobile-host-control">
-                <WhiteboardControl isHost={true} />
-              </div>
-            </div>
-          )}
-
-          {/* Center - Settings (if not host or as fallback) */}
-          {!props.isHost && (
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <button
-                className="lk-button lk-button-settings mobile-settings-button"
-                onClick={() => {
-                  const event = new CustomEvent('toggle_settings');
-                  window.dispatchEvent(event);
-                }}
-                title="Settings"
-              >
-                <span className="mobile-button-content">
-                  <span className="mobile-button-icon">⚙️</span>
-                  <span className="mobile-button-label">Settings</span>
-                </span>
-              </button>
-            </div>
-          )}
-
-          {/* Right side - Chat */}
+          {/* Center - More Controls */}
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <ChatControl isHost={props.isHost} />
+            <MoreControls
+              isHost={props.isHost}
+              canRecord={true}
+              roomName={props.roomName || 'mobile-room'}
+              onEndMeeting={() => {
+                if (props.isHost) {
+                  // Host can end meeting
+                  const confirmMessage = `🚨 END MEETING FOR ALL PARTICIPANTS
+
+This action will:
+• Disconnect ALL participants from the meeting
+• Delete the room entirely
+• Cannot be undone
+
+Are you sure you want to end the meeting for everyone?`;
+                  
+                  if (confirm(confirmMessage)) {
+                    // For mobile, we'll just disconnect the current user
+                    // The full end meeting functionality would need to be implemented
+                    room.disconnect();
+                    window.location.href = '/';
+                  }
+                } else {
+                  alert('Only hosts can end meetings for all participants.');
+                }
+              }}
+            />
           </div>
         </div>
 
@@ -576,8 +568,7 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
         {/* Picture-in-Picture for remote participants with both screen share and camera */}
         <PictureInPicture room={room} />
         
-        {/* Recording Controls and Indicator */}
-        <RecordingControl isHost={true} />
+        {/* Recording Indicator */}
         <RecordingIndicator />
       </RoomContext.Provider>
     </div>

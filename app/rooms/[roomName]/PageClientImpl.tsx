@@ -5,12 +5,8 @@ import { decodePassphrase } from '@/lib/client-utils';
 import { DebugMode } from '@/lib/Debug';
 import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
 import { RecordingIndicator } from '@/lib/RecordingIndicator';
-import { RecordingControl } from '@/lib/RecordingControl';
+import { MoreControls } from '@/lib/MoreControls';
 import { SettingsMenu } from '@/lib/SettingsMenu';
-import { SettingsControl } from '@/lib/SettingsControl';
-import { WhiteboardControl } from '@/lib/WhiteboardControl';
-import { ParticipantManager } from '@/lib/ParticipantManager';
-import { ChatControl } from '@/lib/ChatControl';
 import { ConnectionDetails } from '@/lib/types';
 import {
   formatChatMessageLinks,
@@ -671,19 +667,17 @@ function VideoConferenceComponent(props: {
             position: 'fixed',
             bottom: '20px',
             right: '20px',
-            zIndex: 1000,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '10px'
+            zIndex: 1000
           }}>
-            {/* Guest Whiteboard Control - Always present but only for receiving host commands */}
-            <WhiteboardControl isHost={false} />
-            
-            {/* Guest Settings Control */}
-            <SettingsControl isHost={false} canRecord={false} />
-            
-            {/* Guest Chat Control */}
-            <ChatControl isHost={false} />
+            <MoreControls
+              isHost={false}
+              canRecord={false}
+              roomName={props.roomName}
+              onEndMeeting={() => {
+                // Guests can't end meetings
+                alert('Only hosts can end meetings for all participants.');
+              }}
+            />
           </div>
         )}
         
@@ -695,29 +689,13 @@ function VideoConferenceComponent(props: {
             position: 'fixed',
             bottom: '100px',
             right: '20px',
-            zIndex: 1000,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '10px'
+            zIndex: 1000
           }}>
-            {/* Recording Control */}
-            <RecordingControl isHost={true} canRecord={props.canRecord} />
-            
-            {/* Whiteboard Control */}
-            <WhiteboardControl isHost={true} />
-            
-            {/* Participant Manager */}
-            <ParticipantManager isHost={true} roomName={props.roomName} />
-            
-            {/* Settings Control */}
-            <SettingsControl isHost={true} canRecord={props.canRecord} />
-            
-            {/* Chat Control */}
-            <ChatControl isHost={true} />
-            
-            {/* End Meeting for All */}
-            <button
-              onClick={async () => {
+            <MoreControls
+              isHost={true}
+              canRecord={props.canRecord}
+              roomName={props.roomName}
+              onEndMeeting={async () => {
                 console.log('🚪 End Meeting button clicked!');
                 console.log('Current props:', { participantType: props.participantType, roomName: props.roomName });
                 
@@ -733,13 +711,6 @@ Are you sure you want to end the meeting for everyone?`;
                 
                 if (confirm(confirmMessage)) {
                   try {
-                    // Disable button and show loading state
-                    const button = event?.target as HTMLButtonElement;
-                    const originalText = button.textContent;
-                    button.disabled = true;
-                    button.textContent = '🔄 Ending...';
-                    button.style.backgroundColor = 'rgba(107, 114, 128, 0.9)';
-                    
                     // Call the server-side API to end the meeting for everyone
                     // Use the actual LiveKit room name from connection details
                     const actualRoomName = props.connectionDetails?.roomName || props.roomName;
@@ -784,11 +755,6 @@ The meeting has been terminated for all participants and the room has been delet
                       }
                       
                       alert(`❌ ${errorMessage}\n\nPlease try again or contact support if the problem persists.`);
-                      
-                      // Reset button state
-                      button.disabled = false;
-                      button.textContent = originalText;
-                      button.style.backgroundColor = 'rgba(220, 38, 38, 0.9)';
                     }
                   } catch (error) {
                     console.error('Error ending meeting:', error);
@@ -799,34 +765,10 @@ The meeting has been terminated for all participants and the room has been delet
                     }
                     
                     alert(`❌ ${errorMessage}\n\nThis might be due to a network issue or server problem. Please try again.`);
-                    
-                    // Reset button state
-                    const button = event?.target as HTMLButtonElement;
-                    if (button) {
-                      button.disabled = false;
-                      button.textContent = '🚪 End Meeting';
-                      button.style.backgroundColor = 'rgba(220, 38, 38, 0.9)';
-                    }
                   }
                 }
               }}
-              style={{
-                padding: '12px 16px',
-                backgroundColor: 'rgba(220, 38, 38, 0.9)',
-                color: 'white',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                fontSize: '14px',
-                fontWeight: '500',
-                backdropFilter: 'blur(10px)'
-              }}
-              title="End meeting for ALL participants (not just you)"
-            >
-              🚪 End Meeting
-            </button>
-            
-
+            />
           </div>
         )}
       </RoomContext.Provider>

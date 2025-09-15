@@ -66,8 +66,8 @@ async function main() {
 
       console.log('✅ Sample room created successfully');
       console.log(`   Room ID: ${room.id}`);
-      console.log(`   Host Link: /${room.hostLink}?h`);
-      console.log(`   Guest Link: /${room.guestLink}?g`);
+      console.log(`   Host Link: /${room.hostLink}/h`);
+      console.log(`   Guest Link: /${room.guestLink}/g`);
     } else {
       console.log('ℹ️  Sample room already exists');
     }

@@ -38,11 +38,10 @@ interface WhiteboardProps {
 }
 
 const COLORS = [
-  '#000000', '#FF0000', '#00FF00', '#0000FF', '#FFFF00', 
-  '#FF00FF', '#00FFFF', '#FFA500', '#800080', '#008000'
+  '#000000', '#FF0000', '#0000FF'
 ];
 
-const BRUSH_SIZES = [2, 4, 6, 8, 12, 16, 20];
+const BRUSH_SIZES = [2, 4, 8];
 
 export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: WhiteboardProps) {
   const room = useRoomContext();

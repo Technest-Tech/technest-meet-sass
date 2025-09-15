@@ -87,6 +87,7 @@ export function WhiteboardControl({ isHost }: WhiteboardControlProps) {
           onClick={toggleWhiteboard}
           className="mobile-whiteboard-button"
           data-whiteboard={isWhiteboardOpen}
+          data-whiteboard-trigger="true"
           title={isWhiteboardOpen ? 'Close Whiteboard for All' : 'Open Whiteboard for All'}
         >
           <span className="mobile-button-content">

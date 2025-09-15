@@ -25,6 +25,7 @@ export function ChatControl({ isHost = false }: ChatControlProps) {
       <button
         onClick={toggleChat}
         className={`mobile-chat-button ${isChatOpen ? 'active' : ''}`}
+        data-chat-trigger="true"
         title={isChatOpen ? 'Close Chat' : 'Open Chat'}
       >
         <span className="mobile-button-content">
