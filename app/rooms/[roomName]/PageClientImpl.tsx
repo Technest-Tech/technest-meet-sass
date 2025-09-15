@@ -7,7 +7,10 @@ import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
 import { RecordingIndicator } from '@/lib/RecordingIndicator';
 import { RecordingControl } from '@/lib/RecordingControl';
 import { SettingsMenu } from '@/lib/SettingsMenu';
+import { SettingsControl } from '@/lib/SettingsControl';
 import { WhiteboardControl } from '@/lib/WhiteboardControl';
+import { ParticipantManager } from '@/lib/ParticipantManager';
+import { ChatControl } from '@/lib/ChatControl';
 import { ConnectionDetails } from '@/lib/types';
 import {
   formatChatMessageLinks,
@@ -32,6 +35,11 @@ import { useSetupE2EE } from '@/lib/useSetupE2EE';
 import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
 import { CustomPreJoin } from '@/lib/CustomPreJoin';
 
+// Custom SettingsMenu wrapper that can receive canRecord prop
+function CustomSettingsMenu(props: any) {
+  return <SettingsMenu {...props} canRecord={props.canRecord} />;
+}
+
 const CONN_DETAILS_ENDPOINT =
   process.env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT ?? '/api/connection-details';
 const SHOW_SETTINGS_MENU = process.env.NEXT_PUBLIC_SHOW_SETTINGS_MENU == 'true';
@@ -43,6 +51,7 @@ export function PageClientImpl(props: {
   codec: VideoCodec;
   userName: string;
   participantType?: 'host' | 'guest'; // Add participant type
+  canRecord?: boolean; // Add canRecord prop
 }) {
   const [preJoinChoices, setPreJoinChoices] = React.useState<LocalUserChoices | undefined>(
     undefined,
@@ -188,6 +197,7 @@ export function PageClientImpl(props: {
           options={{ codec: props.codec, hq: props.hq }}
           participantType={props.participantType}
           roomName={props.roomName}
+          canRecord={props.canRecord}
         />
       )}
     </main>
@@ -203,6 +213,7 @@ function VideoConferenceComponent(props: {
   };
   participantType?: 'host' | 'guest'; // Add participant type
   roomName: string; // Add roomName for host controls
+  canRecord?: boolean; // Add canRecord prop
 }) {
   const router = useRouter();
   const keyProvider = new ExternalE2EEKeyProvider();
@@ -431,6 +442,13 @@ function VideoConferenceComponent(props: {
       return;
     }
     
+    // Handle screen sharing permission cancellation gracefully
+    if (error.message.includes('Permission denied by user') || error.message.includes('NotAllowedError')) {
+      console.log('Screen sharing permission was denied by user - this is expected behavior');
+      // Don't show alert for permission cancellation, just log it
+      return;
+    }
+    
     // Only show alert for unexpected errors
     if (!error.message.includes('Network') && !error.message.includes('timeout')) {
       alert(`Encountered an unexpected error, check the console logs for details: ${error.message}`);
@@ -640,16 +658,33 @@ function VideoConferenceComponent(props: {
         <KeyboardShortcuts />
         <VideoConference
           chatMessageFormatter={formatChatMessageLinks}
-          SettingsComponent={SHOW_SETTINGS_MENU ? SettingsMenu : undefined}
+          SettingsComponent={SHOW_SETTINGS_MENU ? (props: any) => <CustomSettingsMenu {...props} canRecord={props.canRecord} /> : undefined}
         />
         <DebugMode />
         <RecordingIndicator />
         
 
         
-        {/* Guest Whiteboard Control - Always present but only for receiving host commands */}
+        {/* Guest-specific controls */}
         {props.participantType === 'guest' && (
-          <WhiteboardControl isHost={false} />
+          <div style={{
+            position: 'fixed',
+            bottom: '20px',
+            right: '20px',
+            zIndex: 1000,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px'
+          }}>
+            {/* Guest Whiteboard Control - Always present but only for receiving host commands */}
+            <WhiteboardControl isHost={false} />
+            
+            {/* Guest Settings Control */}
+            <SettingsControl isHost={false} canRecord={false} />
+            
+            {/* Guest Chat Control */}
+            <ChatControl isHost={false} />
+          </div>
         )}
         
         {/* Picture-in-Picture removed - LiveKit VideoConference component handles participant rendering */}
@@ -666,10 +701,19 @@ function VideoConferenceComponent(props: {
             gap: '10px'
           }}>
             {/* Recording Control */}
-            <RecordingControl isHost={true} />
+            <RecordingControl isHost={true} canRecord={props.canRecord} />
             
             {/* Whiteboard Control */}
             <WhiteboardControl isHost={true} />
+            
+            {/* Participant Manager */}
+            <ParticipantManager isHost={true} roomName={props.roomName} />
+            
+            {/* Settings Control */}
+            <SettingsControl isHost={true} canRecord={props.canRecord} />
+            
+            {/* Chat Control */}
+            <ChatControl isHost={true} />
             
             {/* End Meeting for All */}
             <button

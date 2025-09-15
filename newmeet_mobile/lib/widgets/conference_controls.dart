@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/livekit_service.dart';
+import 'participant_manager_widget.dart';
+import 'chat_widget.dart';
 
-class ConferenceControls extends StatelessWidget {
+class ConferenceControls extends StatefulWidget {
   final String participantType;
+  final String roomName;
   final VoidCallback onToggleWhiteboard;
   final VoidCallback onToggleCamera;
   final VoidCallback onToggleMicrophone;
@@ -14,6 +17,7 @@ class ConferenceControls extends StatelessWidget {
   const ConferenceControls({
     super.key,
     required this.participantType,
+    required this.roomName,
     required this.onToggleWhiteboard,
     required this.onToggleCamera,
     required this.onToggleMicrophone,
@@ -23,22 +27,58 @@ class ConferenceControls extends StatelessWidget {
   });
 
   @override
+  State<ConferenceControls> createState() => _ConferenceControlsState();
+}
+
+class _ConferenceControlsState extends State<ConferenceControls> {
+  bool _isChatOpen = false;
+  int _unreadCount = 0;
+
+  @override
   Widget build(BuildContext context) {
     return Consumer<LiveKitService>(
       builder: (context, liveKitService, child) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.black87,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(16),
-              topRight: Radius.circular(16),
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Chat Widget
+            ChatWidget(
+              isOpen: _isChatOpen,
+              onClose: () {
+                setState(() {
+                  _isChatOpen = false;
+                });
+              },
+              onUnreadCountChange: (count) {
+                setState(() {
+                  _unreadCount = count;
+                });
+              },
             ),
-          ),
-          child: SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
+            
+            // Conference Controls
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.black87,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
+                ),
+              ),
+              child: SafeArea(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                // Participant Manager (Host only)
+                if (widget.participantType.toLowerCase() == 'host')
+                  ParticipantManagerWidget(
+                    participantType: widget.participantType,
+                    roomName: widget.roomName,
+                  ),
+                
+                const SizedBox(height: 16),
+                
                 // Single row with all controls organized by priority
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -50,7 +90,7 @@ class ConferenceControls extends StatelessWidget {
                           : Icons.mic_off,
                       label: 'Mic',
                       isActive: liveKitService.localParticipant?.isMicrophoneEnabled() == true,
-                      onPressed: onToggleMicrophone,
+                      onPressed: widget.onToggleMicrophone,
                     ),
                     
                     // Video Controls
@@ -60,19 +100,32 @@ class ConferenceControls extends StatelessWidget {
                           : Icons.videocam_off,
                       label: 'Camera',
                       isActive: liveKitService.localParticipant?.isCameraEnabled() == true,
-                      onPressed: onToggleCamera,
+                      onPressed: widget.onToggleCamera,
                     ),
                     
                     // Whiteboard Controls (Host only)
-                    if (participantType.toLowerCase() == 'host')
+                    if (widget.participantType.toLowerCase() == 'host')
                       _buildControlButton(
                         icon: liveKitService.isWhiteboardOpen
                             ? Icons.close
                             : Icons.edit,
                         label: 'Whiteboard',
                         isActive: liveKitService.isWhiteboardOpen,
-                        onPressed: onToggleWhiteboard,
+                        onPressed: widget.onToggleWhiteboard,
                       ),
+                    
+                    // Chat Controls (All participants)
+                    _buildControlButton(
+                      icon: _isChatOpen ? Icons.close : Icons.chat,
+                      label: 'Chat',
+                      isActive: _isChatOpen,
+                      onPressed: () {
+                        setState(() {
+                          _isChatOpen = !_isChatOpen;
+                        });
+                      },
+                      badge: _unreadCount > 0 && !_isChatOpen ? _unreadCount : null,
+                    ),
                     
                     // Screen Share Controls
                     _buildControlButton(
@@ -86,8 +139,8 @@ class ConferenceControls extends StatelessWidget {
                       onPressed: liveKitService.isStartingScreenShare
                           ? null
                           : (liveKitService.isScreenSharing
-                              ? onStopScreenShare
-                              : onStartScreenShare),
+                              ? widget.onStopScreenShare
+                              : widget.onStartScreenShare),
                     ),
                     
                     // Leave Meeting (Always last)
@@ -95,14 +148,16 @@ class ConferenceControls extends StatelessWidget {
                       icon: Icons.call_end,
                       label: 'Leave',
                       isActive: false,
-                      onPressed: onLeaveMeeting,
+                      onPressed: widget.onLeaveMeeting,
                       backgroundColor: Colors.red,
                     ),
                   ],
                 ),
-              ],
+                  ],
+                ),
+              ),
             ),
-          ),
+          ],
         );
       },
     );
@@ -116,6 +171,7 @@ class ConferenceControls extends StatelessWidget {
     Color? backgroundColor,
     bool isLoading = false,
     bool isPulsing = false,
+    int? badge,
   }) {
     Widget buttonContent = Container(
       width: 60,
@@ -178,7 +234,36 @@ class ConferenceControls extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        buttonContent,
+        Stack(
+          children: [
+            buttonContent,
+            if (badge != null && badge > 0)
+              Positioned(
+                right: 0,
+                top: 0,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(
+                    color: Colors.red,
+                    shape: BoxShape.circle,
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 20,
+                    minHeight: 20,
+                  ),
+                  child: Text(
+                    badge > 99 ? '99+' : badge.toString(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+          ],
+        ),
         const SizedBox(height: 4),
         Text(
           label,

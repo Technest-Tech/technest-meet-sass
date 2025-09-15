@@ -1,6 +1,6 @@
 class AppConfig {
   // Environment configuration
-  static const Environment _environment = Environment.production;
+  static const Environment _environment = Environment.development;
   
   // Base URLs for different environments
   static const Map<Environment, String> _baseUrls = {

@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:local": "cp env.local .env.local && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -13,7 +14,15 @@
     "format:write": "prettier --write \"**/*.{ts,tsx,md,json}\"",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
-    "db:studio": "prisma studio"
+    "db:push:local": "cp env.local .env.local && export $(cat .env.local | grep -v '^#' | xargs) && prisma db push",
+    "db:studio": "prisma studio",
+    "db:studio:local": "cp env.local .env.local && export $(cat .env.local | grep -v '^#' | xargs) && prisma studio",
+    "db:init:local": "cp env.local .env.local && export $(cat .env.local | grep -v '^#' | xargs) && node scripts/init-local-db.js",
+    "livekit:start": "docker compose -f docker-compose.local.yml up -d",
+    "livekit:stop": "docker compose -f docker-compose.local.yml down",
+    "livekit:logs": "docker compose -f docker-compose.local.yml logs -f",
+    "setup:local": "./scripts/dev-setup.sh",
+    "start:local": "./scripts/dev-start.sh"
   },
   "dependencies": {
     "@datadog/browser-logs": "^5.23.3",

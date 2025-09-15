@@ -14,6 +14,7 @@ interface Room {
   hostApproval: boolean;
   maxParticipants: number;
   isActive: boolean;
+  canRecord: boolean;
   createdAt: string;
   hostLink: string;
   guestLink: string;
@@ -69,12 +70,49 @@ export default function AdminDashboard() {
     router.push('/admin/login');
   };
 
-  const copyToClipboard = async (text: string) => {
+  const copyToClipboard = async (text: string, event?: React.MouseEvent<HTMLButtonElement>) => {
+    const showFeedback = (message: string, isSuccess: boolean) => {
+      const button = event?.currentTarget as HTMLElement;
+      if (button) {
+        const originalTitle = button.getAttribute('title');
+        button.setAttribute('title', message);
+        button.style.color = isSuccess ? '#10b981' : '#ef4444';
+        
+        setTimeout(() => {
+          button.setAttribute('title', originalTitle || 'نسخ الرابط');
+          button.style.color = '';
+        }, 2000);
+      }
+    };
+
     try {
-      await navigator.clipboard.writeText(text);
-      // You could add a toast notification here
+      // Try modern clipboard API first
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        showFeedback('تم النسخ!', true);
+      } else {
+        // Fallback for older browsers or non-secure contexts
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        
+        if (successful) {
+          showFeedback('تم النسخ!', true);
+        } else {
+          throw new Error('Copy command failed');
+        }
+      }
     } catch (error) {
       console.error('Failed to copy:', error);
+      showFeedback('فشل في النسخ', false);
     }
   };
 
@@ -218,7 +256,7 @@ export default function AdminDashboard() {
                     <p className="text-sm text-gray-600 mb-3 text-right">{room.description}</p>
                   )}
 
-                  <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center justify-between text-sm mb-2">
                     <span className={cn(
                       'px-2 py-1 rounded-full text-xs font-medium',
                       room.isActive 
@@ -231,6 +269,26 @@ export default function AdminDashboard() {
                       {room.participants.length} مشارك
                     </span>
                   </div>
+
+                  {/* Recording Status */}
+                  <div className="flex items-center justify-between text-sm">
+                    <span className={cn(
+                      'px-2 py-1 rounded-full text-xs font-medium',
+                      room.canRecord 
+                        ? 'bg-blue-100 text-blue-800' 
+                        : 'bg-gray-100 text-gray-800'
+                    )}>
+                      {room.canRecord ? 'تسجيل مسموح' : 'تسجيل غير مسموح'}
+                    </span>
+                    <span className={cn(
+                      'px-2 py-1 rounded-full text-xs font-medium',
+                      room.hostApproval 
+                        ? 'bg-yellow-100 text-yellow-800' 
+                        : 'bg-blue-100 text-blue-800'
+                    )}>
+                      {room.hostApproval ? 'يتطلب موافقة' : 'دخول مباشر'}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Room Links - Simplified */}
@@ -240,19 +298,20 @@ export default function AdminDashboard() {
                     <div className="flex items-center space-x-reverse space-x-2">
                       <input
                         type="text"
-                        value={`${window.location.origin}/room/${room.hostLink}?type=host`}
+                        value={`${window.location.origin}/${room.hostLink}?h`}
                         readOnly
-                        className="flex-1 text-xs bg-gray-50 border border-gray-200 rounded px-2 py-1 text-gray-600 text-right"
+                        onClick={(e) => (e.target as HTMLInputElement).select()}
+                        className="flex-1 text-xs bg-gray-50 border border-gray-200 rounded px-2 py-1 text-gray-600 text-right cursor-pointer"
                       />
                       <button
-                        onClick={() => copyToClipboard(`${window.location.origin}/room/${room.hostLink}?type=host`)}
+                        onClick={(e) => copyToClipboard(`${window.location.origin}/${room.hostLink}?h`, e)}
                         className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
                         title="نسخ الرابط"
                       >
                         <Copy className="w-4 h-4" />
                       </button>
                       <a
-                        href={`/room/${room.hostLink}?type=host`}
+                        href={`/${room.hostLink}?h`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="p-1 text-primary-600 hover:text-primary-700 transition-colors"
@@ -268,19 +327,20 @@ export default function AdminDashboard() {
                     <div className="flex items-center space-x-reverse space-x-2">
                       <input
                         type="text"
-                        value={`${window.location.origin}/room/${room.guestLink}?type=guest`}
+                        value={`${window.location.origin}/${room.guestLink}?g`}
                         readOnly
-                        className="flex-1 text-xs bg-gray-50 border border-gray-200 rounded px-2 py-1 text-gray-600 text-right"
+                        onClick={(e) => (e.target as HTMLInputElement).select()}
+                        className="flex-1 text-xs bg-gray-50 border border-gray-200 rounded px-2 py-1 text-gray-600 text-right cursor-pointer"
                       />
                       <button
-                        onClick={() => copyToClipboard(`${window.location.origin}/room/${room.guestLink}?type=guest`)}
+                        onClick={(e) => copyToClipboard(`${window.location.origin}/${room.guestLink}?g`, e)}
                         className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
                         title="نسخ الرابط"
                       >
                         <Copy className="w-4 h-4" />
                       </button>
                       <a
-                        href={`/room/${room.guestLink}?type=guest`}
+                        href={`/${room.guestLink}?g`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="p-1 text-primary-600 hover:text-primary-700 transition-colors"
@@ -296,14 +356,7 @@ export default function AdminDashboard() {
                 <div className="px-4 sm:px-6 py-3 bg-gray-50 border-t border-gray-100">
                   <div className="flex items-center justify-between text-xs text-gray-500">
                     <span>تم الإنشاء {formatDate(new Date(room.createdAt), 'ar-SA')}</span>
-                    <span className={cn(
-                      'px-2 py-1 rounded text-xs',
-                      room.hostApproval 
-                        ? 'bg-yellow-100 text-yellow-800' 
-                        : 'bg-blue-100 text-blue-800'
-                    )}>
-                      {room.hostApproval ? 'يتطلب موافقة' : 'دخول مباشر'}
-                    </span>
+                    <span>الحد الأقصى: {room.maxParticipants} مشارك</span>
                   </div>
                 </div>
               </div>

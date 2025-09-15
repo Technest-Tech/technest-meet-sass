@@ -32,6 +32,11 @@ yarn-error.log*
 .env.production.local
 .env.production
 
+# Local development files
+env.local
+docker-compose.local.yml
+livekit.local.yaml
+
 # vercel
 .vercel
 
@@ -41,6 +46,8 @@ yarn-error.log*
 # Database files
 prisma/dev.db
 prisma/dev.db-journal
+dev-local.db
+dev-local.db-journal
 data/
 uploads/
 

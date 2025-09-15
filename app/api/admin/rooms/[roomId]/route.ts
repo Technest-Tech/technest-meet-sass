@@ -19,7 +19,7 @@ export async function PUT(
     }
 
     const { roomId } = await params;
-    const { name, description, hostApproval, maxParticipants, isActive } = await request.json();
+    const { name, description, hostApproval, maxParticipants, isActive, canRecord } = await request.json();
 
     if (!name) {
       return NextResponse.json(
@@ -48,7 +48,8 @@ export async function PUT(
         description,
         hostApproval: hostApproval !== undefined ? hostApproval : existingRoom.hostApproval,
         maxParticipants: maxParticipants || existingRoom.maxParticipants,
-        isActive: isActive !== undefined ? isActive : existingRoom.isActive
+        isActive: isActive !== undefined ? isActive : existingRoom.isActive,
+        canRecord: canRecord !== undefined ? canRecord : existingRoom.canRecord
       },
       include: {
         participants: true

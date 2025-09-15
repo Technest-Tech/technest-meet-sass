@@ -318,8 +318,168 @@ main[data-lk-theme="default"] {
   background-color: #dc2626;
 }
 
+/* Settings button with video background effect */
+.lk-button-settings {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 500;
+  font-size: 14px;
+  min-width: 100px;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+}
+
+.lk-button-settings:hover {
+  background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.lk-button-settings:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+}
+
+.settings-icon {
+  font-size: 16px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
+}
+
+.settings-text {
+  font-weight: 500;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
 .lk-button.danger:hover {
   background-color: #b91c1c;
+}
+
+/* Mobile control bar styles */
+.mobile-control-bar {
+  transition: all 0.3s ease;
+}
+
+@media (max-width: 768px) {
+  .mobile-control-bar {
+    gap: 8px !important;
+    padding: 12px !important;
+    border-radius: 20px !important;
+    max-width: 95vw;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  
+  .mobile-control-bar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .mobile-control-bar {
+    gap: 6px !important;
+    padding: 10px !important;
+    border-radius: 16px !important;
+    bottom: 10px !important;
+  }
+}
+
+/* Mobile responsive control bar styles */
+@media (max-width: 768px) {
+  .lk-button {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    min-width: 44px;
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+  
+  .lk-button-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  
+  .lk-button-group button {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0.5rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .lk-button-group span {
+    font-size: 0.75rem;
+    color: white;
+    text-align: center;
+    margin-top: 0.25rem;
+  }
+  
+  /* Settings button mobile styles */
+  .lk-button-settings {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    min-width: 60px;
+    padding: 0.5rem;
+  }
+  
+  .settings-icon {
+    font-size: 1.25rem;
+  }
+  
+  .settings-text {
+    font-size: 0.75rem;
+    color: white;
+  }
+}
+
+@media (max-width: 480px) {
+  .lk-button {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.75rem;
+    min-width: 40px;
+    min-height: 40px;
+  }
+  
+  .lk-button-group button {
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0.375rem;
+  }
+  
+  .lk-button-group span {
+    font-size: 0.625rem;
+  }
+  
+  /* Settings button small mobile styles */
+  .lk-button-settings {
+    min-width: 50px;
+    padding: 0.375rem;
+  }
+  
+  .settings-icon {
+    font-size: 1rem;
+  }
+  
+  .settings-text {
+    font-size: 0.625rem;
+  }
 }
 
 /* Form styles */

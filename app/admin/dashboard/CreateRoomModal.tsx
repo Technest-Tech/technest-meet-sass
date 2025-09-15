@@ -12,7 +12,8 @@ interface CreateRoomModalProps {
 export default function CreateRoomModal({ onClose, onRoomCreated }: CreateRoomModalProps) {
   const [formData, setFormData] = useState({
     name: '',
-    isActive: true
+    isActive: true,
+    canRecord: false
   });
   const [isLoading, setIsLoading] = useState(false);
 
@@ -118,6 +119,31 @@ export default function CreateRoomModal({ onClose, onRoomCreated }: CreateRoomMo
                 className={cn(
                   'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
                   formData.isActive ? 'translate-x-6' : 'translate-x-1'
+                )}
+              />
+            </button>
+          </div>
+
+          {/* Recording Status */}
+          <div className="flex items-center justify-between">
+            <div className="text-right">
+              <label htmlFor="canRecord" className="text-sm font-medium text-gray-700">
+                تسجيل الاجتماعات
+              </label>
+              <p className="text-xs text-gray-500">السماح بتسجيل الاجتماعات في هذه الغرفة</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleInputChange('canRecord', !formData.canRecord)}
+              className={cn(
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                formData.canRecord ? 'bg-blue-600' : 'bg-gray-200'
+              )}
+            >
+              <span
+                className={cn(
+                  'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                  formData.canRecord ? 'translate-x-6' : 'translate-x-1'
                 )}
               />
             </button>

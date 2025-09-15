@@ -316,6 +316,7 @@ class _VideoConferenceScreenState extends State<VideoConferenceScreen> {
                     if (_isBottomControlsVisible)
                       ConferenceControls(
                         participantType: widget.participantType,
+                        roomName: widget.roomName,
                         onToggleWhiteboard: () => liveKitService.toggleWhiteboard(),
                         onToggleCamera: () => liveKitService.toggleCamera(),
                         onToggleMicrophone: () => liveKitService.toggleMicrophone(),

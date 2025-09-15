@@ -102,7 +102,7 @@ async function runTests() {
   
   console.log('');
   console.log('🔗 Manual Test:');
-  console.log('Open your browser and go to: https://live.almajd.link/room/test?type=host');
+  console.log('Open your browser and go to: https://live.almajd.link/test?h');
   console.log('Check the browser console for any connection errors.');
 }
 

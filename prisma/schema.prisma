@@ -28,6 +28,7 @@ model Room {
   hostApproval      Boolean          @default(false)
   maxParticipants   Int              @default(50)
   isActive          Boolean          @default(true)
+  canRecord         Boolean          @default(false)
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
   participants      Participant[]

@@ -11,6 +11,7 @@ import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
 import { ExternalE2EEKeyProvider } from 'livekit-client';
 import { PictureInPicture } from '@/lib/PictureInPicture';
+import { ChatControl } from '@/lib/ChatControl';
 
 interface VideoConferenceClientImplProps {
   liveKitUrl: string;
@@ -485,8 +486,8 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
           {isLoading ? 'Connecting...' : connectionStatus}
         </div>
         
-        {/* Basic Control Bar */}
-        <div style={{
+        {/* Responsive Control Bar */}
+        <div className="mobile-control-bar" style={{
           position: 'fixed',
           bottom: '20px',
           left: '50%',
@@ -514,17 +515,23 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
             </div>
           </section>
           
+          <section className="lk-button-group">
           <button
-            className="lk-button"
+            className="lk-button lk-button-settings"
             onClick={() => {
               // Toggle settings menu
               const event = new CustomEvent('toggle_settings');
               window.dispatchEvent(event);
             }}
-            style={{ minWidth: '100px' }}
+            title="Settings"
           >
-            Settings
+            <span className="settings-icon">⚙️</span>
+            <span className="settings-text">Settings</span>
           </button>
+          </section>
+          
+          {/* Chat Control */}
+          <ChatControl />
         </div>
 
         {/* Main video area with proper LiveKit components */}
