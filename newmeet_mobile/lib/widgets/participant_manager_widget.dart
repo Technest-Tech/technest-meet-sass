@@ -186,7 +186,8 @@ class _ParticipantManagerWidgetState extends State<ParticipantManagerWidget> {
   }
 
   Widget _buildParticipantItem(dynamic participant) {
-    final isRemoving = _removingParticipant == participant.identity;
+    final participantIdentity = participant.identity as String;
+    final isRemoving = _removingParticipant == participantIdentity;
     
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -208,8 +209,8 @@ class _ParticipantManagerWidgetState extends State<ParticipantManagerWidget> {
             ),
             child: Center(
               child: Text(
-                participant.identity.isNotEmpty 
-                    ? participant.identity[0].toUpperCase()
+                participantIdentity.isNotEmpty 
+                    ? participantIdentity[0].toUpperCase()
                     : '?',
                 style: const TextStyle(
                   color: Colors.white,
@@ -227,7 +228,7 @@ class _ParticipantManagerWidgetState extends State<ParticipantManagerWidget> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  participant.identity,
+                  participantIdentity,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 16,
@@ -247,7 +248,7 @@ class _ParticipantManagerWidgetState extends State<ParticipantManagerWidget> {
           
           // Remove Button
           ElevatedButton(
-            onPressed: isRemoving ? null : () => _removeParticipant(participant.identity),
+            onPressed: isRemoving ? null : () => _removeParticipant(participantIdentity),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
@@ -317,26 +318,36 @@ class _ParticipantManagerWidgetState extends State<ParticipantManagerWidget> {
     });
 
     try {
-      // For now, we'll show a message that this feature is not yet implemented
-      // In a real implementation, you would call the API endpoint here
-      await Future.delayed(const Duration(seconds: 1)); // Simulate API call
+      print('🗑️ Removing participant: $participantIdentity');
       
-      setState(() {
-        _notificationMessage = 'Participant removal feature coming soon!';
-        _notificationType = 'info';
-      });
+      // Call the API to remove the participant
+      final response = await ApiService.removeParticipant(
+        roomName: widget.roomName,
+        participantIdentity: participantIdentity,
+      );
       
-      // Clear notification after 3 seconds
-      Future.delayed(const Duration(seconds: 3), () {
-        if (mounted) {
-          setState(() {
-            _notificationMessage = null;
-            _notificationType = null;
-          });
-        }
-      });
+      if (response['success'] == true) {
+        setState(() {
+          _notificationMessage = 'Participant removed successfully';
+          _notificationType = 'success';
+        });
+        
+        // Close the modal after successful removal
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted) {
+            setState(() {
+              _isOpen = false;
+              _notificationMessage = null;
+              _notificationType = null;
+            });
+          }
+        });
+      } else {
+        throw Exception(response['error'] ?? 'Failed to remove participant');
+      }
       
     } catch (error) {
+      print('❌ Error removing participant: $error');
       setState(() {
         _notificationMessage = 'Failed to remove participant: $error';
         _notificationType = 'error';

@@ -35,7 +35,6 @@ class ChatWidget extends StatefulWidget {
 }
 
 class _ChatWidgetState extends State<ChatWidget> {
-  final List<ChatMessage> _messages = [];
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _isConnected = false;
@@ -74,22 +73,11 @@ class _ChatWidgetState extends State<ChatWidget> {
       if (mounted) {
         setState(() {
           if (data['type'] == 'chat_message') {
-            final message = ChatMessage(
-              id: (data['id'] as String?) ?? DateTime.now().millisecondsSinceEpoch.toString(),
-              sender: (data['sender'] as String?) ?? 'Unknown',
-              message: (data['message'] as String?) ?? '',
-              timestamp: DateTime.fromMillisecondsSinceEpoch(
-                (data['timestamp'] as int?) ?? DateTime.now().millisecondsSinceEpoch,
-              ),
-              isLocal: (data['sender'] as String?) == liveKitService.localParticipant?.identity,
-            );
-            _messages.add(message);
+            final isLocal = (data['sender'] as String?) == liveKitService.localParticipant?.identity;
             
             // Increment unread count for non-local messages when chat is closed
-            if (!message.isLocal && !widget.isOpen) {
-              setState(() {
-                _unreadCount++;
-              });
+            if (!isLocal && !widget.isOpen) {
+              _unreadCount++;
               widget.onUnreadCountChange?.call(_unreadCount);
             }
           }
@@ -128,16 +116,8 @@ class _ChatWidgetState extends State<ChatWidget> {
     try {
       await liveKitService.sendChatData(messageData);
       
-      // Add message to local state immediately for better UX
-      setState(() {
-        _messages.add(ChatMessage(
-          id: messageData['id'] as String,
-          sender: messageData['sender'] as String,
-          message: messageData['message'] as String,
-          timestamp: DateTime.fromMillisecondsSinceEpoch(messageData['timestamp'] as int),
-          isLocal: true,
-        ));
-      });
+      // Message is now stored in LiveKitService, just trigger UI update
+      setState(() {});
       
       _messageController.clear();
       _scrollToBottom();
@@ -164,16 +144,57 @@ class _ChatWidgetState extends State<ChatWidget> {
       builder: (context, liveKitService, child) {
         _isConnected = liveKitService.isConnected;
         
+        // Convert LiveKitService messages to ChatMessage objects
+        final messages = liveKitService.chatMessages
+            .where((data) => data['type'] == 'chat_message')
+            .map((data) => ChatMessage(
+                  id: (data['id'] as String?) ?? DateTime.now().millisecondsSinceEpoch.toString(),
+                  sender: (data['sender'] as String?) ?? 'Unknown',
+                  message: (data['message'] as String?) ?? '',
+                  timestamp: DateTime.fromMillisecondsSinceEpoch(
+                    (data['timestamp'] as int?) ?? DateTime.now().millisecondsSinceEpoch,
+                  ),
+                  isLocal: (data['sender'] as String?) == liveKitService.localParticipant?.identity,
+                ))
+            .toList();
+        
+        // Get keyboard height and screen dimensions
+        final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
+        final screenHeight = MediaQuery.of(context).size.height;
+        final availableHeight = screenHeight - keyboardHeight;
+        
+        // Calculate chat panel height - leave space for controls at bottom
+        final controlsHeight = 120.0; // Approximate height of controls
+        final availableForChat = keyboardHeight > 0 
+            ? availableHeight - controlsHeight
+            : screenHeight - controlsHeight;
+        
+        final chatHeight = availableForChat * 0.8; // Use 80% of available space
+        
+        // Ensure minimum height for usability
+        final finalChatHeight = chatHeight.clamp(300.0, availableForChat);
+        
         return Container(
-          height: MediaQuery.of(context).size.height * 0.6,
+          height: finalChatHeight,
           decoration: const BoxDecoration(
             color: Color(0xFF1a1a2e),
             borderRadius: BorderRadius.only(
               topLeft: Radius.circular(20),
               topRight: Radius.circular(20),
             ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 10,
+                offset: Offset(0, -2),
+              ),
+            ],
           ),
-          child: Column(
+          child: GestureDetector(
+            onTap: () {
+              // Prevent closing when tapping inside the chat
+            },
+            child: Column(
             children: [
               // Chat Header
               Container(
@@ -190,38 +211,52 @@ class _ChatWidgetState extends State<ChatWidget> {
                     topRight: Radius.circular(20),
                   ),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                child: Column(
                   children: [
+                    // Resize handle
+                    Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade600,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
                     Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          '💬 Chat',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        if (!_isConnected)
-                          const Padding(
-                            padding: EdgeInsets.only(left: 8),
-                            child: Text(
-                              '(Disconnected)',
+                        Row(
+                          children: [
+                            const Text(
+                              '💬 Chat',
                               style: TextStyle(
-                                color: Colors.red,
-                                fontSize: 12,
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
+                            if (!_isConnected)
+                              const Padding(
+                                padding: EdgeInsets.only(left: 8),
+                                child: Text(
+                                  '(Disconnected)',
+                                  style: TextStyle(
+                                    color: Colors.red,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        IconButton(
+                          onPressed: widget.onClose,
+                          icon: const Icon(
+                            Icons.close,
+                            color: Colors.white,
                           ),
+                        ),
                       ],
-                    ),
-                    IconButton(
-                      onPressed: widget.onClose,
-                      icon: const Icon(
-                        Icons.close,
-                        color: Colors.white,
-                      ),
                     ),
                   ],
                 ),
@@ -229,7 +264,7 @@ class _ChatWidgetState extends State<ChatWidget> {
               
               // Messages Area
               Expanded(
-                child: _messages.isEmpty
+                child: messages.isEmpty
                     ? const Center(
                         child: Padding(
                           padding: EdgeInsets.all(20),
@@ -250,9 +285,9 @@ class _ChatWidgetState extends State<ChatWidget> {
                           horizontal: 20,
                           vertical: 16,
                         ),
-                        itemCount: _messages.length,
+                        itemCount: messages.length,
                         itemBuilder: (context, index) {
-                          final message = _messages[index];
+                          final message = messages[index];
                           return _buildMessageBubble(message);
                         },
                       ),
@@ -264,7 +299,7 @@ class _ChatWidgetState extends State<ChatWidget> {
                   left: 20,
                   right: 20,
                   top: 20,
-                  bottom: MediaQuery.of(context).padding.bottom + 20, // Add safe area bottom padding
+                  bottom: keyboardHeight > 0 ? 20 : MediaQuery.of(context).padding.bottom + 20, // Adjust padding based on keyboard
                 ),
                 decoration: const BoxDecoration(
                   color: Color(0xFF16213e),
@@ -276,10 +311,12 @@ class _ChatWidgetState extends State<ChatWidget> {
                 child: Row(
                   children: [
                     Expanded(
+                      flex: 3, // Takes 60% of available space
                       child: Container(
                         constraints: const BoxConstraints(
                           minHeight: 48, // Ensure minimum touch target size
                         ),
+                        margin: const EdgeInsets.only(right: 12),
                         child: TextField(
                           controller: _messageController,
                           enabled: _isConnected,
@@ -314,20 +351,31 @@ class _ChatWidgetState extends State<ChatWidget> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: const BoxDecoration(
-                        color: Colors.blue,
-                        shape: BoxShape.circle,
-                      ),
-                      child: IconButton(
-                        onPressed: _isConnected ? _sendMessage : null,
-                        icon: const Icon(
-                          Icons.send,
-                          color: Colors.white,
-                          size: 20,
+                    Expanded(
+                      flex: 2, // Takes 40% of available space
+                      child: Container(
+                        constraints: const BoxConstraints(
+                          minHeight: 48,
+                          minWidth: 80,
+                        ),
+                        child: ElevatedButton(
+                          onPressed: _isConnected ? _sendMessage : null,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(25),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                            elevation: 2,
+                          ),
+                          child: const Icon(
+                            Icons.send,
+                            size: 20,
+                          ),
                         ),
                       ),
                     ),
@@ -335,6 +383,7 @@ class _ChatWidgetState extends State<ChatWidget> {
                 ),
               ),
             ],
+          ),
           ),
         );
       },

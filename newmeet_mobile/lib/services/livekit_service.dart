@@ -40,6 +40,7 @@ class LiveKitService extends ChangeNotifier {
   bool get isScreenSharing => _isScreenSharing;
   bool get isStartingScreenShare => _isStartingScreenShare;
   bool get isWhiteboardOpen => _isWhiteboardOpen;
+  List<Map<String, dynamic>> get chatMessages => List.unmodifiable(_chatMessages);
 
   // Connect to room
   Future<void> connectToRoom({
@@ -324,6 +325,9 @@ class LiveKitService extends ChangeNotifier {
 
   // Chat data callback
   void Function(Map<String, dynamic>)? _onChatDataReceived;
+  
+  // Persistent chat messages storage
+  final List<Map<String, dynamic>> _chatMessages = [];
 
   // Set chat data callback
   void setChatDataCallback(void Function(Map<String, dynamic>) callback) {
@@ -334,6 +338,10 @@ class LiveKitService extends ChangeNotifier {
   Future<void> sendChatData(Map<String, dynamic> data) async {
     if (_room?.localParticipant != null) {
       try {
+        // Store the message locally first
+        _chatMessages.add(data);
+        print('📤 LiveKit: Stored local chat message, total messages: ${_chatMessages.length}');
+        
         // Convert to JSON string using dart:convert
         final jsonString = jsonEncode(data);
         final encodedData = jsonString.codeUnits;
@@ -457,7 +465,10 @@ class LiveKitService extends ChangeNotifier {
             print('⚠️ LiveKit: No whiteboard callback set');
           }
         } else if (event.topic == 'chat' || data['type'] == 'chat_message') {
-          // Chat data
+          // Chat data - store persistently
+          _chatMessages.add(data);
+          print('📥 LiveKit: Stored chat message, total messages: ${_chatMessages.length}');
+          
           if (_onChatDataReceived != null) {
             print('📥 LiveKit: Forwarding chat data to callback');
             _onChatDataReceived!(data);
