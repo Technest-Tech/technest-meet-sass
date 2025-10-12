@@ -17,6 +17,7 @@ import { MicrophoneSettings } from './MicrophoneSettings';
  */
 export interface SettingsMenuProps extends React.HTMLAttributes<HTMLDivElement> {
   canRecord?: boolean;
+  onClose?: () => void;
 }
 
 /**
@@ -85,7 +86,9 @@ export function SettingsMenu(props: SettingsMenuProps) {
 
   const handleClose = () => {
     console.log('Closing settings menu');
-    if (layoutContext?.widget.dispatch) {
+    if (props.onClose) {
+      props.onClose();
+    } else if (layoutContext?.widget.dispatch) {
       layoutContext.widget.dispatch({ msg: 'toggle_settings' });
     } else {
       // Fallback: dispatch custom event

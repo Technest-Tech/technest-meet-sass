@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRoomContext, useLocalParticipant } from '@livekit/components-react';
+import toast from 'react-hot-toast';
 import styles from '@/styles/Chat.module.css';
 
 interface ChatMessage {
@@ -92,6 +93,52 @@ export function Chat({ isOpen, onClose, onUnreadCountChange }: ChatProps) {
               return newCount;
             });
           }
+          
+          // Show toast notification for all incoming messages (regardless of chat state)
+          if (!chatMessage.isLocal) {
+            toast(
+              <div style={{ 
+                display: 'flex', 
+                flexDirection: 'column', 
+                gap: '4px',
+                minWidth: '250px',
+                maxWidth: '350px'
+              }}>
+                <div style={{ 
+                  fontWeight: '600', 
+                  fontSize: '14px', 
+                  color: '#1f2937',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <span style={{ fontSize: '12px' }}>💬</span>
+                  <span>{chatMessage.sender}</span>
+                </div>
+                <div style={{ 
+                  fontSize: '13px', 
+                  color: '#374151',
+                  lineHeight: '1.4',
+                  wordBreak: 'break-word'
+                }}>
+                  {chatMessage.message}
+                </div>
+              </div>, 
+              {
+                duration: 4000,
+                position: 'top-right',
+                style: {
+                  backgroundColor: '#ffffff',
+                  color: '#1f2937',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '8px',
+                  boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                  padding: '12px 16px',
+                  maxWidth: '400px',
+                },
+              }
+            );
+          }
         }
       } catch (error) {
         console.error('Error parsing chat message:', error);
@@ -132,8 +179,38 @@ export function Chat({ isOpen, onClose, onUnreadCountChange }: ChatProps) {
       
       setMessages(prev => [...prev, chatMessage]);
       setNewMessage('');
+      
+      // Show confirmation toast for sent message
+      toast('Message sent', {
+        duration: 2000,
+        icon: '✅',
+        position: 'top-right',
+        style: {
+          backgroundColor: '#10b981',
+          color: '#ffffff',
+          borderRadius: '8px',
+          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+          padding: '12px 16px',
+          fontWeight: '500',
+        },
+      });
     } catch (error) {
       console.error('Error sending chat message:', error);
+      
+      // Show error toast for failed message
+      toast('Failed to send message', {
+        duration: 3000,
+        icon: '❌',
+        position: 'top-right',
+        style: {
+          backgroundColor: '#ef4444',
+          color: '#ffffff',
+          borderRadius: '8px',
+          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+          padding: '12px 16px',
+          fontWeight: '500',
+        },
+      });
     }
   }, [newMessage, room, localParticipant]);
 

@@ -8,6 +8,7 @@ import { RecordingIndicator } from '@/lib/RecordingIndicator';
 import { MoreControls } from '@/lib/MoreControls';
 import { SettingsMenu } from '@/lib/SettingsMenu';
 import { ConnectionDetails } from '@/lib/types';
+import { ChatButton } from '@/lib/ChatButton';
 import {
   formatChatMessageLinks,
   LocalUserChoices,
@@ -309,6 +310,22 @@ function VideoConferenceComponent(props: {
     setIsConnecting(true);
     
     try {
+      // Request media permissions first
+      console.log('Requesting media permissions...');
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: props.userChoices.videoEnabled,
+          audio: props.userChoices.audioEnabled
+        });
+        
+        // Stop the stream immediately as we just needed permission
+        stream.getTracks().forEach(track => track.stop());
+        console.log('Media permissions granted');
+      } catch (permissionError) {
+        console.error('Media permission denied:', permissionError);
+        // Continue anyway - LiveKit will handle the case where permissions are denied
+      }
+      
       // Clean up any existing connection first
       if (room && room.state !== 'disconnected') {
         console.log('Cleaning up existing connection before reconnecting...');
@@ -479,7 +496,7 @@ function VideoConferenceComponent(props: {
     }
   }, [router, room, handleEncryptionError, handleError]);
 
-  // Auto-connect when connection details are available
+  // Check if room is already connected when connection details are available
   React.useEffect(() => {
     if (props.connectionDetails && !isConnected && !isConnecting && e2eeSetupComplete) {
       // Check if room is already connected to prevent duplicates
@@ -538,40 +555,6 @@ function VideoConferenceComponent(props: {
   }, [room]);
 
   // Show appropriate state based on connection status
-  // Note: userInteractionRequired is now false by default for auto-connect
-  if (userInteractionRequired) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center max-w-md mx-auto px-6">
-          <div className="mb-6">
-            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <h2 className="text-xl font-semibold text-gray-800 mb-2">Join Video Conference</h2>
-            <p className="text-gray-600 mb-6">Click the button below to join the meeting. Your camera and microphone will be enabled after you join.</p>
-          </div>
-          
-          <button
-            onClick={handleUserInteraction}
-            disabled={!e2eeSetupComplete}
-            className={`w-full py-3 px-6 rounded-lg font-medium transition-colors ${
-              e2eeSetupComplete
-                ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg hover:shadow-xl'
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-            }`}
-          >
-            {e2eeSetupComplete ? '🎥 Join Meeting' : '⏳ Setting up encryption...'}
-          </button>
-          
-          {!e2eeSetupComplete && (
-            <p className="text-sm text-gray-500 mt-3">Please wait while we prepare your secure connection...</p>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   if (isConnecting) {
     return (
@@ -656,6 +639,19 @@ function VideoConferenceComponent(props: {
           chatMessageFormatter={formatChatMessageLinks}
           SettingsComponent={SHOW_SETTINGS_MENU ? (props: any) => <CustomSettingsMenu {...props} canRecord={props.canRecord} /> : undefined}
         />
+        
+        {/* Custom Chat Button - Positioned above More button */}
+        <div style={{
+          position: 'fixed',
+          bottom: '180px', // Position it much higher above the More button
+          right: '20px', // Same horizontal position as More button
+          zIndex: 1000, // Lower z-index to appear under camera background selection
+          display: 'flex',
+          alignItems: 'center'
+        }}>
+          <ChatButton isHost={props.participantType === 'host'} />
+        </div>
+        
         <DebugMode />
         <RecordingIndicator />
         

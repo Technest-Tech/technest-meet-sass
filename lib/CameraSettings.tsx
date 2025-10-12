@@ -21,10 +21,9 @@ if (typeof window !== 'undefined') {
   });
 }
 
-// Background image paths - using placeholder data URLs for demo
+// Background image - using the logo from public folder
 const BACKGROUND_IMAGES = [
-  { name: 'Desk', path: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjNjY2NjY2Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIyNCIgZmlsbD0id2hpdGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5EZXNrIEJhY2tncm91bmQ8L3RleHQ+PC9zdmc+' },
-  { name: 'Nature', path: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjNDA2NjQwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIyNCIgZmlsbD0id2hpdGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5OYXR1cmUgQmFja2dyb3VuZDwvdGV4dD48L3N2Zz4=' },
+  { name: 'Almajd', path: '/logo.png' },
 ];
 
 // Background options
@@ -166,12 +165,20 @@ export function CameraSettings() {
                   backgroundImage: `url(${image.path})`,
                   backgroundSize: 'cover',
                   backgroundPosition: 'center',
+                  backgroundRepeat: 'no-repeat',
                   width: '80px',
                   height: '60px',
                   border:
                     backgroundType === 'image' && virtualBackgroundImagePath === image.path
                       ? '2px solid #0090ff'
                       : '1px solid #d1d1d1',
+                  position: 'relative',
+                  overflow: 'hidden',
+                }}
+                onError={(e) => {
+                  // Fallback if image fails to load
+                  e.currentTarget.style.backgroundColor = '#f0f0f0';
+                  e.currentTarget.style.backgroundImage = 'none';
                 }}
               >
                 <span
@@ -180,6 +187,10 @@ export function CameraSettings() {
                     padding: '2px 5px',
                     borderRadius: '4px',
                     fontSize: '12px',
+                    position: 'relative',
+                    zIndex: 1,
+                    display: 'block',
+                    textAlign: 'center',
                   }}
                 >
                   {image.name}

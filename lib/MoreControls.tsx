@@ -449,53 +449,7 @@ Do you want to continue?`;
               Settings
             </button>
 
-            {/* Chat Control */}
-            <button
-              onClick={() => {
-                toggleChat();
-                closeDropdown();
-              }}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                color: 'white',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                fontSize: '13px',
-                fontWeight: '500',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                transition: 'all 0.2s ease',
-                textAlign: 'left'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-              }}
-              title="Open/Close Chat"
-            >
-              <span style={{ fontSize: '14px' }}>💬</span>
-              Chat {unreadCount > 0 && !isChatOpen && (
-                <span style={{
-                  backgroundColor: '#ef4444',
-                  color: 'white',
-                  borderRadius: '10px',
-                  padding: '2px 6px',
-                  fontSize: '11px',
-                  fontWeight: '600',
-                  marginLeft: 'auto'
-                }}>
-                  {unreadCount > 99 ? '99+' : unreadCount}
-                </span>
-              )}
-            </button>
+            {/* Chat Control - Removed, now handled by separate ChatButton */}
 
             {/* End Meeting Button (Host only) */}
             {isHost && (
@@ -554,12 +508,7 @@ Do you want to continue?`;
         onHostToggle={handleHostToggle}
       />
 
-      {/* Chat Component */}
-      <Chat
-        isOpen={isChatOpen}
-        onClose={() => setIsChatOpen(false)}
-        onUnreadCountChange={handleUnreadCountChange}
-      />
+      {/* Chat Component - Removed, now handled by separate ChatButton */}
 
       {/* Settings Menu Overlay */}
       {isSettingsOpen && (

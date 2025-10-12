@@ -131,7 +131,7 @@ export function SettingsControl({ isHost, canRecord }: SettingsControlProps) {
             </button>
 
             {/* Settings Menu Content */}
-            <SettingsMenu canRecord={canRecord} />
+            <SettingsMenu canRecord={canRecord} onClose={handleClose} />
           </div>
         </div>
       )}
