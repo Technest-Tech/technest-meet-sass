@@ -7,7 +7,7 @@ bind_addresses: ["0.0.0.0"]
 
 # API keys for authentication
 keys:
-  devkey: secret
+  almajd-meet-api-key-prod-2024: almajd-meet-api-secret-production-2024-secure-key
 
 # Logging
 log_level: info

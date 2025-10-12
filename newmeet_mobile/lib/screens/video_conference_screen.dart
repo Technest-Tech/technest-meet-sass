@@ -22,7 +22,6 @@ class VideoConferenceScreen extends StatefulWidget {
 }
 
 class _VideoConferenceScreenState extends State<VideoConferenceScreen> {
-  bool _isBottomControlsVisible = true;
 
   @override
   void initState() {
@@ -57,34 +56,57 @@ class _VideoConferenceScreenState extends State<VideoConferenceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: Text('Room: ${widget.roomName}'),
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) async {
+        if (didPop) return;
+        
+        // Show confirmation dialog when back button is pressed
+        final shouldLeave = await _showLeaveMeetingDialog();
+        if (shouldLeave == true && mounted) {
+          try {
+            print('🚪 VideoConferenceScreen: User confirmed leaving meeting via back button');
+            final liveKitService = Provider.of<LiveKitService>(context, listen: false);
+            await liveKitService.disconnect();
+            print('✅ VideoConferenceScreen: Successfully disconnected from meeting');
+            Navigator.pop(context, 'left_meeting');
+          } catch (e) {
+            print('❌ VideoConferenceScreen: Error disconnecting: $e');
+            Navigator.pop(context, 'left_meeting');
+          }
+        }
+      },
+      child: Scaffold(
         backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.exit_to_app),
-            onPressed: () async {
-              try {
-                print('🚪 VideoConferenceScreen: User requested to leave meeting');
-                final liveKitService = Provider.of<LiveKitService>(context, listen: false);
-                await liveKitService.disconnect();
-                print('✅ VideoConferenceScreen: Successfully disconnected from meeting');
-                if (mounted) {
-                  Navigator.pop(context, 'left_meeting');
+        appBar: AppBar(
+          title: Text('Room: ${widget.roomName}'),
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.exit_to_app),
+              onPressed: () async {
+                final shouldLeave = await _showLeaveMeetingDialog();
+                if (shouldLeave == true) {
+                  try {
+                    print('🚪 VideoConferenceScreen: User requested to leave meeting');
+                    final liveKitService = Provider.of<LiveKitService>(context, listen: false);
+                    await liveKitService.disconnect();
+                    print('✅ VideoConferenceScreen: Successfully disconnected from meeting');
+                    if (mounted) {
+                      Navigator.pop(context, 'left_meeting');
+                    }
+                  } catch (e) {
+                    print('❌ VideoConferenceScreen: Error disconnecting: $e');
+                    if (mounted) {
+                      Navigator.pop(context, 'left_meeting');
+                    }
+                  }
                 }
-              } catch (e) {
-                print('❌ VideoConferenceScreen: Error disconnecting: $e');
-                if (mounted) {
-                  Navigator.pop(context, 'left_meeting');
-                }
-              }
-            },
-          ),
-        ],
-      ),
+              },
+            ),
+          ],
+        ),
       body: Consumer<LiveKitService>(
         builder: (context, liveKitService, child) {
           print('🔄 VideoConferenceScreen: Rebuilding with state - connecting: ${liveKitService.isConnecting}, connected: ${liveKitService.isConnected}, error: ${liveKitService.error}');
@@ -252,98 +274,82 @@ class _VideoConferenceScreenState extends State<VideoConferenceScreen> {
                   child: WhiteboardWidget(
                     onClose: () {
                       liveKitService.toggleWhiteboard();
-                      // Auto-show controls when whiteboard closes
-                      setState(() {
-                        _isBottomControlsVisible = true;
-                      });
                     },
                     onSendData: (data) => liveKitService.sendWhiteboardData(data),
                   ),
                 ),
               
-              // Conference controls at the bottom (collapsible)
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Toggle button for controls
-                    if (liveKitService.isWhiteboardOpen)
-                      Container(
-                        width: double.infinity,
-                        height: 40,
-                        color: Colors.black87,
-                        child: Center(
-                          child: GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                _isBottomControlsVisible = !_isBottomControlsVisible;
-                              });
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade700,
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    _isBottomControlsVisible ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
-                                    color: Colors.white,
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    _isBottomControlsVisible ? 'Hide Controls' : 'Show Controls',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    
-                    // Conference controls
-                    if (_isBottomControlsVisible)
-                      ConferenceControls(
-                        participantType: widget.participantType,
-                        onToggleWhiteboard: () => liveKitService.toggleWhiteboard(),
-                        onToggleCamera: () => liveKitService.toggleCamera(),
-                        onToggleMicrophone: () => liveKitService.toggleMicrophone(),
-                        onStartScreenShare: () => liveKitService.startScreenSharing(),
-                        onStopScreenShare: () => liveKitService.stopScreenSharing(),
-                        onLeaveMeeting: () async {
-                          try {
-                            print('🚪 VideoConferenceScreen: User clicked Leave Meeting button');
-                            await liveKitService.disconnect();
-                            print('✅ VideoConferenceScreen: Successfully disconnected from meeting');
-                            if (mounted) {
-                              Navigator.pop(context, 'left_meeting');
-                            }
-                          } catch (e) {
-                            print('❌ VideoConferenceScreen: Error disconnecting: $e');
-                            if (mounted) {
-                              Navigator.pop(context, 'left_meeting');
-                            }
-                          }
-                        },
-                      ),
-                  ],
-                ),
+              // Conference controls at the bottom
+              ConferenceControls(
+                participantType: widget.participantType,
+                roomName: widget.roomName,
+                onToggleWhiteboard: () => liveKitService.toggleWhiteboard(),
+                onToggleCamera: () => liveKitService.toggleCamera(),
+                onToggleMicrophone: () => liveKitService.toggleMicrophone(),
+                onStartScreenShare: () => liveKitService.startScreenSharing(),
+                onStopScreenShare: () => liveKitService.stopScreenSharing(),
+                onLeaveMeeting: () async {
+                  final shouldLeave = await _showLeaveMeetingDialog();
+                  if (shouldLeave == true) {
+                    try {
+                      print('🚪 VideoConferenceScreen: User clicked Leave Meeting button');
+                      await liveKitService.disconnect();
+                      print('✅ VideoConferenceScreen: Successfully disconnected from meeting');
+                      if (mounted) {
+                        Navigator.pop(context, 'left_meeting');
+                      }
+                    } catch (e) {
+                      print('❌ VideoConferenceScreen: Error disconnecting: $e');
+                      if (mounted) {
+                        Navigator.pop(context, 'left_meeting');
+                      }
+                    }
+                  }
+                },
               ),
             ],
           );
         },
       ),
+      ),
+    );
+  }
+
+  /// Shows a confirmation dialog when user tries to leave the meeting
+  Future<bool?> _showLeaveMeetingDialog() async {
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: Colors.grey[900],
+          title: const Text(
+            'Leave Meeting?',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: const Text(
+            'Are you sure you want to leave the meeting? You will be disconnected from all participants.',
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: TextButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Leave Meeting'),
+            ),
+          ],
+        );
+      },
     );
   }
 

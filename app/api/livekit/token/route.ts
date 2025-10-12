@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     // Get LiveKit API key and secret from environment variables
     const apiKey = process.env.LIVEKIT_API_KEY || 'devkey';
     const apiSecret = process.env.LIVEKIT_API_SECRET || 'secret';
-    const livekitUrl = process.env.LIVEKIT_URL || 'ws://localhost:7880';
+    const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || 'ws://localhost:7880';
 
     console.log('🔑 LiveKit Config:', { apiKey, apiSecret: apiSecret ? '***' : 'undefined', livekitUrl });
     console.log('👤 Participant:', { roomName, participantName, participantType });

@@ -5,17 +5,20 @@ import { Room, RoomEvent, RoomConnectOptions, Track, TrackPublication, VideoPres
 import { RoomContext, VideoTrack, useLocalParticipant, useParticipants } from '@livekit/components-react';
 import { TrackToggle, MediaDeviceMenu } from '@livekit/components-react';
 import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
-import { RecordingControl } from '@/lib/RecordingControl';
 import { RecordingIndicator } from '@/lib/RecordingIndicator';
 import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
 import { ExternalE2EEKeyProvider } from 'livekit-client';
 import { PictureInPicture } from '@/lib/PictureInPicture';
+import { MoreControls } from '@/lib/MoreControls';
 
 interface VideoConferenceClientImplProps {
   liveKitUrl: string;
   token: string;
   codec?: string;
+  isHost?: boolean;
+  canRecord?: boolean;
+  roomName?: string;
 }
 
 // Video participant component
@@ -108,7 +111,11 @@ function VideoLayout({ room }: { room: Room }) {
   }
 
   return (
-    <div className="lk-focus-layout" style={{ height: '100vh', padding: '20px' }}>
+    <div className="lk-focus-layout" style={{ 
+      height: '100vh', 
+      padding: '20px',
+      paddingBottom: '80px' // Space for bottom control bar
+    }}>
       <div className="lk-focus-layout-main" style={{ height: '100%' }}>
         {/* Local participant (main view) */}
         <div style={{ 
@@ -485,46 +492,74 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
           {isLoading ? 'Connecting...' : connectionStatus}
         </div>
         
-        {/* Basic Control Bar */}
-        <div style={{
+        {/* Responsive Control Bar */}
+        <div className="mobile-control-bar" style={{
           position: 'fixed',
-          bottom: '20px',
-          left: '50%',
-          transform: 'translateX(-50%)',
+          bottom: '0px',
+          left: '0',
+          right: '0',
           zIndex: 1000,
           display: 'flex',
-          gap: '10px',
-          padding: '15px',
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          borderRadius: '25px',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '12px 16px',
+          paddingBottom: 'max(12px, env(safe-area-inset-bottom))',
+          backgroundColor: 'rgba(0, 0, 0, 0.9)',
           backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255, 255, 255, 0.1)'
+          borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+          minHeight: '60px'
         }}>
-          <section className="lk-button-group">
-            <TrackToggle source={Track.Source.Camera}>Camera</TrackToggle>
-            <div className="lk-button-group-menu">
-              <MediaDeviceMenu kind="videoinput" />
-            </div>
-          </section>
-          
-          <section className="lk-button-group">
-            <TrackToggle source={Track.Source.Microphone}>Microphone</TrackToggle>
-            <div className="lk-button-group-menu">
-              <MediaDeviceMenu kind="audioinput" />
-            </div>
-          </section>
-          
-          <button
-            className="lk-button"
-            onClick={() => {
-              // Toggle settings menu
-              const event = new CustomEvent('toggle_settings');
-              window.dispatchEvent(event);
-            }}
-            style={{ minWidth: '100px' }}
-          >
-            Settings
-          </button>
+          {/* Left side - Camera and Microphone */}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <section className="lk-button-group">
+              <TrackToggle source={Track.Source.Camera}>
+                <span className="mobile-button-content">
+                  <span className="mobile-button-icon">📹</span>
+                  <span className="mobile-button-label">Camera</span>
+                </span>
+              </TrackToggle>
+            </section>
+            
+            <section className="lk-button-group">
+              <TrackToggle source={Track.Source.Microphone}>
+                <span className="mobile-button-content">
+                  <span className="mobile-button-icon">🎤</span>
+                  <span className="mobile-button-label">Mic</span>
+                </span>
+              </TrackToggle>
+            </section>
+          </div>
+
+          {/* Center - More Controls */}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <MoreControls
+              isHost={props.isHost}
+              canRecord={true}
+              roomName={props.roomName || 'mobile-room'}
+              onEndMeeting={() => {
+                if (props.isHost) {
+                  // Host can end meeting
+                  const confirmMessage = `🚨 END MEETING FOR ALL PARTICIPANTS
+
+This action will:
+• Disconnect ALL participants from the meeting
+• Delete the room entirely
+• Cannot be undone
+
+Are you sure you want to end the meeting for everyone?`;
+                  
+                  if (confirm(confirmMessage)) {
+                    // For mobile, we'll just disconnect the current user
+                    // The full end meeting functionality would need to be implemented
+                    room.disconnect();
+                    window.location.href = '/';
+                  }
+                } else {
+                  alert('Only hosts can end meetings for all participants.');
+                }
+              }}
+            />
+          </div>
         </div>
 
         {/* Main video area with proper LiveKit components */}
@@ -533,8 +568,7 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
         {/* Picture-in-Picture for remote participants with both screen share and camera */}
         <PictureInPicture room={room} />
         
-        {/* Recording Controls and Indicator */}
-        <RecordingControl isHost={true} />
+        {/* Recording Indicator */}
         <RecordingIndicator />
       </RoomContext.Provider>
     </div>

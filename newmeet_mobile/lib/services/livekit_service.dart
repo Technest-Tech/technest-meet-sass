@@ -40,6 +40,7 @@ class LiveKitService extends ChangeNotifier {
   bool get isScreenSharing => _isScreenSharing;
   bool get isStartingScreenShare => _isStartingScreenShare;
   bool get isWhiteboardOpen => _isWhiteboardOpen;
+  List<Map<String, dynamic>> get chatMessages => List.unmodifiable(_chatMessages);
 
   // Connect to room
   Future<void> connectToRoom({
@@ -315,11 +316,48 @@ class LiveKitService extends ChangeNotifier {
   }
 
   // Whiteboard data callback
-  Function(Map<String, dynamic>)? _onWhiteboardDataReceived;
+  void Function(Map<String, dynamic>)? _onWhiteboardDataReceived;
 
   // Set whiteboard data callback
-  void setWhiteboardDataCallback(Function(Map<String, dynamic>) callback) {
+  void setWhiteboardDataCallback(void Function(Map<String, dynamic>) callback) {
     _onWhiteboardDataReceived = callback;
+  }
+
+  // Chat data callback
+  void Function(Map<String, dynamic>)? _onChatDataReceived;
+  
+  // Persistent chat messages storage
+  final List<Map<String, dynamic>> _chatMessages = [];
+
+  // Set chat data callback
+  void setChatDataCallback(void Function(Map<String, dynamic>) callback) {
+    _onChatDataReceived = callback;
+  }
+
+  // Send chat data
+  Future<void> sendChatData(Map<String, dynamic> data) async {
+    if (_room?.localParticipant != null) {
+      try {
+        // Store the message locally first
+        _chatMessages.add(data);
+        print('📤 LiveKit: Stored local chat message, total messages: ${_chatMessages.length}');
+        
+        // Convert to JSON string using dart:convert
+        final jsonString = jsonEncode(data);
+        final encodedData = jsonString.codeUnits;
+        await _room!.localParticipant!.publishData(
+          encodedData,
+          reliable: true,
+          topic: 'chat',
+        );
+        print('📤 LiveKit: Chat data sent - ${data['type']}');
+      } catch (e) {
+        print('❌ LiveKit: Failed to send chat data: $e');
+        _error = e.toString();
+        notifyListeners();
+        rethrow;
+      }
+    }
   }
 
   // Request permissions
@@ -405,39 +443,51 @@ class LiveKitService extends ChangeNotifier {
       print('📥 LiveKit: Event topic: ${event.topic}');
       print('📥 LiveKit: Data length: ${event.data.length}');
       
-      // Check if this is whiteboard data (web version might not set topic)
-      if (event.topic == 'whiteboard' || event.topic == null) {
-        // Convert List<int> to String
-        final dataString = String.fromCharCodes(event.data);
-        print('📥 LiveKit: Whiteboard data string: $dataString');
-        print('📥 LiveKit: Data string length: ${dataString.length}');
-        print('📥 LiveKit: First 100 chars: ${dataString.length > 100 ? dataString.substring(0, 100) : dataString}');
+      // Convert List<int> to String
+      final dataString = String.fromCharCodes(event.data);
+      print('📥 LiveKit: Data string: $dataString');
+      print('📥 LiveKit: Data string length: ${dataString.length}');
+      print('📥 LiveKit: Topic: ${event.topic}');
+      
+      // Parse the data - it should be a JSON-like string
+      final data = _parseData(dataString);
+      
+      if (data != null) {
+        print('📥 LiveKit: Parsed data: $data');
         
-        // Parse the data - it should be a JSON-like string
-        // The web version sends data as JSON, but we need to handle the format
-        final data = _parseWhiteboardData(dataString);
-        
-        if (data != null) {
-          print('📥 LiveKit: Parsed data: $data');
+        // Handle different data types based on topic or data type
+        if (event.topic == 'whiteboard' || (event.topic == null && data['type'] == 'whiteboard_toggle')) {
+          // Whiteboard data
           if (_onWhiteboardDataReceived != null) {
             print('📥 LiveKit: Forwarding whiteboard data to callback');
             _onWhiteboardDataReceived!(data);
           } else {
             print('⚠️ LiveKit: No whiteboard callback set');
           }
+        } else if (event.topic == 'chat' || data['type'] == 'chat_message') {
+          // Chat data - store persistently
+          _chatMessages.add(data);
+          print('📥 LiveKit: Stored chat message, total messages: ${_chatMessages.length}');
+          
+          if (_onChatDataReceived != null) {
+            print('📥 LiveKit: Forwarding chat data to callback');
+            _onChatDataReceived!(data);
+          } else {
+            print('⚠️ LiveKit: No chat callback set');
+          }
         } else {
-          print('❌ LiveKit: Failed to parse whiteboard data');
+          print('📥 LiveKit: Unknown data type: ${data['type']} with topic: ${event.topic}');
         }
       } else {
-        print('📥 LiveKit: Ignoring non-whiteboard data with topic: ${event.topic}');
+        print('❌ LiveKit: Failed to parse data');
       }
     } catch (e) {
       print('❌ LiveKit: Error processing received data: $e');
     }
   }
 
-  // Parse whiteboard data from string
-  Map<String, dynamic>? _parseWhiteboardData(String dataString) {
+  // Parse data from string
+  Map<String, dynamic>? _parseData(String dataString) {
     try {
       // Try to parse as JSON first
       final data = jsonDecode(dataString);
@@ -448,7 +498,7 @@ class LiveKitService extends ChangeNotifier {
       print('⚠️ LiveKit: Data is not a Map: $dataString');
       return null;
     } catch (e) {
-      print('❌ LiveKit: Error parsing whiteboard data as JSON: $e');
+      print('❌ LiveKit: Error parsing data as JSON: $e');
       print('❌ LiveKit: Raw data: $dataString');
       return null;
     }

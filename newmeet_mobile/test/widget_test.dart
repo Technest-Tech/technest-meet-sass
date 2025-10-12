@@ -8,7 +8,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:newmeet_mobile/main.dart';
+import 'package:almjad_meet/main.dart';
 
 void main() {
   testWidgets('App starts with room entry screen', (WidgetTester tester) async {

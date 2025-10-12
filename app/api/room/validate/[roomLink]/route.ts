@@ -32,7 +32,8 @@ export async function GET(
         id: true,
         name: true,
         isActive: true,
-        hostApproval: true
+        hostApproval: true,
+        canRecord: true
       }
     });
 
@@ -52,7 +53,8 @@ export async function GET(
         id: room.id,
         name: room.name,
         isActive: room.isActive,
-        hostApproval: room.hostApproval
+        hostApproval: room.hostApproval,
+        canRecord: room.canRecord
       }
     });
 

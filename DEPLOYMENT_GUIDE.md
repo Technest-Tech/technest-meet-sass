@@ -1,137 +1,146 @@
-# Almajd Meet DigitalOcean Deployment Guide
+# NewMeet Video Conferencing App - Complete Deployment Guide
 
-This guide will help you deploy the Almajd Meet application (backend + frontend) on a DigitalOcean droplet using Docker.
+## Overview
+This guide provides a complete walkthrough for deploying the NewMeet video conferencing application on DigitalOcean with proper SSL, WebSocket support, and LiveKit integration.
+
+## Architecture
+- **Frontend/Backend**: Next.js application
+- **WebRTC Service**: LiveKit server
+- **Reverse Proxy**: Nginx with SSL termination
+- **Database**: SQLite (can be upgraded to PostgreSQL)
+- **Hosting**: DigitalOcean Droplet
 
 ## Prerequisites
-
 - DigitalOcean account
-- Domain name (optional but recommended)
-- Basic knowledge of Linux commands
-- SSH access to your droplet
+- Domain name (e.g., `live.almajd.link`)
+- Basic knowledge of Docker and Linux
 
-## Step 1: Create DigitalOcean Droplet
+## Step 1: Server Setup
 
-### 1.1 Create a New Droplet
-1. Log into your DigitalOcean dashboard
-2. Click "Create" → "Droplets"
-3. Choose configuration:
-   - **Image**: Ubuntu 22.04 LTS
-   - **Size**: 
-     - Minimum: 2GB RAM, 1 vCPU (for testing)
-     - Recommended: 4GB RAM, 2 vCPU (for production)
-     - High traffic: 8GB RAM, 4 vCPU
-   - **Region**: Choose closest to your users
-   - **Authentication**: SSH Key (recommended) or Password
-   - **Hostname**: `almajd-meet-server` (or your preferred name)
-
-### 1.2 Configure Firewall
-Create a firewall with these rules:
-- **Inbound Rules**:
-  - SSH (22) - Your IP only
-  - HTTP (80) - All IPv4, All IPv6
-  - HTTPS (443) - All IPv4, All IPv6
-  - Custom (7880-7882) - All IPv4, All IPv6 (for LiveKit)
-- **Outbound Rules**: All traffic
-
-## Step 2: Initial Server Setup
-
-### 2.1 Connect to Your Droplet
+### 1.1 Create DigitalOcean Droplet
 ```bash
-ssh root@YOUR_DROPLET_IP
+# Create a droplet with:
+# - Ubuntu 22.04 LTS
+# - At least 2GB RAM, 2 vCPUs
+# - 50GB SSD storage
+# - Enable monitoring
 ```
 
-### 2.2 Update System
+### 1.2 Initial Server Configuration
 ```bash
-apt update && apt upgrade -y
-```
+# Update system
+sudo apt update && sudo apt upgrade -y
 
-### 2.3 Install Docker and Docker Compose
-```bash
 # Install Docker
 curl -fsSL https://get.docker.com -o get-docker.sh
-sh get-docker.sh
+sudo sh get-docker.sh
+sudo usermod -aG docker $USER
 
 # Install Docker Compose
-apt install docker-compose-plugin -y
+sudo apt install docker-compose-plugin -y
 
-# Add user to docker group (if not using root)
-usermod -aG docker $USER
+# Install Certbot for SSL
+sudo apt install certbot python3-certbot-nginx -y
 
-# Start and enable Docker
-systemctl start docker
-systemctl enable docker
+# Logout and login again to apply docker group changes
 ```
 
-### 2.4 Install Additional Tools
+## Step 2: Application Deployment
+
+### 2.1 Clone and Setup Application
 ```bash
-# Install Git, Node.js (for pnpm), and other utilities
-apt install -y git curl wget unzip
-
-# Install Node.js 18 (for pnpm)
-curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-apt install -y nodejs
-
-# Install pnpm
-npm install -g pnpm
-```
-
-## Step 3: Deploy Almajd Meet Application
-
-### 3.1 Clone Repository
-```bash
-# Create application directory
-mkdir -p /opt/almajd-meet
-cd /opt/almajd-meet
-
 # Clone your repository
-git clone https://github.com/TechNestAgency/almajd-meet-livekit.git .
+git clone <your-repo-url> /opt/newmeet
+cd /opt/newmeet
 
-# Or upload your code using SCP from local machine:
-# scp -r /path/to/almajd-meet-livekit root@YOUR_DROPLET_IP:/opt/almajd-meet/
+# Make sure you have the correct files
+ls -la
+# Should include: Dockerfile, docker-compose.yml, nginx.conf, livekit.yaml
 ```
 
-### 3.2 Configure Environment Variables
+### 2.2 Environment Configuration
+Create `env.production`:
 ```bash
-# Copy environment template
-cp env.example .env
-
-# Edit environment variables
-nano .env
+NODE_ENV=production
+DATABASE_URL=file:/app/data/prod.db
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production-64chars-minimum
+LIVEKIT_API_KEY=your-livekit-api-key-prod-2024
+LIVEKIT_API_SECRET=your-livekit-api-secret-production-2024-secure-key
+LIVEKIT_URL=http://livekit-server:7880
+NEXT_PUBLIC_LIVEKIT_URL=wss://your-domain.com/rtc
+NEXT_PUBLIC_LK_RECORD_ENDPOINT=/api/record
 ```
 
-Update the `.env` file with production values:
-```env
-# Database
-DATABASE_URL="file:/app/data/prod.db"
+### 2.3 Docker Compose Configuration
+Create `docker-compose.yml`:
+```yaml
+version: '3.8'
 
-# JWT Authentication
-JWT_SECRET="almajd-meet-jwt-secret-2024-production-key-64chars-minimum"
+services:
+  newmeet-app:
+    build: .
+    container_name: newmeet-app
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:/app/data/prod.db
+      - JWT_SECRET=your-super-secret-jwt-key-change-this-in-production-64chars-minimum
+      - LIVEKIT_API_KEY=your-livekit-api-key-prod-2024
+      - LIVEKIT_API_SECRET=your-livekit-api-secret-production-2024-secure-key
+      - LIVEKIT_URL=http://livekit-server:7880
+      - NEXT_PUBLIC_LIVEKIT_URL=wss://your-domain.com/rtc
+      - NEXT_PUBLIC_LK_RECORD_ENDPOINT=/api/record
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    depends_on:
+      - livekit-server
 
-# LiveKit Configuration
-LIVEKIT_API_KEY="almajd-meet-api-key-prod-2024"
-LIVEKIT_API_SECRET="almajd-meet-api-secret-production-2024-secure-key"
-LIVEKIT_URL="ws://64.227.52.146:7880"
+  livekit-server:
+    image: livekit/livekit-server:latest
+    container_name: livekit-server
+    ports:
+      - "7880:7880"  # API and WebSocket signaling
+      - "7881:7881"  # TCP fallback
+      - "7882:7882/udp"  # UDP for media traffic
+    environment:
+      LIVEKIT_PORT: "7880"
+      LIVEKIT_BIND_ADDRESSES: "0.0.0.0:7880"
+      LIVEKIT_TCP_PORT: "7881"
+      LIVEKIT_TCP_BIND_ADDRESSES: "0.0.0.0:7881"
+      LIVEKIT_UDP_PORT: "7882"
+      LIVEKIT_UDP_BIND_ADDRESSES: "0.0.0.0:7882"
+    volumes:
+      - ./livekit.yaml:/config.yaml
+    command: --config /config.yaml
+    restart: unless-stopped
 
-# Next.js
-NEXT_PUBLIC_LIVEKIT_URL="ws://64.227.52.146:7880"
-NEXT_PUBLIC_LK_RECORD_ENDPOINT="/api/record"
+  nginx-proxy:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    restart: unless-stopped
+    depends_on:
+      - newmeet-app
+      - livekit-server
 ```
 
-### 3.3 Configure LiveKit
-```bash
-# Edit LiveKit configuration
-nano livekit.yaml
-```
-
-Update `livekit.yaml` for production:
+### 2.4 LiveKit Configuration
+Create `livekit.yaml`:
 ```yaml
 # LiveKit Server Configuration
 port: 7880
 bind_addresses: ["0.0.0.0"]
 
-# API keys for authentication (match your .env)
+# API keys for authentication - MUST MATCH your environment variables
 keys:
-  almajd-meet-api-key-prod-2024: almajd-meet-api-secret-production-2024-secure-key
+  your-livekit-api-key-prod-2024: your-livekit-api-secret-production-2024-secure-key
 
 # Logging
 log_level: info
@@ -140,8 +149,8 @@ log_level: info
 room:
   auto_create: true
 
-# Production mode
-development: false
+# Development mode (no database required)
+development: true
 
 # RTC configuration
 rtc:
@@ -150,330 +159,299 @@ rtc:
   udp_port: 7882
 ```
 
-### 3.4 Create Required Directories
-```bash
-# Create data and uploads directories
-mkdir -p data uploads
+### 2.5 Nginx Configuration
+Create `nginx.conf`:
+```nginx
+events {
+    worker_connections 1024;
+}
 
-# Set proper permissions
-chown -R 1001:1001 data uploads
+http {
+    upstream newmeet-app {
+        server newmeet-app:3000;
+    }
+
+    upstream livekit-server {
+        server livekit-server:7880;
+    }
+
+    # HTTP server - redirect to HTTPS
+    server {
+        listen 80;
+        server_name your-domain.com;
+        return 301 https://$server_name$request_uri;
+    }
+
+    # HTTPS server
+    server {
+        listen 443 ssl http2;
+        server_name your-domain.com;
+
+        # SSL configuration with Let's Encrypt certificates
+        ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
+        ssl_prefer_server_ciphers off;
+
+        # LiveKit WebSocket - handle WebSocket connections
+        location /rtc {
+            proxy_pass http://livekit-server/;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 86400;
+        }
+
+        # Main application
+        location / {
+            proxy_pass http://newmeet-app;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # API endpoints
+        location /api/ {
+            proxy_pass http://newmeet-app;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+    }
+}
 ```
 
-## Step 4: Deploy with Docker Compose
+## Step 3: SSL Certificate Setup
 
-### 4.1 Start the Application
+### 3.1 Stop Services Temporarily
 ```bash
-# Build and start all services
-docker compose -f docker-compose.prod.yml up -d --build
-
-# Check if all containers are running
-docker compose -f docker-compose.prod.yml ps
+cd /opt/newmeet
+docker compose down
+sudo systemctl stop nginx  # Stop any system nginx
 ```
 
-### 4.2 Initialize Database
+### 3.2 Get SSL Certificate
 ```bash
-# Run database migrations
-docker compose -f docker-compose.prod.yml exec newmeet-backend pnpm run db:push
-
-# Or if you have a custom init script
-docker compose -f docker-compose.prod.yml exec newmeet-backend node scripts/init-db.js
+# Replace your-domain.com with your actual domain
+sudo certbot certonly --standalone -d your-domain.com --non-interactive --agree-tos --email admin@your-domain.com
 ```
 
-### 4.3 Verify Deployment
-```bash
-# Check logs
-docker compose -f docker-compose.prod.yml logs -f
+### 3.3 Update Nginx Configuration
+Update the SSL certificate paths in `nginx.conf` to match your domain:
+```nginx
+ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+```
 
-# Test health endpoint
-curl http://64.227.52.146/health
+## Step 4: Deploy Application
+
+### 4.1 Start Services
+```bash
+cd /opt/newmeet
+docker compose up -d
+```
+
+### 4.2 Verify Deployment
+```bash
+# Check all containers are running
+docker ps
+
+# Test HTTPS connection
+curl -I https://your-domain.com
+
+# Test WebSocket endpoint
+curl -I https://your-domain.com/rtc
+
+# Test API endpoint
+curl -s "https://your-domain.com/api/connection-details?roomName=test&participantName=TestUser&participantType=host" | jq .
+```
+
+## Step 5: Troubleshooting Common Issues
+
+### 5.1 WebSocket Connection Issues
+
+**Problem**: Mixed content errors or WebSocket connection failures
+**Solution**: Ensure `NEXT_PUBLIC_LIVEKIT_URL` uses `wss://` protocol
+
+```bash
+# Check environment variables
+docker exec newmeet-app env | grep LIVEKIT
+
+# Should show:
+# NEXT_PUBLIC_LIVEKIT_URL=wss://your-domain.com/rtc
+# LIVEKIT_URL=http://livekit-server:7880
+```
+
+### 5.2 API Key Mismatch
+
+**Problem**: "invalid API key" errors
+**Solution**: Ensure LiveKit server and application use the same API keys
+
+```bash
+# Check livekit.yaml matches your environment variables
+cat livekit.yaml | grep -A 2 "keys:"
+
+# Restart LiveKit server after changes
+docker compose restart livekit-server
+```
+
+### 5.3 Double /rtc in URL
+
+**Problem**: WebSocket tries to connect to `/rtc/rtc`
+**Solution**: Use correct nginx proxy configuration
+
+```nginx
+# Correct configuration
+location /rtc {
+    proxy_pass http://livekit-server/;  # Note the trailing slash
+    # ... other proxy settings
+}
+```
+
+### 5.4 Container Networking Issues
+
+**Problem**: Containers can't communicate
+**Solution**: Ensure all services are in the same Docker network
+
+```bash
+# Check network
+docker network ls
+docker network inspect newmeet_default
+
+# Restart all services
+docker compose down
+docker compose up -d
+```
+
+## Step 6: Monitoring and Maintenance
+
+### 6.1 Log Monitoring
+```bash
+# View application logs
+docker logs newmeet-app -f
+
+# View LiveKit logs
+docker logs livekit-server -f
+
+# View nginx logs
+docker logs nginx-proxy -f
+```
+
+### 6.2 SSL Certificate Renewal
+```bash
+# Test renewal
+sudo certbot renew --dry-run
+
+# Set up automatic renewal
+sudo crontab -e
+# Add: 0 12 * * * /usr/bin/certbot renew --quiet
+```
+
+### 6.3 Backup Database
+```bash
+# Backup SQLite database
+cp /opt/newmeet/data/prod.db /opt/newmeet/data/prod.db.backup.$(date +%Y%m%d)
+```
+
+## Step 7: Performance Optimization
+
+### 7.1 Resource Limits
+Add to `docker-compose.yml`:
+```yaml
+services:
+  newmeet-app:
+    # ... existing config
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+```
+
+### 7.2 Database Upgrade (Optional)
+For production, consider upgrading to PostgreSQL:
+
+```yaml
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: newmeet
+      POSTGRES_USER: newmeet
+      POSTGRES_PASSWORD: your-secure-password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+```
+
+## Final Verification Checklist
+
+- [ ] Domain points to your server IP
+- [ ] SSL certificate is valid and working
+- [ ] All Docker containers are running
+- [ ] WebSocket endpoint responds with HTTP 200
+- [ ] API returns correct serverUrl with wss://
+- [ ] Video calls work in browser
+- [ ] No mixed content errors in browser console
+- [ ] No "invalid API key" errors in logs
+
+## Quick Commands Reference
+
+```bash
+# Start services
+docker compose up -d
+
+# Stop services
+docker compose down
+
+# View logs
+docker logs <container-name> -f
+
+# Restart specific service
+docker compose restart <service-name>
+
+# Rebuild and restart
+docker compose down
+docker compose build
+docker compose up -d
+
+# Check SSL certificate
+sudo certbot certificates
+
+# Test WebSocket
+curl -I https://your-domain.com/rtc
 
 # Test API
-curl http://64.227.52.146/api/health
+curl -s "https://your-domain.com/api/connection-details?roomName=test&participantName=TestUser&participantType=host"
 ```
 
-## Step 5: Configure Domain and SSL (Optional but Recommended)
+## Security Considerations
 
-### 5.1 Point Domain to Droplet
-1. In your domain registrar's DNS settings:
-   - Create A record: `@` → `64.227.52.146`
-   - Create A record: `api` → `64.227.52.146` (if using subdomain)
+1. **Change default passwords and secrets**
+2. **Use strong JWT secrets (64+ characters)**
+3. **Keep Docker and system packages updated**
+4. **Configure firewall to only allow necessary ports**
+5. **Regular security updates**
+6. **Monitor logs for suspicious activity**
 
-### 5.2 Install Certbot for SSL
-```bash
-# Install Certbot
-apt install -y certbot python3-certbot-nginx
+## Support
 
-# Stop nginx container temporarily
-docker compose -f docker-compose.prod.yml stop nginx
-```
-
-### 5.3 Generate SSL Certificate
-```bash
-# Generate certificate (replace with your domain)
-certbot certonly --standalone -d yourdomain.com -d api.yourdomain.com
-
-# Create SSL directory for nginx
-mkdir -p /opt/almajd-meet/ssl
-cp /etc/letsencrypt/live/yourdomain.com/fullchain.pem /opt/almajd-meet/ssl/cert.pem
-cp /etc/letsencrypt/live/yourdomain.com/privkey.pem /opt/almajd-meet/ssl/key.pem
-```
-
-### 5.4 Update Nginx Configuration
-```bash
-# Use the full nginx.conf instead of nginx-simple.conf
-# Update server_name in nginx.conf to your domain
-nano nginx.conf
-```
-
-Update the server_name in `nginx.conf`:
-```nginx
-server_name yourdomain.com;
-# and
-server_name api.yourdomain.com;
-```
-
-### 5.5 Restart with SSL
-```bash
-# Start nginx with SSL configuration
-docker compose -f docker-compose.prod.yml up -d nginx
-```
-
-## Step 6: Production Optimizations
-
-### 6.1 Set Up Log Rotation
-```bash
-# Create logrotate configuration
-cat > /etc/logrotate.d/almajd-meet << EOF
-/opt/almajd-meet/data/*.log {
-    daily
-    missingok
-    rotate 7
-    compress
-    delaycompress
-    notifempty
-    create 644 root root
-}
-EOF
-```
-
-### 6.2 Set Up Monitoring
-```bash
-# Install htop for monitoring
-apt install -y htop
-
-# Create a simple monitoring script
-cat > /opt/almajd-meet/monitor.sh << 'EOF'
-#!/bin/bash
-echo "=== Almajd Meet System Status ==="
-echo "Date: $(date)"
-echo "Uptime: $(uptime)"
-echo "Disk Usage:"
-df -h
-echo "Memory Usage:"
-free -h
-echo "Docker Containers:"
-docker compose -f /opt/almajd-meet/docker-compose.prod.yml ps
-echo "Container Logs (last 10 lines):"
-docker compose -f /opt/almajd-meet/docker-compose.prod.yml logs --tail=10
-EOF
-
-chmod +x /opt/almajd-meet/monitor.sh
-```
-
-### 6.3 Set Up Auto-Start
-```bash
-# Create systemd service for auto-start
-cat > /etc/systemd/system/almajd-meet.service << EOF
-[Unit]
-Description=Almajd Meet Application
-Requires=docker.service
-After=docker.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-WorkingDirectory=/opt/almajd-meet
-ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up -d
-ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down
-TimeoutStartSec=0
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Enable and start the service
-systemctl enable almajd-meet.service
-systemctl start almajd-meet.service
-```
-
-## Step 7: Backup Strategy
-
-### 7.1 Create Backup Script
-```bash
-cat > /opt/almajd-meet/backup.sh << 'EOF'
-#!/bin/bash
-BACKUP_DIR="/opt/backups/almajd-meet"
-DATE=$(date +%Y%m%d_%H%M%S)
-
-mkdir -p $BACKUP_DIR
-
-# Backup database
-cp /opt/almajd-meet/data/prod.db $BACKUP_DIR/prod_$DATE.db
-
-# Backup uploads
-tar -czf $BACKUP_DIR/uploads_$DATE.tar.gz /opt/almajd-meet/uploads/
-
-# Keep only last 7 days of backups
-find $BACKUP_DIR -name "*.db" -mtime +7 -delete
-find $BACKUP_DIR -name "*.tar.gz" -mtime +7 -delete
-
-echo "Backup completed: $DATE"
-EOF
-
-chmod +x /opt/almajd-meet/backup.sh
-```
-
-### 7.2 Set Up Cron Job for Backups
-```bash
-# Add to crontab
-crontab -e
-
-# Add this line for daily backups at 2 AM
-0 2 * * * /opt/almajd-meet/backup.sh >> /var/log/almajd-meet-backup.log 2>&1
-```
-
-## Step 8: Security Hardening
-
-### 8.1 Configure Firewall (UFW)
-```bash
-# Install UFW
-apt install -y ufw
-
-# Configure firewall rules
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow ssh
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw allow 7880:7882/tcp
-ufw allow 7882/udp
-
-# Enable firewall
-ufw --force enable
-```
-
-### 8.2 Secure SSH
-```bash
-# Edit SSH configuration
-nano /etc/ssh/sshd_config
-
-# Add/modify these settings:
-# Port 2222  # Change default port
-# PermitRootLogin no
-# PasswordAuthentication no
-# PubkeyAuthentication yes
-
-# Restart SSH
-systemctl restart ssh
-```
-
-## Step 9: Testing and Verification
-
-### 9.1 Test All Endpoints
-```bash
-# Test health endpoint
-curl http://yourdomain.com/health
-
-# Test API endpoints
-curl http://yourdomain.com/api/health
-
-# Test LiveKit connection
-curl http://64.227.52.146:7880/
-```
-
-### 9.2 Test Video Conference
-1. Open your browser and go to `http://64.227.52.146` (or your domain if configured)
-2. Create a room
-3. Test video/audio functionality
-4. Test screen sharing
-5. Test recording (if enabled)
-
-## Step 10: Maintenance Commands
-
-### 10.1 Common Operations
-```bash
-# View logs
-docker compose -f docker-compose.prod.yml logs -f
-
-# Restart services
-docker compose -f docker-compose.prod.yml restart
-
-# Update application
-cd /opt/almajd-meet
-git pull
-docker compose -f docker-compose.prod.yml up -d --build
-
-# Check system status
-/opt/almajd-meet/monitor.sh
-
-# Run backup
-/opt/almajd-meet/backup.sh
-```
-
-### 10.2 Troubleshooting
-```bash
-# Check container status
-docker ps -a
-
-# Check container logs
-docker logs newmeet-backend
-docker logs livekit-server
-docker logs nginx-proxy
-
-# Check disk space
-df -h
-
-# Check memory usage
-free -h
-
-# Check network connectivity
-netstat -tlnp
-```
-
-## Cost Estimation
-
-### DigitalOcean Droplet Costs (Monthly)
-- **Basic**: 2GB RAM, 1 vCPU - $12/month
-- **Standard**: 4GB RAM, 2 vCPU - $24/month
-- **Professional**: 8GB RAM, 4 vCPU - $48/month
-
-### Additional Costs
-- Domain name: $10-15/year
-- SSL certificate: Free (Let's Encrypt)
-- Backup storage: Minimal (included in droplet)
-
-## Performance Recommendations
-
-1. **For < 50 concurrent users**: 2GB RAM droplet
-2. **For 50-200 concurrent users**: 4GB RAM droplet
-3. **For 200+ concurrent users**: 8GB RAM droplet + load balancer
-
-## Support and Maintenance
-
-- Monitor logs regularly: `/opt/almajd-meet/monitor.sh`
-- Keep system updated: `apt update && apt upgrade`
-- Backup database daily
-- Monitor disk space and memory usage
-- Set up alerts for service failures
-
-## Next Steps
-
-1. Set up monitoring with tools like Prometheus + Grafana
-2. Implement CDN for static assets
-3. Set up load balancing for high availability
-4. Configure automated deployments with CI/CD
-5. Set up database replication for high availability
+If you encounter issues:
+1. Check container logs: `docker logs <container-name>`
+2. Verify environment variables match between services
+3. Ensure SSL certificate is valid
+4. Check nginx configuration syntax
+5. Verify LiveKit API keys match in both places
 
 ---
 
-**Note**: Replace `yourdomain.com` with your actual domain name if you're using a custom domain. The droplet IP `64.227.52.146` is already configured throughout this guide.
+**Note**: Replace `your-domain.com` with your actual domain name throughout this guide.

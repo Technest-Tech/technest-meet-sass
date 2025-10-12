@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const { name, description, hostApproval, maxParticipants, isActive } = await request.json();
+    const { name, description, hostApproval, maxParticipants, isActive, canRecord } = await request.json();
 
     if (!name) {
       return NextResponse.json(
@@ -71,8 +71,8 @@ export async function POST(request: NextRequest) {
         .replace(/-+/g, '-') // Replace multiple hyphens with single
         .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
       
-      // Ensure the sanitized name is not empty or too short
-      if (!sanitizedName || sanitizedName.length < 3) {
+      // Ensure the sanitized name is not empty
+      if (!sanitizedName || sanitizedName.length < 1) {
         sanitizedName = 'room';
       }
       
@@ -114,6 +114,7 @@ export async function POST(request: NextRequest) {
         hostApproval: hostApproval || false,
         maxParticipants: maxParticipants || 50,
         isActive: isActive !== undefined ? isActive : true,
+        canRecord: canRecord !== undefined ? canRecord : false,
         hostLink,
         guestLink
       },
@@ -186,7 +187,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const { id, name, description, hostApproval, maxParticipants, isActive } = await request.json();
+    const { id, name, description, hostApproval, maxParticipants, isActive, canRecord } = await request.json();
 
     if (!id) {
       return NextResponse.json(
@@ -228,8 +229,8 @@ export async function PUT(request: NextRequest) {
           .replace(/-+/g, '-') // Replace multiple hyphens with single
           .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
         
-        // Ensure the sanitized name is not empty or too short
-        if (!sanitizedName || sanitizedName.length < 3) {
+        // Ensure the sanitized name is not empty
+        if (!sanitizedName || sanitizedName.length < 1) {
           sanitizedName = 'room';
         }
         
@@ -274,6 +275,7 @@ export async function PUT(request: NextRequest) {
         hostApproval: hostApproval !== undefined ? hostApproval : existingRoom.hostApproval,
         maxParticipants: maxParticipants !== undefined ? maxParticipants : existingRoom.maxParticipants,
         isActive: isActive !== undefined ? isActive : existingRoom.isActive,
+        canRecord: canRecord !== undefined ? canRecord : existingRoom.canRecord,
         hostLink: roomLink,
         guestLink: roomLink,
         updatedAt: new Date()
