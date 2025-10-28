@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { PageClientImpl } from '@/app/rooms/[roomName]/PageClientImpl';
+import { NameInputPage } from '@/lib/NameInputPage';
 
 interface RoomValidation {
   exists: boolean;
@@ -24,6 +25,8 @@ export default function ShortRoomAccess() {
   const [roomValidation, setRoomValidation] = useState<RoomValidation | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
+  const [showNameInput, setShowNameInput] = useState(false);
 
   // Debug logging
   console.log('🔍 Short Room Access Debug:', {
@@ -50,6 +53,7 @@ export default function ShortRoomAccess() {
         if (response.ok) {
           const data = await response.json();
           setRoomValidation(data);
+          setShowNameInput(true); // Show name input after successful validation
         } else {
           const errorData = await response.json();
           setError(errorData.message || 'Room not found or access denied');
@@ -86,6 +90,21 @@ export default function ShortRoomAccess() {
           </button>
         </div>
       </div>
+    );
+  }
+
+  // Show name input page
+  if (showNameInput && !userName) {
+    return (
+      <NameInputPage
+        roomLink={roomLink}
+        accessType={accessType as 'host' | 'guest'}
+        roomName={roomValidation?.room?.name}
+        onNameSubmit={(name) => {
+          setUserName(name);
+          setShowNameInput(false);
+        }}
+      />
     );
   }
 
@@ -158,7 +177,7 @@ export default function ShortRoomAccess() {
   }
 
   // Generate a meaningful participant name based on access type
-  const participantName = accessType === 'host' ? 'Host' : 'Guest';
+  const participantName = userName || (accessType === 'host' ? 'Host' : 'Guest');
   
   // Both host and guest join the SAME meeting room
   // Host gets admin permissions, guest gets basic permissions
