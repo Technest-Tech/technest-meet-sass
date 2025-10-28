@@ -1,83 +1,131 @@
-import 'package:json_annotation/json_annotation.dart';
-
-part 'room.g.dart';
-
-@JsonSerializable()
-class RoomModel {
+class Room {
   final String id;
   final String name;
   final String? description;
   final bool hostApproval;
-  final int? maxParticipants;
+  final int maxParticipants;
   final bool isActive;
-  final String? createdAt;
-  final String? hostLink;
-  final String? guestLink;
-  final List<Participant>? participants;
+  final bool canRecord;
+  final String hostLink;
+  final String guestLink;
+  final DateTime createdAt;
+  final DateTime? updatedAt;
+  final List<Participant> participants;
 
-  const RoomModel({
+  Room({
     required this.id,
     required this.name,
     this.description,
     required this.hostApproval,
-    this.maxParticipants,
+    required this.maxParticipants,
     required this.isActive,
-    this.createdAt,
-    this.hostLink,
-    this.guestLink,
-    this.participants,
+    required this.canRecord,
+    required this.hostLink,
+    required this.guestLink,
+    required this.createdAt,
+    this.updatedAt,
+    required this.participants,
   });
 
-  factory RoomModel.fromJson(Map<String, dynamic> json) => _$RoomModelFromJson(json);
-  Map<String, dynamic> toJson() => _$RoomModelToJson(this);
+  factory Room.fromJson(Map<String, dynamic> json) {
+    return Room(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      description: json['description'] as String?,
+      hostApproval: json['hostApproval'] as bool? ?? false,
+      maxParticipants: json['maxParticipants'] as int? ?? 50,
+      isActive: json['isActive'] as bool? ?? true,
+      canRecord: json['canRecord'] as bool? ?? false,
+      hostLink: json['hostLink'] as String? ?? json['name'] as String,
+      guestLink: json['guestLink'] as String? ?? json['name'] as String,
+      createdAt: json['createdAt'] != null 
+          ? DateTime.parse(json['createdAt'] as String)
+          : DateTime.now(),
+      updatedAt: json['updatedAt'] != null 
+          ? DateTime.parse(json['updatedAt'] as String) 
+          : null,
+      participants: (json['participants'] as List<dynamic>?)
+          ?.map((p) => Participant.fromJson(p as Map<String, dynamic>))
+          .toList() ?? [],
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'description': description,
+      'hostApproval': hostApproval,
+      'maxParticipants': maxParticipants,
+      'isActive': isActive,
+      'canRecord': canRecord,
+      'hostLink': hostLink,
+      'guestLink': guestLink,
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt?.toIso8601String(),
+      'participants': participants.map((p) => p.toJson()).toList(),
+    };
+  }
+
+  Room copyWith({
+    String? id,
+    String? name,
+    String? description,
+    bool? hostApproval,
+    int? maxParticipants,
+    bool? isActive,
+    bool? canRecord,
+    String? hostLink,
+    String? guestLink,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    List<Participant>? participants,
+  }) {
+    return Room(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      description: description ?? this.description,
+      hostApproval: hostApproval ?? this.hostApproval,
+      maxParticipants: maxParticipants ?? this.maxParticipants,
+      isActive: isActive ?? this.isActive,
+      canRecord: canRecord ?? this.canRecord,
+      hostLink: hostLink ?? this.hostLink,
+      guestLink: guestLink ?? this.guestLink,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      participants: participants ?? this.participants,
+    );
+  }
 }
 
-@JsonSerializable()
 class Participant {
   final String id;
   final String name;
-  final String type;
+  final String type; // 'HOST' or 'GUEST'
+  final String roomId;
 
-  const Participant({
+  Participant({
     required this.id,
     required this.name,
     required this.type,
+    required this.roomId,
   });
 
-  factory Participant.fromJson(Map<String, dynamic> json) => _$ParticipantFromJson(json);
-  Map<String, dynamic> toJson() => _$ParticipantToJson(this);
-}
+  factory Participant.fromJson(Map<String, dynamic> json) {
+    return Participant(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      type: json['type'] as String,
+      roomId: json['roomId'] as String,
+    );
+  }
 
-@JsonSerializable()
-class RoomValidation {
-  final bool exists;
-  final RoomModel? room;
-
-  const RoomValidation({
-    required this.exists,
-    this.room,
-  });
-
-  factory RoomValidation.fromJson(Map<String, dynamic> json) => _$RoomValidationFromJson(json);
-  Map<String, dynamic> toJson() => _$RoomValidationToJson(this);
-}
-
-@JsonSerializable()
-class LiveKitTokenResponse {
-  final String token;
-  final String livekitUrl;
-  final String roomName;
-  final String participantName;
-  final String participantType;
-
-  const LiveKitTokenResponse({
-    required this.token,
-    required this.livekitUrl,
-    required this.roomName,
-    required this.participantName,
-    required this.participantType,
-  });
-
-  factory LiveKitTokenResponse.fromJson(Map<String, dynamic> json) => _$LiveKitTokenResponseFromJson(json);
-  Map<String, dynamic> toJson() => _$LiveKitTokenResponseToJson(this);
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'type': type,
+      'roomId': roomId,
+    };
+  }
 }

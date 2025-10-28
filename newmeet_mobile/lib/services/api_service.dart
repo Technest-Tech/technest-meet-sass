@@ -1,10 +1,13 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/room.dart';
+import '../models/room_validation.dart';
+import '../models/livekit_token_response.dart';
+import '../config/app_config.dart';
 
 class ApiService {
-  // Production API URL - Update this with your deployed backend URL
-  static const String baseUrl = 'https://api.newmeet.com';
+  // Use configuration for base URL
+  static String get baseUrl => AppConfig.baseUrl;
   
   // Validate room exists
   static Future<RoomValidation> validateRoom(String roomLink, String type) async {
@@ -108,6 +111,45 @@ class ApiService {
     } catch (e) {
       print('❌ API: Connection details error: $e');
       throw Exception('Error getting connection details: $e');
+    }
+  }
+
+  // Remove participant from room
+  static Future<Map<String, dynamic>> removeParticipant({
+    required String roomName,
+    required String participantIdentity,
+  }) async {
+    try {
+      print('🗑️ API: Removing participant - Room: $roomName, Participant: $participantIdentity');
+      print('🗑️ API: Request URL: $baseUrl/api/admin/rooms/$roomName/remove-participant');
+      
+      final requestBody = {
+        'participantIdentity': participantIdentity,
+        'roomName': roomName,
+      };
+      print('🗑️ API: Request body: $requestBody');
+      
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/admin/rooms/$roomName/remove-participant'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(requestBody),
+      );
+
+      print('🗑️ API: Remove participant response - Status: ${response.statusCode}');
+      print('🗑️ API: Remove participant response - Body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        print('🗑️ API: Participant removal successful: $data');
+        return data;
+      } else {
+        print('❌ API: Remove participant failed with status: ${response.statusCode}');
+        print('❌ API: Response body: ${response.body}');
+        throw Exception('Failed to remove participant: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('❌ API: Remove participant error: $e');
+      throw Exception('Error removing participant: $e');
     }
   }
 }

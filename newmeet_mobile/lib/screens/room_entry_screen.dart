@@ -43,9 +43,19 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
 
     try {
       final roomName = _roomNameController.text.trim();
-      final participantName = _participantNameController.text.trim().isEmpty 
-          ? (_participantType == 'host' ? 'Host' : 'Guest')
-          : _participantNameController.text.trim();
+      
+      // Generate unique participant name to avoid conflicts
+      String participantName;
+      if (_participantNameController.text.trim().isEmpty) {
+        // Add timestamp to make each participant unique
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final defaultName = _participantType == 'host' ? 'Host' : 'Guest';
+        participantName = '$defaultName-$timestamp';
+      } else {
+        // Even if user enters a name, add timestamp to ensure uniqueness
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        participantName = '${_participantNameController.text.trim()}-$timestamp';
+      }
 
       print('📝 RoomEntry: Room details - Name: $roomName, Participant: $participantName, Type: $_participantType');
 
@@ -208,7 +218,7 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
                         ),
                         const SizedBox(height: 24),
                         const Text(
-                          'Almajd Meet',
+                          'Tarteel Meet',
                           style: TextStyle(
                             fontSize: 32,
                             fontWeight: FontWeight.bold,
@@ -453,6 +463,99 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
                                 ),
                               ],
                             ),
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 24),
+                  
+                  // Admin Login Section
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 20,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.admin_panel_settings, color: Colors.orange.shade600, size: 24),
+                            const SizedBox(width: 12),
+                            Text(
+                              'Admin Login',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.orange.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Access admin dashboard to manage rooms',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Container(
+                          height: 56,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(16),
+                            gradient: LinearGradient(
+                              colors: [Colors.orange.shade400, Colors.orange.shade600],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.orange.withOpacity(0.3),
+                                blurRadius: 12,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: ElevatedButton(
+                            onPressed: () {
+                              // Navigate to admin login
+                              Navigator.pushNamed(context, '/admin-login');
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.login, size: 20, color: Colors.white),
+                                SizedBox(width: 8),
+                                Text(
+                                  'ADMIN LOGIN',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                    letterSpacing: 1.0,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   

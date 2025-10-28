@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:livekit_client/livekit_client.dart' as lk;
 import '../services/livekit_service.dart';
+import '../services/call_service.dart';
 import '../widgets/conference_controls.dart';
 import '../widgets/video_participant_widget.dart';
 import '../widgets/whiteboard_widget.dart';
@@ -21,15 +23,113 @@ class VideoConferenceScreen extends StatefulWidget {
   State<VideoConferenceScreen> createState() => _VideoConferenceScreenState();
 }
 
-class _VideoConferenceScreenState extends State<VideoConferenceScreen> {
-  bool _isBottomControlsVisible = true;
+class _VideoConferenceScreenState extends State<VideoConferenceScreen> with WidgetsBindingObserver {
+  // Track microphone state to maintain it during app lifecycle changes
+  bool _wasMicrophoneEnabled = true;
 
   @override
   void initState() {
     super.initState();
+    // Add lifecycle observer to handle app state changes
+    WidgetsBinding.instance.addObserver(this);
+    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _connectToRoom();
     });
+  }
+
+  @override
+  void dispose() {
+    // Remove lifecycle observer
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    
+    // Handle app lifecycle state changes
+    final liveKitService = Provider.of<LiveKitService>(context, listen: false);
+    
+    switch (state) {
+      case AppLifecycleState.resumed:
+        print('📱 App resumed - restoring audio state');
+        // Restore microphone state when app resumes
+        _restoreMicrophoneState(liveKitService);
+        break;
+      case AppLifecycleState.paused:
+        print('📱 App paused - saving and maintaining audio state');
+        // Save current mic state before pausing
+        _saveMicrophoneState(liveKitService);
+        // Configure audio for background operation
+        CallService.configureAudioForBackground();
+        // Keep audio tracks enabled even when app is paused
+        _ensureAudioTracksEnabled(liveKitService);
+        break;
+      case AppLifecycleState.inactive:
+        print('📱 App inactive - maintaining audio connection');
+        CallService.configureAudioForBackground();
+        _ensureAudioTracksEnabled(liveKitService);
+        break;
+      case AppLifecycleState.detached:
+        print('📱 App detached');
+        break;
+      case AppLifecycleState.hidden:
+        print('📱 App hidden - maintaining audio connection');
+        _ensureAudioTracksEnabled(liveKitService);
+        break;
+    }
+  }
+
+  // Save microphone state before app goes to background
+  void _saveMicrophoneState(LiveKitService liveKitService) {
+    try {
+      _wasMicrophoneEnabled = liveKitService.localParticipant?.isMicrophoneEnabled() ?? false;
+      print('💾 Saved microphone state: $_wasMicrophoneEnabled');
+    } catch (e) {
+      print('⚠️ Error saving microphone state: $e');
+    }
+  }
+
+  // Restore microphone state when app returns to foreground
+  void _restoreMicrophoneState(LiveKitService liveKitService) async {
+    try {
+      print('🔄 Restoring microphone state to: $_wasMicrophoneEnabled');
+      if (_wasMicrophoneEnabled) {
+        await liveKitService.room?.localParticipant?.setMicrophoneEnabled(true);
+        print('✅ Microphone state restored successfully');
+      }
+    } catch (e) {
+      print('⚠️ Error restoring microphone state: $e');
+    }
+  }
+
+  // Ensure audio tracks remain enabled
+  void _ensureAudioTracksEnabled(LiveKitService liveKitService) async {
+    try {
+      if (liveKitService.room?.localParticipant != null) {
+        final localParticipant = liveKitService.localParticipant;
+        final isMicEnabled = localParticipant?.isMicrophoneEnabled() ?? false;
+        
+        print('📱 Audio track status - Mic enabled: $isMicEnabled');
+        
+        // If microphone was enabled before backgrounding, keep it enabled
+        if (isMicEnabled) {
+          print('📱 Ensuring microphone stays enabled in background...');
+          
+          // Force enable microphone again to prevent auto-muting
+          try {
+            await liveKitService.room?.localParticipant?.setMicrophoneEnabled(true);
+            print('✅ Microphone re-enabled successfully');
+          } catch (e) {
+            print('⚠️ Error re-enabling microphone: $e');
+          }
+        }
+      }
+    } catch (e) {
+      print('⚠️ Error ensuring audio tracks: $e');
+    }
   }
 
   Future<void> _connectToRoom() async {
@@ -57,34 +157,57 @@ class _VideoConferenceScreenState extends State<VideoConferenceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: Text('Room: ${widget.roomName}'),
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) async {
+        if (didPop) return;
+        
+        // Show confirmation dialog when back button is pressed
+        final shouldLeave = await _showLeaveMeetingDialog();
+        if (shouldLeave == true && mounted) {
+          try {
+            print('🚪 VideoConferenceScreen: User confirmed leaving meeting via back button');
+            final liveKitService = Provider.of<LiveKitService>(context, listen: false);
+            await liveKitService.disconnect();
+            print('✅ VideoConferenceScreen: Successfully disconnected from meeting');
+            Navigator.pop(context, 'left_meeting');
+          } catch (e) {
+            print('❌ VideoConferenceScreen: Error disconnecting: $e');
+            Navigator.pop(context, 'left_meeting');
+          }
+        }
+      },
+      child: Scaffold(
         backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.exit_to_app),
-            onPressed: () async {
-              try {
-                print('🚪 VideoConferenceScreen: User requested to leave meeting');
-                final liveKitService = Provider.of<LiveKitService>(context, listen: false);
-                await liveKitService.disconnect();
-                print('✅ VideoConferenceScreen: Successfully disconnected from meeting');
-                if (mounted) {
-                  Navigator.pop(context, 'left_meeting');
+        appBar: AppBar(
+          title: Text('Room: ${widget.roomName}'),
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.exit_to_app),
+              onPressed: () async {
+                final shouldLeave = await _showLeaveMeetingDialog();
+                if (shouldLeave == true) {
+                  try {
+                    print('🚪 VideoConferenceScreen: User requested to leave meeting');
+                    final liveKitService = Provider.of<LiveKitService>(context, listen: false);
+                    await liveKitService.disconnect();
+                    print('✅ VideoConferenceScreen: Successfully disconnected from meeting');
+                    if (mounted) {
+                      Navigator.pop(context, 'left_meeting');
+                    }
+                  } catch (e) {
+                    print('❌ VideoConferenceScreen: Error disconnecting: $e');
+                    if (mounted) {
+                      Navigator.pop(context, 'left_meeting');
+                    }
+                  }
                 }
-              } catch (e) {
-                print('❌ VideoConferenceScreen: Error disconnecting: $e');
-                if (mounted) {
-                  Navigator.pop(context, 'left_meeting');
-                }
-              }
-            },
-          ),
-        ],
-      ),
+              },
+            ),
+          ],
+        ),
       body: Consumer<LiveKitService>(
         builder: (context, liveKitService, child) {
           print('🔄 VideoConferenceScreen: Rebuilding with state - connecting: ${liveKitService.isConnecting}, connected: ${liveKitService.isConnected}, error: ${liveKitService.error}');
@@ -252,98 +375,82 @@ class _VideoConferenceScreenState extends State<VideoConferenceScreen> {
                   child: WhiteboardWidget(
                     onClose: () {
                       liveKitService.toggleWhiteboard();
-                      // Auto-show controls when whiteboard closes
-                      setState(() {
-                        _isBottomControlsVisible = true;
-                      });
                     },
                     onSendData: (data) => liveKitService.sendWhiteboardData(data),
                   ),
                 ),
               
-              // Conference controls at the bottom (collapsible)
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Toggle button for controls
-                    if (liveKitService.isWhiteboardOpen)
-                      Container(
-                        width: double.infinity,
-                        height: 40,
-                        color: Colors.black87,
-                        child: Center(
-                          child: GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                _isBottomControlsVisible = !_isBottomControlsVisible;
-                              });
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade700,
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    _isBottomControlsVisible ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
-                                    color: Colors.white,
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    _isBottomControlsVisible ? 'Hide Controls' : 'Show Controls',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    
-                    // Conference controls
-                    if (_isBottomControlsVisible)
-                      ConferenceControls(
-                        participantType: widget.participantType,
-                        onToggleWhiteboard: () => liveKitService.toggleWhiteboard(),
-                        onToggleCamera: () => liveKitService.toggleCamera(),
-                        onToggleMicrophone: () => liveKitService.toggleMicrophone(),
-                        onStartScreenShare: () => liveKitService.startScreenSharing(),
-                        onStopScreenShare: () => liveKitService.stopScreenSharing(),
-                        onLeaveMeeting: () async {
-                          try {
-                            print('🚪 VideoConferenceScreen: User clicked Leave Meeting button');
-                            await liveKitService.disconnect();
-                            print('✅ VideoConferenceScreen: Successfully disconnected from meeting');
-                            if (mounted) {
-                              Navigator.pop(context, 'left_meeting');
-                            }
-                          } catch (e) {
-                            print('❌ VideoConferenceScreen: Error disconnecting: $e');
-                            if (mounted) {
-                              Navigator.pop(context, 'left_meeting');
-                            }
-                          }
-                        },
-                      ),
-                  ],
-                ),
+              // Conference controls at the bottom
+              ConferenceControls(
+                participantType: widget.participantType,
+                roomName: widget.roomName,
+                onToggleWhiteboard: () => liveKitService.toggleWhiteboard(),
+                onToggleCamera: () => liveKitService.toggleCamera(),
+                onToggleMicrophone: () => liveKitService.toggleMicrophone(),
+                onStartScreenShare: () => liveKitService.startScreenSharing(),
+                onStopScreenShare: () => liveKitService.stopScreenSharing(),
+                onLeaveMeeting: () async {
+                  final shouldLeave = await _showLeaveMeetingDialog();
+                  if (shouldLeave == true) {
+                    try {
+                      print('🚪 VideoConferenceScreen: User clicked Leave Meeting button');
+                      await liveKitService.disconnect();
+                      print('✅ VideoConferenceScreen: Successfully disconnected from meeting');
+                      if (mounted) {
+                        Navigator.pop(context, 'left_meeting');
+                      }
+                    } catch (e) {
+                      print('❌ VideoConferenceScreen: Error disconnecting: $e');
+                      if (mounted) {
+                        Navigator.pop(context, 'left_meeting');
+                      }
+                    }
+                  }
+                },
               ),
             ],
           );
         },
       ),
+      ),
+    );
+  }
+
+  /// Shows a confirmation dialog when user tries to leave the meeting
+  Future<bool?> _showLeaveMeetingDialog() async {
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: Colors.grey[900],
+          title: const Text(
+            'Leave Meeting?',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: const Text(
+            'Are you sure you want to leave the meeting? You will be disconnected from all participants.',
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: TextButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Leave Meeting'),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -379,6 +486,25 @@ class _VideoConferenceScreenState extends State<VideoConferenceScreen> {
       );
     }
 
+    // Check if anyone is sharing their screen
+    dynamic screenSharingParticipant;
+    for (final participant in allParticipants) {
+      if (_isParticipantSharingScreen(participant)) {
+        screenSharingParticipant = participant;
+        break;
+      }
+    }
+
+    // If someone is sharing screen, show in large view with others in sidebar
+    if (screenSharingParticipant != null) {
+      return _buildScreenShareLayout(
+        liveKitService,
+        allParticipants,
+        screenSharingParticipant,
+      );
+    }
+
+    // Normal grid layout when no screen sharing
     // Calculate grid layout based on number of participants
     int crossAxisCount = 1;
     if (allParticipants.length <= 2) {
@@ -411,6 +537,115 @@ class _VideoConferenceScreenState extends State<VideoConferenceScreen> {
           );
         },
       ),
+    );
+  }
+
+  // Check if a participant is sharing their screen
+  bool _isParticipantSharingScreen(dynamic participant) {
+    if (participant is lk.LocalParticipant) {
+      for (final publication in participant.videoTrackPublications) {
+        if (publication.source == lk.TrackSource.screenShareVideo && publication.track != null) {
+          return true;
+        }
+      }
+    } else if (participant is lk.RemoteParticipant) {
+      for (final publication in participant.videoTrackPublications) {
+        if (publication.source == lk.TrackSource.screenShareVideo && publication.track != null) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // Build layout with screen share prominently displayed
+  Widget _buildScreenShareLayout(
+    LiveKitService liveKitService,
+    List<dynamic> allParticipants,
+    dynamic screenSharingParticipant,
+  ) {
+    final isLocalSharing = screenSharingParticipant == liveKitService.localParticipant;
+    
+    // Get other participants (not the one sharing screen)
+    final otherParticipants = allParticipants
+        .where((p) => p != screenSharingParticipant)
+        .toList();
+
+    return Stack(
+      children: [
+        // Main large screen share view (covers most of screen)
+        Positioned.fill(
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Column(
+              children: [
+                // Screen share indicator banner
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.screen_share, color: Colors.white, size: 16),
+                      const SizedBox(width: 8),
+                      Text(
+                        isLocalSharing ? 'You are sharing your screen' : 'Screen being shared',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                
+                // Large screen share video
+                Expanded(
+                  child: VideoParticipantWidget(
+                    participant: screenSharingParticipant,
+                    isLocal: isLocalSharing,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        
+        // Floating sidebar with other participants (small thumbnails)
+        if (otherParticipants.isNotEmpty)
+          Positioned(
+            top: 60,
+            right: 8,
+            child: Container(
+              width: 120,
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.6,
+              ),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: otherParticipants.length,
+                itemBuilder: (context, index) {
+                  final participant = otherParticipants[index];
+                  final isLocal = participant == liveKitService.localParticipant;
+                  
+                  return Container(
+                    height: 90,
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: VideoParticipantWidget(
+                      participant: participant,
+                      isLocal: isLocal,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+      ],
     );
   }
 

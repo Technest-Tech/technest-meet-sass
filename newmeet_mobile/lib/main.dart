@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'screens/room_entry_screen.dart';
+import 'screens/admin_login_screen.dart';
+import 'screens/admin_dashboard_screen.dart';
 import 'services/livekit_service.dart';
 
 void main() {
@@ -22,7 +24,7 @@ class NewMeetApp extends StatelessWidget {
         }),
       ],
       child: MaterialApp(
-        title: 'NewMeet Mobile',
+        title: 'Tarteel Meet',
         theme: ThemeData(
           primarySwatch: Colors.blue,
           useMaterial3: true,
@@ -32,8 +34,12 @@ class NewMeetApp extends StatelessWidget {
             elevation: 0,
           ),
         ),
-        home: const RoomEntryScreen(),
         debugShowCheckedModeBanner: false,
+        routes: {
+          '/': (context) => const RoomEntryScreen(),
+          '/admin-login': (context) => const AdminLoginScreen(),
+          '/admin-dashboard': (context) => const AdminDashboardScreen(),
+        },
         onGenerateRoute: (settings) {
           print('🧭 NewMeet: Navigation to ${settings.name}');
           return null;

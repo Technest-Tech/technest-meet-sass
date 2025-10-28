@@ -102,29 +102,45 @@ class VideoParticipantWidget extends StatelessWidget {
   Widget _buildVideoTrack() {
     // Try to get video track from participant
     lk.VideoTrack? videoTrack;
+    lk.VideoTrack? screenShareTrack;
+    lk.VideoTrack? cameraTrack;
     
     if (participant is lk.LocalParticipant) {
       final localParticipant = participant as lk.LocalParticipant;
-      // Get the first available video track
+      // Separate screen share and camera tracks
       for (final publication in localParticipant.videoTrackPublications) {
         if (publication.track != null) {
-          videoTrack = publication.track as lk.VideoTrack;
-          break;
+          final track = publication.track as lk.VideoTrack;
+          // Check if it's a screen share track
+          if (publication.source == lk.TrackSource.screenShareVideo) {
+            screenShareTrack = track;
+          } else {
+            cameraTrack = track;
+          }
         }
       }
     } else if (participant is lk.RemoteParticipant) {
       final remoteParticipant = participant as lk.RemoteParticipant;
-      // Get the first available video track
+      // Separate screen share and camera tracks
       for (final publication in remoteParticipant.videoTrackPublications) {
         if (publication.track != null) {
-          videoTrack = publication.track as lk.VideoTrack;
-          break;
+          final track = publication.track as lk.VideoTrack;
+          // Check if it's a screen share track
+          if (publication.source == lk.TrackSource.screenShareVideo) {
+            screenShareTrack = track;
+          } else {
+            cameraTrack = track;
+          }
         }
       }
     }
+    
+    // Prioritize screen share over camera
+    videoTrack = screenShareTrack ?? cameraTrack;
 
-    // If we have a video track and camera is enabled, render it
-    if (videoTrack != null && _isCameraEnabled()) {
+    // If we have a video track, render it
+    // Show video if: screen share is active OR camera is enabled
+    if (videoTrack != null && (screenShareTrack != null || _isCameraEnabled())) {
       return lk.VideoTrackRenderer(videoTrack);
     }
 
@@ -186,12 +202,25 @@ class VideoParticipantWidget extends StatelessWidget {
   }
 
   String _getParticipantName() {
+    String rawName;
     if (participant is lk.LocalParticipant) {
-      return (participant as lk.LocalParticipant).name ?? 'You';
+      rawName = (participant as lk.LocalParticipant).name ?? 'You';
     } else if (participant is lk.RemoteParticipant) {
-      return (participant as lk.RemoteParticipant).name ?? 'Participant';
+      rawName = (participant as lk.RemoteParticipant).name ?? 'Participant';
+    } else {
+      return 'Unknown';
     }
-    return 'Unknown';
+    
+    // Remove timestamp suffix for cleaner display (e.g., "Host-1234567890" -> "Host")
+    if (rawName.contains('-') && rawName.split('-').last.length >= 13) {
+      // If the last part looks like a timestamp (13+ digits), remove it
+      final parts = rawName.split('-');
+      if (int.tryParse(parts.last) != null) {
+        return parts.sublist(0, parts.length - 1).join('-');
+      }
+    }
+    
+    return rawName;
   }
 
   bool _isMicrophoneEnabled() {
@@ -204,7 +233,22 @@ class VideoParticipantWidget extends StatelessWidget {
   }
 
   bool _isScreenSharing() {
-    // For now, return false until we implement proper screen sharing detection
+    // Check if participant has any screen share tracks
+    if (participant is lk.LocalParticipant) {
+      final localParticipant = participant as lk.LocalParticipant;
+      for (final publication in localParticipant.videoTrackPublications) {
+        if (publication.source == lk.TrackSource.screenShareVideo && publication.track != null) {
+          return true;
+        }
+      }
+    } else if (participant is lk.RemoteParticipant) {
+      final remoteParticipant = participant as lk.RemoteParticipant;
+      for (final publication in remoteParticipant.videoTrackPublications) {
+        if (publication.source == lk.TrackSource.screenShareVideo && publication.track != null) {
+          return true;
+        }
+      }
+    }
     return false;
   }
 }

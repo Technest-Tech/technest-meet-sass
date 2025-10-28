@@ -5,6 +5,8 @@ import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:permission_handler/permission_handler.dart';
 import 'api_service.dart';
 import 'screen_capture_service.dart';
+import 'call_service.dart';
+import 'callkeep_service.dart';
 
 class LiveKitService extends ChangeNotifier {
   lk.Room? _room;
@@ -20,8 +22,10 @@ class LiveKitService extends ChangeNotifier {
   // Connection stability
   Timer? _keepaliveTimer;
   Timer? _connectionMonitorTimer;
+  Timer? _microphoneKeepaliveTimer;
   DateTime? _lastConnectionTime;
   int _disconnectionCount = 0;
+  bool _microphoneShouldBeEnabled = false;
   
   // Store connection details for reconnection
   String? _lastLivekitUrl;
@@ -40,6 +44,7 @@ class LiveKitService extends ChangeNotifier {
   bool get isScreenSharing => _isScreenSharing;
   bool get isStartingScreenShare => _isStartingScreenShare;
   bool get isWhiteboardOpen => _isWhiteboardOpen;
+  List<Map<String, dynamic>> get chatMessages => List.unmodifiable(_chatMessages);
 
   // Connect to room
   Future<void> connectToRoom({
@@ -68,9 +73,24 @@ class LiveKitService extends ChangeNotifier {
       );
       print('✅ Token received: ${tokenResponse.livekitUrl}');
 
-      // Create room
+      // Create room with specific room options for better audio handling
       print('🏠 Creating room instance...');
-      _room = lk.Room();
+      _room = lk.Room(
+        roomOptions: lk.RoomOptions(
+          // Use COMMUNICATION audio mode for voice calls
+          // This helps maintain audio focus and quality
+          adaptiveStream: true,
+          dynacast: true,
+          // Disable audio processing that might interfere with background operation
+          defaultAudioCaptureOptions: lk.AudioCaptureOptions(
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          ),
+          // Don't suspend tracks when app is backgrounded
+          stopLocalTrackOnUnpublish: false,
+        ),
+      );
 
       // Add event listeners
       print('👂 Adding event listeners...');
@@ -138,27 +158,47 @@ class LiveKitService extends ChangeNotifier {
       _lastLivekitUrl = tokenResponse.livekitUrl;
       _lastToken = tokenResponse.token;
       
+      // Start foreground service to keep microphone active in background
+      print('📞 LiveKit: Starting foreground service for background mic...');
+      try {
+        await CallService.startService();
+        print('✅ LiveKit: Foreground service started - mic will stay active in background!');
+      } catch (e) {
+        print('❌ LiveKit: Failed to start foreground service: $e');
+      }
+      
+      // Also track call with CallKeep (for logging)
+      try {
+        await CallKeepService.startCall(
+          roomName: roomName,
+          participantName: participantName,
+        );
+      } catch (e) {
+        print('⚠️ LiveKit: CallKeep logging failed: $e');
+      }
+      
       notifyListeners();
 
       // Start connection monitoring
       _startConnectionMonitoring();
 
-      // Enable camera and microphone with delay
-      print('📹 Enabling camera and microphone...');
+      // Start with camera and microphone DISABLED - user will enable them manually
+      print('📹 Starting with camera and microphone disabled (user will enable manually)');
       await Future.delayed(const Duration(milliseconds: 500));
       if (_room!.localParticipant != null) {
         try {
-          await _room!.localParticipant!.setCameraEnabled(true);
-          print('✅ Camera enabled');
+          await _room!.localParticipant!.setCameraEnabled(false);
+          print('✅ Camera disabled (waiting for user to enable)');
         } catch (e) {
-          print('⚠️ Camera enable failed: $e');
+          print('⚠️ Camera disable failed: $e');
         }
         
         try {
-          await _room!.localParticipant!.setMicrophoneEnabled(true);
-          print('✅ Microphone enabled');
+          await _room!.localParticipant!.setMicrophoneEnabled(false);
+          _microphoneShouldBeEnabled = false;
+          print('✅ Microphone disabled (waiting for user to enable)');
         } catch (e) {
-          print('⚠️ Microphone enable failed: $e');
+          print('⚠️ Microphone disable failed: $e');
         }
       }
 
@@ -178,6 +218,24 @@ class LiveKitService extends ChangeNotifier {
       
       // Stop monitoring timers
       _stopConnectionMonitoring();
+      
+      // Stop CallKeep integration first
+      print('📞 LiveKit: Ending CallKeep call...');
+      try {
+        await CallKeepService.endCall();
+        print('✅ LiveKit: CallKeep call ended');
+      } catch (e) {
+        print('⚠️ LiveKit: Failed to end CallKeep: $e');
+      }
+      
+      // Stop call service to remove foreground notification
+      print('📞 LiveKit: Stopping call service...');
+      try {
+        await CallService.stopService();
+        print('✅ LiveKit: Call service stopped');
+      } catch (e) {
+        print('⚠️ LiveKit: Failed to stop call service: $e');
+      }
       
       if (_room != null) {
         print('🔌 LiveKit: Disconnecting from room...');
@@ -200,6 +258,7 @@ class LiveKitService extends ChangeNotifier {
       _disconnectionCount = 0;
       _lastLivekitUrl = null;
       _lastToken = null;
+      _microphoneShouldBeEnabled = false;
       _dataListener?.dispose();
       _dataListener = null;
       
@@ -225,7 +284,25 @@ class LiveKitService extends ChangeNotifier {
   Future<void> toggleMicrophone() async {
     if (_room?.localParticipant != null) {
       final isEnabled = _room!.localParticipant!.isMicrophoneEnabled();
-      await _room!.localParticipant!.setMicrophoneEnabled(!isEnabled);
+      final newState = !isEnabled;
+      await _room!.localParticipant!.setMicrophoneEnabled(newState);
+      _microphoneShouldBeEnabled = newState;
+      
+      // Sync mute state with CallKeep
+      try {
+        await CallKeepService.setMuted(!newState);
+      } catch (e) {
+        print('⚠️ Failed to sync mute with CallKeep: $e');
+      }
+      
+      if (newState) {
+        print('🎤 Microphone enabled by user');
+        _startMicrophoneKeepalive();
+      } else {
+        print('🔇 Microphone disabled by user');
+        _stopMicrophoneKeepalive();
+      }
+      
       notifyListeners();
     }
   }
@@ -315,11 +392,48 @@ class LiveKitService extends ChangeNotifier {
   }
 
   // Whiteboard data callback
-  Function(Map<String, dynamic>)? _onWhiteboardDataReceived;
+  void Function(Map<String, dynamic>)? _onWhiteboardDataReceived;
 
   // Set whiteboard data callback
-  void setWhiteboardDataCallback(Function(Map<String, dynamic>) callback) {
+  void setWhiteboardDataCallback(void Function(Map<String, dynamic>) callback) {
     _onWhiteboardDataReceived = callback;
+  }
+
+  // Chat data callback
+  void Function(Map<String, dynamic>)? _onChatDataReceived;
+  
+  // Persistent chat messages storage
+  final List<Map<String, dynamic>> _chatMessages = [];
+
+  // Set chat data callback
+  void setChatDataCallback(void Function(Map<String, dynamic>) callback) {
+    _onChatDataReceived = callback;
+  }
+
+  // Send chat data
+  Future<void> sendChatData(Map<String, dynamic> data) async {
+    if (_room?.localParticipant != null) {
+      try {
+        // Store the message locally first
+        _chatMessages.add(data);
+        print('📤 LiveKit: Stored local chat message, total messages: ${_chatMessages.length}');
+        
+        // Convert to JSON string using dart:convert
+        final jsonString = jsonEncode(data);
+        final encodedData = jsonString.codeUnits;
+        await _room!.localParticipant!.publishData(
+          encodedData,
+          reliable: true,
+          topic: 'chat',
+        );
+        print('📤 LiveKit: Chat data sent - ${data['type']}');
+      } catch (e) {
+        print('❌ LiveKit: Failed to send chat data: $e');
+        _error = e.toString();
+        notifyListeners();
+        rethrow;
+      }
+    }
   }
 
   // Request permissions
@@ -405,39 +519,51 @@ class LiveKitService extends ChangeNotifier {
       print('📥 LiveKit: Event topic: ${event.topic}');
       print('📥 LiveKit: Data length: ${event.data.length}');
       
-      // Check if this is whiteboard data (web version might not set topic)
-      if (event.topic == 'whiteboard' || event.topic == null) {
-        // Convert List<int> to String
-        final dataString = String.fromCharCodes(event.data);
-        print('📥 LiveKit: Whiteboard data string: $dataString');
-        print('📥 LiveKit: Data string length: ${dataString.length}');
-        print('📥 LiveKit: First 100 chars: ${dataString.length > 100 ? dataString.substring(0, 100) : dataString}');
+      // Convert List<int> to String
+      final dataString = String.fromCharCodes(event.data);
+      print('📥 LiveKit: Data string: $dataString');
+      print('📥 LiveKit: Data string length: ${dataString.length}');
+      print('📥 LiveKit: Topic: ${event.topic}');
+      
+      // Parse the data - it should be a JSON-like string
+      final data = _parseData(dataString);
+      
+      if (data != null) {
+        print('📥 LiveKit: Parsed data: $data');
         
-        // Parse the data - it should be a JSON-like string
-        // The web version sends data as JSON, but we need to handle the format
-        final data = _parseWhiteboardData(dataString);
-        
-        if (data != null) {
-          print('📥 LiveKit: Parsed data: $data');
+        // Handle different data types based on topic or data type
+        if (event.topic == 'whiteboard' || (event.topic == null && data['type'] == 'whiteboard_toggle')) {
+          // Whiteboard data
           if (_onWhiteboardDataReceived != null) {
             print('📥 LiveKit: Forwarding whiteboard data to callback');
             _onWhiteboardDataReceived!(data);
           } else {
             print('⚠️ LiveKit: No whiteboard callback set');
           }
+        } else if (event.topic == 'chat' || data['type'] == 'chat_message') {
+          // Chat data - store persistently
+          _chatMessages.add(data);
+          print('📥 LiveKit: Stored chat message, total messages: ${_chatMessages.length}');
+          
+          if (_onChatDataReceived != null) {
+            print('📥 LiveKit: Forwarding chat data to callback');
+            _onChatDataReceived!(data);
+          } else {
+            print('⚠️ LiveKit: No chat callback set');
+          }
         } else {
-          print('❌ LiveKit: Failed to parse whiteboard data');
+          print('📥 LiveKit: Unknown data type: ${data['type']} with topic: ${event.topic}');
         }
       } else {
-        print('📥 LiveKit: Ignoring non-whiteboard data with topic: ${event.topic}');
+        print('❌ LiveKit: Failed to parse data');
       }
     } catch (e) {
       print('❌ LiveKit: Error processing received data: $e');
     }
   }
 
-  // Parse whiteboard data from string
-  Map<String, dynamic>? _parseWhiteboardData(String dataString) {
+  // Parse data from string
+  Map<String, dynamic>? _parseData(String dataString) {
     try {
       // Try to parse as JSON first
       final data = jsonDecode(dataString);
@@ -448,7 +574,7 @@ class LiveKitService extends ChangeNotifier {
       print('⚠️ LiveKit: Data is not a Map: $dataString');
       return null;
     } catch (e) {
-      print('❌ LiveKit: Error parsing whiteboard data as JSON: $e');
+      print('❌ LiveKit: Error parsing data as JSON: $e');
       print('❌ LiveKit: Raw data: $dataString');
       return null;
     }
@@ -480,6 +606,49 @@ class LiveKitService extends ChangeNotifier {
     _keepaliveTimer = null;
     _connectionMonitorTimer?.cancel();
     _connectionMonitorTimer = null;
+    _stopMicrophoneKeepalive();
+  }
+  
+  // Start microphone keepalive - aggressively prevents mic from being muted
+  void _startMicrophoneKeepalive() {
+    print('🎤 LiveKit: Starting microphone keepalive monitor');
+    
+    // Stop any existing timer
+    _stopMicrophoneKeepalive();
+    
+    // Check and re-enable microphone every 2 seconds
+    _microphoneKeepaliveTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+      _ensureMicrophoneEnabled();
+    });
+  }
+  
+  // Stop microphone keepalive
+  void _stopMicrophoneKeepalive() {
+    print('🎤 LiveKit: Stopping microphone keepalive monitor');
+    _microphoneKeepaliveTimer?.cancel();
+    _microphoneKeepaliveTimer = null;
+  }
+  
+  // Ensure microphone stays enabled
+  Future<void> _ensureMicrophoneEnabled() async {
+    if (_room?.localParticipant == null || !_microphoneShouldBeEnabled) {
+      return;
+    }
+    
+    try {
+      final isCurrentlyEnabled = _room!.localParticipant!.isMicrophoneEnabled();
+      
+      if (!isCurrentlyEnabled && _microphoneShouldBeEnabled) {
+        print('⚠️ LiveKit: Microphone was muted! Re-enabling...');
+        await _room!.localParticipant!.setMicrophoneEnabled(true);
+        print('✅ LiveKit: Microphone re-enabled successfully');
+      } else if (isCurrentlyEnabled) {
+        // Mic is working correctly
+        // Uncomment for debugging: print('🎤 LiveKit: Microphone keepalive check - OK');
+      }
+    } catch (e) {
+      print('❌ LiveKit: Error ensuring microphone enabled: $e');
+    }
   }
   
   // Send keepalive ping
