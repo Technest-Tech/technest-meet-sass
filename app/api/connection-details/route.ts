@@ -57,9 +57,9 @@ export async function GET(request: NextRequest) {
       randomParticipantPostfix = randomString(8); // Longer random string for uniqueness
     }
     
-    // Create a simpler identity that's still unique but more compatible
-    const timestamp = Date.now();
-    const uniqueIdentity = `${participantName}_${timestamp}`;
+    // Create a stable identity that doesn't change on reconnection
+    // Use room name and participant type to ensure uniqueness while maintaining stability
+    const uniqueIdentity = `${participantName}_${participantType}_${roomName}`;
     
     const participantToken = await createParticipantToken(
       {

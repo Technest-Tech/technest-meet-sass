@@ -26,6 +26,7 @@ import {
   RoomEvent,
   TrackPublishDefaults,
   VideoCaptureOptions,
+  DisconnectReason,
 } from 'livekit-client';
 import { useRouter } from 'next/navigation';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
@@ -58,12 +59,18 @@ export function PageClientImpl(props: {
   );
   const [connectionStatus, setConnectionStatus] = React.useState<'connecting' | 'connected' | 'error'>('connecting');
   const [errorMessage, setErrorMessage] = React.useState<string>('');
+  const [hasAutoConnected, setHasAutoConnected] = React.useState(false);
+  const [meetingEnded, setMeetingEnded] = React.useState(false);
 
   // Auto-connect without pre-join
   React.useEffect(() => {
     const autoConnect = async () => {
+      // Prevent multiple auto-connections
+      if (hasAutoConnected || meetingEnded) return;
+      
       try {
         setConnectionStatus('connecting');
+        setHasAutoConnected(true); // Mark as auto-connected
         
         // Set default choices - camera off, microphone on
         const defaultChoices: LocalUserChoices = {
@@ -99,12 +106,13 @@ export function PageClientImpl(props: {
         console.error('Failed to auto-connect:', error);
         setConnectionStatus('error');
         setErrorMessage(error instanceof Error ? error.message : 'Connection failed');
+        setHasAutoConnected(false); // Reset on error to allow retry
       }
     };
 
     // Start auto-connection immediately
     autoConnect();
-  }, [props.roomName, props.region, props.participantType, props.userName]);
+  }, [props.roomName, props.region, props.participantType, props.userName, hasAutoConnected, meetingEnded]);
 
   const handlePreJoinSubmit = React.useCallback(async (values: LocalUserChoices) => {
     setPreJoinChoices(values);
@@ -195,6 +203,8 @@ export function PageClientImpl(props: {
           participantType={props.participantType}
           roomName={props.roomName}
           canRecord={props.canRecord}
+          meetingEnded={meetingEnded}
+          setMeetingEnded={setMeetingEnded}
         />
       )}
     </main>
@@ -211,6 +221,8 @@ function VideoConferenceComponent(props: {
   participantType?: 'host' | 'guest'; // Add participant type
   roomName: string; // Add roomName for host controls
   canRecord?: boolean; // Add canRecord prop
+  meetingEnded: boolean; // Add meetingEnded state
+  setMeetingEnded: (ended: boolean) => void; // Add setMeetingEnded function
 }) {
   const router = useRouter();
   const keyProvider = new ExternalE2EEKeyProvider();
@@ -475,8 +487,23 @@ function VideoConferenceComponent(props: {
     );
   }, []);
 
-  const handleOnLeave = React.useCallback(() => {
-    console.log('Room disconnected, cleaning up...');
+  const handleOnLeave = React.useCallback((reason?: DisconnectReason) => {
+    console.log('Room disconnected, reason:', reason);
+    
+    // If disconnected due to being removed by host, don't auto-reconnect
+    if (reason === DisconnectReason.PARTICIPANT_REMOVED) {
+      console.log('Participant was removed by host, not reconnecting');
+      props.setMeetingEnded(true); // Mark as ended to prevent reconnection
+      router.push('/');
+      return;
+    }
+    
+    // If meeting was ended, don't reconnect
+    if (props.meetingEnded) {
+      console.log('Meeting was ended, not reconnecting');
+      router.push('/');
+      return;
+    }
     
     // Reset connection state when leaving
     setIsConnected(false);
@@ -494,7 +521,7 @@ function VideoConferenceComponent(props: {
       console.log('Intentional leave detected, redirecting to home...');
       router.push('/');
     }
-  }, [router, room, handleEncryptionError, handleError]);
+  }, [router, room, handleEncryptionError, handleError, props.meetingEnded, props.setMeetingEnded]);
 
   // Check if room is already connected when connection details are available
   React.useEffect(() => {
@@ -692,6 +719,8 @@ function VideoConferenceComponent(props: {
               canRecord={props.canRecord}
               roomName={props.roomName}
               onEndMeeting={async () => {
+                if (props.meetingEnded) return; // Prevent multiple end meeting calls
+                
                 console.log('🚪 End Meeting button clicked!');
                 console.log('Current props:', { participantType: props.participantType, roomName: props.roomName });
                 
@@ -706,6 +735,8 @@ This action will:
 Are you sure you want to end the meeting for everyone?`;
                 
                 if (confirm(confirmMessage)) {
+                  props.setMeetingEnded(true); // Mark meeting as ended to prevent reconnection
+                  
                   try {
                     // Call the server-side API to end the meeting for everyone
                     // Use the actual LiveKit room name from connection details
@@ -735,7 +766,7 @@ The meeting has been terminated for all participants and the room has been delet
                       
                       alert(successMessage);
                       
-                      // Disconnect host and redirect
+                      // Disconnect host and redirect immediately
                       room.disconnect();
                       router.push('/');
                     } else {
@@ -751,6 +782,7 @@ The meeting has been terminated for all participants and the room has been delet
                       }
                       
                       alert(`❌ ${errorMessage}\n\nPlease try again or contact support if the problem persists.`);
+                      props.setMeetingEnded(false); // Reset on error to allow retry
                     }
                   } catch (error) {
                     console.error('Error ending meeting:', error);
@@ -761,6 +793,7 @@ The meeting has been terminated for all participants and the room has been delet
                     }
                     
                     alert(`❌ ${errorMessage}\n\nThis might be due to a network issue or server problem. Please try again.`);
+                    props.setMeetingEnded(false); // Reset on error to allow retry
                   }
                 }
               }}

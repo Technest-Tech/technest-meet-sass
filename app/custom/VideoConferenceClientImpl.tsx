@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Room, RoomEvent, RoomConnectOptions, Track, TrackPublication, VideoPresets } from 'livekit-client';
+import { Room, RoomEvent, RoomConnectOptions, Track, TrackPublication, VideoPresets, DisconnectReason } from 'livekit-client';
 import { RoomContext, VideoTrack, useLocalParticipant, useParticipants } from '@livekit/components-react';
 import { TrackToggle, MediaDeviceMenu } from '@livekit/components-react';
 import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
@@ -225,8 +225,16 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
       }
     };
 
-    const handleDisconnected = () => {
-      console.log('Room disconnected');
+    const handleDisconnected = (reason?: DisconnectReason) => {
+      console.log('Room disconnected, reason:', reason);
+      
+      // If disconnected due to being removed by host, redirect to home
+      if (reason === DisconnectReason.PARTICIPANT_REMOVED) {
+        console.log('Participant was removed by host, redirecting to home');
+        window.location.href = '/';
+        return;
+      }
+      
       setConnectionStatus('Disconnected');
       isConnecting.current = false;
       setIsLoading(false);
