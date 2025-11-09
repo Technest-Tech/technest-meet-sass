@@ -11,6 +11,9 @@ import { useSetupE2EE } from '@/lib/useSetupE2EE';
 import { ExternalE2EEKeyProvider } from 'livekit-client';
 import { PictureInPicture } from '@/lib/PictureInPicture';
 import { MoreControls } from '@/lib/MoreControls';
+import { ReactionsButton } from '@/lib/ReactionsButton';
+import { FloatingReactions } from '@/lib/FloatingReactions';
+import { StudentMonitorPiP } from '@/lib/StudentMonitorPiP';
 
 interface VideoConferenceClientImplProps {
   liveKitUrl: string;
@@ -457,22 +460,110 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
   // Show user interaction prompt if not yet interacted
   if (!hasUserInteracted) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center max-w-md mx-auto p-6 bg-gray-800 rounded-lg">
-          <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        position: 'relative',
+        overflow: 'hidden'
+      }}>
+        {/* Animated background */}
+        <div style={{
+          position: 'absolute',
+          width: '200%',
+          height: '200%',
+          background: 'radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px)',
+          backgroundSize: '50px 50px',
+          animation: 'drift 20s linear infinite',
+          top: '-50%',
+          left: '-50%'
+        }}></div>
+        
+        <div style={{
+          textAlign: 'center',
+          zIndex: 10,
+          position: 'relative',
+          padding: '48px',
+          borderRadius: '24px',
+          background: 'rgba(0, 0, 0, 0.3)',
+          backdropFilter: 'blur(15px)',
+          border: '1px solid rgba(255, 255, 255, 0.15)',
+          boxShadow: '0 25px 70px rgba(0, 0, 0, 0.4)',
+          maxWidth: '480px',
+          width: '90%'
+        }}>
+          <div style={{
+            width: '80px',
+            height: '80px',
+            margin: '0 auto 24px',
+            background: 'rgba(255, 255, 255, 0.15)',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: '2px solid rgba(255, 255, 255, 0.3)'
+          }}>
+            <svg style={{ width: '40px', height: '40px', color: 'white' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
           </div>
-          <h1 className="text-xl font-semibold text-white mb-2">Join Video Conference</h1>
-          <p className="text-gray-300 mb-4">Click the button below to join the meeting and enable your camera and microphone.</p>
+          
+          <h1 style={{
+            fontSize: '32px',
+            fontWeight: '700',
+            color: 'white',
+            marginBottom: '12px',
+            letterSpacing: '-0.5px'
+          }}>
+            Ready to Join
+          </h1>
+          <p style={{
+            color: 'rgba(255, 255, 255, 0.9)',
+            fontSize: '16px',
+            marginBottom: '32px',
+            fontWeight: '300',
+            lineHeight: '1.6'
+          }}>
+            Click the button below to enter the video conference and enable your camera and microphone.
+          </p>
+          
           <button
             onClick={handleUserInteraction}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-lg font-medium"
+            style={{
+              padding: '16px 32px',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: 'white',
+              borderRadius: '12px',
+              fontSize: '18px',
+              fontWeight: '600',
+              border: '2px solid rgba(255, 255, 255, 0.3)',
+              cursor: 'pointer',
+              transition: 'all 0.3s ease',
+              boxShadow: '0 8px 20px rgba(0, 0, 0, 0.3)',
+              width: '100%',
+              maxWidth: '280px'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 12px 28px rgba(0, 0, 0, 0.4)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.3)';
+            }}
           >
-            Join Meeting
+            Join Conference
           </button>
         </div>
+        
+        <style jsx>{`
+          @keyframes drift {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+          }
+        `}</style>
       </div>
     );
   }
@@ -489,15 +580,59 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
           left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 1000,
-          padding: '8px 16px',
-          backgroundColor: connectionStatus === 'Connected' ? 'rgba(34, 197, 94, 0.9)' : 'rgba(251, 191, 36, 0.9)',
+          padding: '10px 20px',
+          backgroundColor: connectionStatus === 'Connected' ? 'rgba(34, 197, 94, 0.95)' : 'rgba(251, 191, 36, 0.95)',
           color: 'white',
-          borderRadius: '20px',
+          borderRadius: '25px',
           fontSize: '14px',
-          fontWeight: '500',
-          backdropFilter: 'blur(10px)'
+          fontWeight: '600',
+          backdropFilter: 'blur(10px)',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          border: '1px solid rgba(255, 255, 255, 0.2)'
         }}>
-          {isLoading ? 'Connecting...' : connectionStatus}
+          {isLoading ? (
+            <>
+              <div style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: 'white',
+                animation: 'pulse 1.5s ease-in-out infinite'
+              }}></div>
+              <span>Establishing Connection...</span>
+            </>
+          ) : (
+            <>
+              <div style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: connectionStatus === 'Connected' ? '#22c55e' : '#fbbf24'
+              }}></div>
+              <span>{connectionStatus === 'Connected' ? 'Connected' : connectionStatus}</span>
+            </>
+          )}
+          <style jsx>{`
+            @keyframes pulse {
+              0%, 100% { opacity: 1; transform: scale(1); }
+              50% { opacity: 0.5; transform: scale(0.8); }
+            }
+          `}</style>
+        </div>
+        
+        {/* Reactions Button - Floating above control bar */}
+        <div style={{
+          position: 'fixed',
+          bottom: '80px',
+          right: '20px',
+          zIndex: 1001,
+          display: 'flex',
+          alignItems: 'center'
+        }}>
+          <ReactionsButton isHost={props.isHost} />
         </div>
         
         {/* Responsive Control Bar */}
@@ -572,6 +707,12 @@ Are you sure you want to end the meeting for everyone?`;
 
         {/* Main video area with proper LiveKit components */}
         <VideoLayout room={room} />
+        
+        {/* Floating Reactions Overlay */}
+        <FloatingReactions />
+        
+        {/* Student Monitor PiP - Shows students when teacher is screen sharing (Host only) */}
+        <StudentMonitorPiP isHost={props.isHost} />
         
         {/* Picture-in-Picture for remote participants with both screen share and camera */}
         <PictureInPicture room={room} />

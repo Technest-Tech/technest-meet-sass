@@ -1,0 +1,181 @@
+.annotationOverlay {
+  position: fixed;
+  /* Position set dynamically via JavaScript */
+  z-index: 8888;
+  cursor: crosshair;
+  pointer-events: all;
+  /* Ensure it's above the video but below controls */
+}
+
+.toolbar {
+  position: fixed;
+  top: 100px;
+  right: 20px;
+  z-index: 8889;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: white;
+  padding: 12px;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  border: 1px solid #e2e8f0;
+}
+
+.toolGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.toolGroup:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.toolButton {
+  background: white;
+  border: 1px solid #e2e8f0;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.toolButton:hover {
+  background: #edf2f7;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.toolButton.active {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+}
+
+.colorButton {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin: 0 auto;
+}
+
+.colorButton:hover {
+  transform: scale(1.15);
+}
+
+.colorButton.active {
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px white, 0 0 0 4px #667eea;
+}
+
+.sizeButton {
+  background: white;
+  border: 1px solid #e2e8f0;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: #4a5568;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  margin: 0 auto;
+}
+
+.sizeButton:hover {
+  background: #edf2f7;
+}
+
+.sizeButton.active {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+}
+
+.closeButton {
+  background: #fee;
+  border: 1px solid #fcc;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 20px;
+  color: #c00;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.closeButton:hover {
+  background: #fcc;
+  transform: translateY(-1px);
+}
+
+.warningOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+}
+
+.warningBox {
+  background: white;
+  border-radius: 16px;
+  padding: 40px;
+  max-width: 400px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.warningBox h3 {
+  margin: 0 0 16px 0;
+  font-size: 24px;
+  color: #1a202c;
+}
+
+.warningBox p {
+  margin: 0 0 8px 0;
+  color: #4a5568;
+  font-size: 16px;
+}
+
+.closeWarningButton {
+  background: #667eea;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-top: 24px;
+  transition: background 0.2s;
+}
+
+.closeWarningButton:hover {
+  background: #5568d3;
+}
+

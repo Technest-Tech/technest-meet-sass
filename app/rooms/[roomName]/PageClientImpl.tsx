@@ -9,6 +9,21 @@ import { MoreControls } from '@/lib/MoreControls';
 import { SettingsMenu } from '@/lib/SettingsMenu';
 import { ConnectionDetails } from '@/lib/types';
 import { ChatButton } from '@/lib/ChatButton';
+import { ReactionsButton } from '@/lib/ReactionsButton';
+import { FloatingReactions } from '@/lib/FloatingReactions';
+import { StudentMonitorPiP } from '@/lib/StudentMonitorPiP';
+import { RaiseHandButton } from '@/lib/RaiseHandButton';
+import { RaiseHandIndicator } from '@/lib/RaiseHandIndicator';
+import { FileSharingButton } from '@/lib/FileSharingButton';
+import { ScreenAnnotationButton } from '@/lib/ScreenAnnotationButton';
+import { FileSharing } from '@/lib/FileSharing';
+import { PdfViewer } from '@/lib/PdfViewer';
+import { ScreenAnnotation } from '@/lib/ScreenAnnotation';
+import { VideoRequestNotification } from '@/lib/VideoRequestNotification';
+import { MuteControlListener } from '@/lib/MuteControlListener';
+import { WaitingList } from '@/lib/WaitingList';
+import { ParticipantManager } from '@/lib/ParticipantManager';
+import { RoomFile } from '@/lib/types';
 import {
   formatChatMessageLinks,
   LocalUserChoices,
@@ -32,6 +47,7 @@ import { useRouter } from 'next/navigation';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
 import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
 import { CustomPreJoin } from '@/lib/CustomPreJoin';
+import toast from 'react-hot-toast';
 
 // Custom SettingsMenu wrapper that can receive canRecord prop
 function CustomSettingsMenu(props: any) {
@@ -50,6 +66,9 @@ export function PageClientImpl(props: {
   userName: string;
   participantType?: 'host' | 'guest'; // Add participant type
   canRecord?: boolean; // Add canRecord prop
+  requireWaitingRoom?: boolean; // Whether waiting room is enabled
+  allowGuestUnmute?: boolean; // Whether guests can unmute themselves
+  enablePrivateChat?: boolean; // Whether private chat is enabled
 }) {
   const [preJoinChoices, setPreJoinChoices] = React.useState<LocalUserChoices | undefined>(
     undefined,
@@ -61,6 +80,12 @@ export function PageClientImpl(props: {
   const [errorMessage, setErrorMessage] = React.useState<string>('');
   const [hasAutoConnected, setHasAutoConnected] = React.useState(false);
   const [meetingEnded, setMeetingEnded] = React.useState(false);
+  
+  // File sharing and annotation state
+  const [isFileSharingOpen, setIsFileSharingOpen] = React.useState(false);
+  const [isPdfViewerOpen, setIsPdfViewerOpen] = React.useState(false);
+  const [isScreenAnnotationEnabled, setIsScreenAnnotationEnabled] = React.useState(false);
+  const [selectedPdfFile, setSelectedPdfFile] = React.useState<RoomFile | null>(null);
 
   // Auto-connect without pre-join
   React.useEffect(() => {
@@ -138,30 +163,159 @@ export function PageClientImpl(props: {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: '#1a1a1a',
-          color: 'white'
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          color: 'white',
+          position: 'relative',
+          overflow: 'hidden'
         }}>
-          <div style={{ textAlign: 'center' }}>
+          {/* Animated background elements */}
+          <div style={{
+            position: 'absolute',
+            width: '200%',
+            height: '200%',
+            background: 'radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px)',
+            backgroundSize: '50px 50px',
+            animation: 'drift 20s linear infinite',
+            top: '-50%',
+            left: '-50%'
+          }}></div>
+          
+          <div style={{ 
+            textAlign: 'center', 
+            zIndex: 10,
+            position: 'relative',
+            padding: '40px',
+            borderRadius: '20px',
+            background: 'rgba(0, 0, 0, 0.2)',
+            backdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)'
+          }}>
+            {/* Professional spinner with pulsing effect */}
             <div style={{
-              width: '60px',
-              height: '60px',
-              border: '4px solid #3b82f6',
-              borderTop: '4px solid transparent',
-              borderRadius: '50%',
-              animation: 'spin 1s linear infinite',
-              margin: '0 auto 20px'
-            }}></div>
-            <h2 style={{ marginBottom: '10px' }}>Connecting to Meeting...</h2>
-            <p style={{ color: '#9ca3af' }}>
-              Room: {props.roomName}<br/>
-              Participant: {props.userName}<br/>
-              Type: {props.participantType || 'guest'}
+              position: 'relative',
+              width: '80px',
+              height: '80px',
+              margin: '0 auto 30px'
+            }}>
+              <div style={{
+                position: 'absolute',
+                width: '100%',
+                height: '100%',
+                border: '3px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '50%',
+                borderTop: '3px solid #ffffff',
+                animation: 'spin 1s linear infinite'
+              }}></div>
+              <div style={{
+                position: 'absolute',
+                width: '60px',
+                height: '60px',
+                top: '10px',
+                left: '10px',
+                border: '3px solid rgba(255, 255, 255, 0.15)',
+                borderRadius: '50%',
+                borderRight: '3px solid #ffffff',
+                animation: 'spin 0.8s linear infinite reverse'
+              }}></div>
+              <div style={{
+                position: 'absolute',
+                width: '40px',
+                height: '40px',
+                top: '20px',
+                left: '20px',
+                background: 'rgba(255, 255, 255, 0.3)',
+                borderRadius: '50%',
+                animation: 'pulse 2s ease-in-out infinite'
+              }}></div>
+            </div>
+            
+            <h2 style={{ 
+              marginBottom: '12px',
+              fontSize: '28px',
+              fontWeight: '600',
+              letterSpacing: '-0.5px'
+            }}>
+              Joining Meeting
+            </h2>
+            <p style={{ 
+              color: 'rgba(255, 255, 255, 0.9)',
+              fontSize: '16px',
+              marginBottom: '24px',
+              fontWeight: '300'
+            }}>
+              Establishing secure connection...
             </p>
+            
+            {/* Progress dots */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'center',
+              gap: '8px',
+              marginTop: '20px'
+            }}>
+              <div style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: 'rgba(255, 255, 255, 0.6)',
+                animation: 'bounce 1.4s ease-in-out infinite',
+                animationDelay: '0s'
+              }}></div>
+              <div style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: 'rgba(255, 255, 255, 0.6)',
+                animation: 'bounce 1.4s ease-in-out infinite',
+                animationDelay: '0.2s'
+              }}></div>
+              <div style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: 'rgba(255, 255, 255, 0.6)',
+                animation: 'bounce 1.4s ease-in-out infinite',
+                animationDelay: '0.4s'
+              }}></div>
+            </div>
+            
+            {/* Meeting info */}
+            <div style={{
+              marginTop: '32px',
+              paddingTop: '24px',
+              borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+              fontSize: '14px',
+              color: 'rgba(255, 255, 255, 0.8)'
+            }}>
+              <div style={{ marginBottom: '4px' }}>
+                <strong>Room:</strong> {props.roomName}
+              </div>
+              <div style={{ marginBottom: '4px' }}>
+                <strong>Participant:</strong> {props.userName}
+              </div>
+              <div>
+                <strong>Role:</strong> {props.participantType === 'host' ? 'Host' : 'Guest'}
+              </div>
+            </div>
           </div>
+          
           <style jsx>{`
             @keyframes spin {
               0% { transform: rotate(0deg); }
               100% { transform: rotate(360deg); }
+            }
+            @keyframes pulse {
+              0%, 100% { transform: scale(1); opacity: 0.3; }
+              50% { transform: scale(1.2); opacity: 0.6; }
+            }
+            @keyframes bounce {
+              0%, 80%, 100% { transform: translateY(0); opacity: 0.6; }
+              40% { transform: translateY(-10px); opacity: 1; }
+            }
+            @keyframes drift {
+              0% { transform: translate(0, 0); }
+              100% { transform: translate(50px, 50px); }
             }
           `}</style>
         </div>
@@ -205,6 +359,14 @@ export function PageClientImpl(props: {
           canRecord={props.canRecord}
           meetingEnded={meetingEnded}
           setMeetingEnded={setMeetingEnded}
+          isFileSharingOpen={isFileSharingOpen}
+          setIsFileSharingOpen={setIsFileSharingOpen}
+          isPdfViewerOpen={isPdfViewerOpen}
+          setIsPdfViewerOpen={setIsPdfViewerOpen}
+          isScreenAnnotationEnabled={isScreenAnnotationEnabled}
+          setIsScreenAnnotationEnabled={setIsScreenAnnotationEnabled}
+          selectedPdfFile={selectedPdfFile}
+          setSelectedPdfFile={setSelectedPdfFile}
         />
       )}
     </main>
@@ -223,6 +385,14 @@ function VideoConferenceComponent(props: {
   canRecord?: boolean; // Add canRecord prop
   meetingEnded: boolean; // Add meetingEnded state
   setMeetingEnded: (ended: boolean) => void; // Add setMeetingEnded function
+  isFileSharingOpen: boolean;
+  setIsFileSharingOpen: (open: boolean) => void;
+  isPdfViewerOpen: boolean;
+  setIsPdfViewerOpen: (open: boolean) => void;
+  isScreenAnnotationEnabled: boolean;
+  setIsScreenAnnotationEnabled: (enabled: boolean) => void;
+  selectedPdfFile: RoomFile | null;
+  setSelectedPdfFile: (file: RoomFile | null) => void;
 }) {
   const router = useRouter();
   const keyProvider = new ExternalE2EEKeyProvider();
@@ -505,6 +675,15 @@ function VideoConferenceComponent(props: {
       return;
     }
     
+    // Check if this is a user-initiated disconnect (clicking leave button)
+    // CLIENT_INITIATED means user clicked the disconnect/leave button
+    if (reason === DisconnectReason.CLIENT_INITIATED) {
+      console.log('User intentionally left meeting (CLIENT_INITIATED)');
+      props.setMeetingEnded(true); // Mark as ended to prevent reconnection
+      router.push('/');
+      return;
+    }
+    
     // Reset connection state when leaving
     setIsConnected(false);
     setIsConnecting(false);
@@ -519,12 +698,19 @@ function VideoConferenceComponent(props: {
     // Only redirect if this was an intentional leave (not a page reload)
     if (room.state === 'disconnected' && !document.hidden) {
       console.log('Intentional leave detected, redirecting to home...');
+      props.setMeetingEnded(true); // Mark as ended to prevent reconnection
       router.push('/');
     }
   }, [router, room, handleEncryptionError, handleError, props.meetingEnded, props.setMeetingEnded]);
 
   // Check if room is already connected when connection details are available
   React.useEffect(() => {
+    // Don't auto-connect if meeting ended or user left
+    if (props.meetingEnded) {
+      console.log('Meeting ended or user left, not auto-connecting');
+      return;
+    }
+    
     if (props.connectionDetails && !isConnected && !isConnecting && e2eeSetupComplete) {
       // Check if room is already connected to prevent duplicates
       if (room && room.state === 'connected') {
@@ -536,7 +722,7 @@ function VideoConferenceComponent(props: {
       console.log('Auto-connecting to meeting...');
       handleUserInteraction();
     }
-  }, [props.connectionDetails, isConnected, isConnecting, e2eeSetupComplete, handleUserInteraction, room]);
+  }, [props.connectionDetails, isConnected, isConnecting, e2eeSetupComplete, handleUserInteraction, room, props.meetingEnded]);
 
   // All hooks must be called before any conditional returns
   React.useEffect(() => {
@@ -544,6 +730,47 @@ function VideoConferenceComponent(props: {
       console.warn('Low power mode enabled');
     }
   }, [lowPowerMode]);
+
+  // Handle PDF viewer synchronization from host
+  React.useEffect(() => {
+    if (!room) return;
+
+    const handleDataReceived = (data: Uint8Array, participant?: any) => {
+      try {
+        const messageString = new TextDecoder().decode(data);
+        const messageData = JSON.parse(messageString);
+        
+        // Only guests should respond to host's PDF viewer controls
+        if (props.participantType !== 'host' && messageData.isHost) {
+          if (messageData.type === 'pdf_viewer_open' && messageData.file) {
+            // Host opened PDF - open it for guest too
+            props.setSelectedPdfFile(messageData.file);
+            props.setIsPdfViewerOpen(true);
+            toast(`Host opened ${messageData.file.originalName}`, {
+              icon: '📄',
+              duration: 3000,
+            });
+          } else if (messageData.type === 'pdf_viewer_close') {
+            // Host closed PDF - close it for guest too
+            props.setIsPdfViewerOpen(false);
+            props.setSelectedPdfFile(null);
+            toast('Host closed PDF viewer', {
+              icon: '✕',
+              duration: 2000,
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error parsing PDF viewer sync data:', error);
+      }
+    };
+
+    room.on('dataReceived', handleDataReceived);
+    
+    return () => {
+      room.off('dataReceived', handleDataReceived);
+    };
+  }, [room, props.participantType, props.setSelectedPdfFile, props.setIsPdfViewerOpen]);
 
   // Handle page visibility changes and cleanup
   React.useEffect(() => {
@@ -585,15 +812,248 @@ function VideoConferenceComponent(props: {
 
   if (isConnecting) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Connecting to video conference...</p>
-          <p className="text-sm text-gray-500 mt-2">Please wait while we establish your connection</p>
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        position: 'relative',
+        overflow: 'hidden'
+      }}>
+        {/* Animated background */}
+        <div style={{
+          position: 'absolute',
+          width: '200%',
+          height: '200%',
+          background: 'radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px)',
+          backgroundSize: '50px 50px',
+          animation: 'drift 20s linear infinite',
+          top: '-50%',
+          left: '-50%'
+        }}></div>
+        
+        <div style={{
+          textAlign: 'center',
+          zIndex: 10,
+          position: 'relative',
+          padding: '40px',
+          borderRadius: '20px',
+          background: 'rgba(0, 0, 0, 0.2)',
+          backdropFilter: 'blur(10px)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)'
+        }}>
+          {/* Professional spinner */}
+          <div style={{
+            position: 'relative',
+            width: '80px',
+            height: '80px',
+            margin: '0 auto 30px'
+          }}>
+            <div style={{
+              position: 'absolute',
+              width: '100%',
+              height: '100%',
+              border: '3px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: '50%',
+              borderTop: '3px solid #ffffff',
+              animation: 'spin 1s linear infinite'
+            }}></div>
+            <div style={{
+              position: 'absolute',
+              width: '60px',
+              height: '60px',
+              top: '10px',
+              left: '10px',
+              border: '3px solid rgba(255, 255, 255, 0.15)',
+              borderRadius: '50%',
+              borderRight: '3px solid #ffffff',
+              animation: 'spin 0.8s linear infinite reverse'
+            }}></div>
+            <div style={{
+              position: 'absolute',
+              width: '40px',
+              height: '40px',
+              top: '20px',
+              left: '20px',
+              background: 'rgba(255, 255, 255, 0.3)',
+              borderRadius: '50%',
+              animation: 'pulse 2s ease-in-out infinite'
+            }}></div>
+          </div>
+          
+          <h2 style={{
+            marginBottom: '12px',
+            fontSize: '28px',
+            fontWeight: '600',
+            color: 'white',
+            letterSpacing: '-0.5px'
+          }}>
+            Initializing Conference
+          </h2>
+          <p style={{
+            color: 'rgba(255, 255, 255, 0.9)',
+            fontSize: '16px',
+            marginBottom: '24px',
+            fontWeight: '300'
+          }}>
+            Setting up your video connection...
+          </p>
+          
+          {/* Progress dots */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'center',
+            gap: '8px',
+            marginTop: '20px'
+          }}>
+            <div style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: 'rgba(255, 255, 255, 0.6)',
+              animation: 'bounce 1.4s ease-in-out infinite',
+              animationDelay: '0s'
+            }}></div>
+            <div style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: 'rgba(255, 255, 255, 0.6)',
+              animation: 'bounce 1.4s ease-in-out infinite',
+              animationDelay: '0.2s'
+            }}></div>
+            <div style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: 'rgba(255, 255, 255, 0.6)',
+              animation: 'bounce 1.4s ease-in-out infinite',
+              animationDelay: '0.4s'
+            }}></div>
+          </div>
         </div>
+        
+        <style jsx>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+          @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.3; }
+            50% { transform: scale(1.2); opacity: 0.6; }
+          }
+          @keyframes bounce {
+            0%, 80%, 100% { transform: translateY(0); opacity: 0.6; }
+            40% { transform: translateY(-10px); opacity: 1; }
+          }
+          @keyframes drift {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+          }
+        `}</style>
       </div>
     );
   }
+
+  // Wrapper component for MoreControls to access room from context
+  const MoreControlsWrapper = ({ isHost, canRecord, roomName, iconOnly, meetingEnded, setMeetingEnded, connectionDetails, router }: any) => {
+    const roomFromContext = React.useContext(RoomContext);
+    const roomToUse = roomFromContext || room;
+
+    return (
+      <MoreControls
+        isHost={isHost}
+        canRecord={canRecord}
+        roomName={roomName}
+        iconOnly={iconOnly}
+        onEndMeeting={isHost ? async () => {
+          if (meetingEnded) return; // Prevent multiple end meeting calls
+          
+          console.log('🚪 End Meeting button clicked!');
+          console.log('Current props:', { participantType: isHost ? 'host' : 'guest', roomName });
+          
+          // Host can end the meeting for all participants
+          const confirmMessage = `🚨 END MEETING FOR ALL PARTICIPANTS
+
+This action will:
+• Disconnect ALL participants from the meeting
+• Delete the room entirely
+• Cannot be undone
+
+Are you sure you want to end the meeting for everyone?`;
+          
+          if (confirm(confirmMessage)) {
+            setMeetingEnded(true); // Mark meeting as ended to prevent reconnection
+            
+            try {
+              // Call the server-side API to end the meeting for everyone
+              // Use the actual LiveKit room name from connection details
+              const actualRoomName = connectionDetails?.roomName || roomName;
+              console.log('Ending meeting for room:', actualRoomName);
+              
+              const response = await fetch(`/api/admin/rooms/${roomName}/end-meeting`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  roomName: actualRoomName
+                })
+              });
+
+              if (response.ok) {
+                const result = await response.json();
+                console.log('Meeting ended successfully:', result);
+                
+                // Show success message
+                const successMessage = `✅ MEETING ENDED SUCCESSFULLY!
+
+${result.message}
+
+The meeting has been terminated for all participants and the room has been deleted. You will now be redirected to the home page.`;
+                
+                alert(successMessage);
+                
+                // Disconnect host and redirect immediately
+                if (roomToUse) {
+                  roomToUse.disconnect();
+                }
+                router.push('/');
+              } else {
+                const error = await response.json();
+                console.error('Failed to end meeting:', error);
+                
+                let errorMessage = 'Failed to end meeting';
+                if (error.error) {
+                  errorMessage += `: ${error.error}`;
+                }
+                if (error.details) {
+                  errorMessage += `\n\nDetails: ${error.details}`;
+                }
+                
+                alert(`❌ ${errorMessage}\n\nPlease try again or contact support if the problem persists.`);
+                setMeetingEnded(false); // Reset on error to allow retry
+              }
+            } catch (error) {
+              console.error('Error ending meeting:', error);
+              
+              let errorMessage = 'Error ending meeting';
+              if (error instanceof Error) {
+                errorMessage += `: ${error.message}`;
+              }
+              
+              alert(`❌ ${errorMessage}\n\nThis might be due to a network issue or server problem. Please try again.`);
+              setMeetingEnded(false); // Reset on error to allow retry
+            }
+          }
+        } : () => {
+          alert('Only hosts can end meetings for all participants.');
+        }}
+      />
+    );
+  };
 
   if (!isConnected) {
     return (
@@ -667,138 +1127,152 @@ function VideoConferenceComponent(props: {
           SettingsComponent={SHOW_SETTINGS_MENU ? (props: any) => <CustomSettingsMenu {...props} canRecord={props.canRecord} /> : undefined}
         />
         
-        {/* Custom Chat Button - Positioned above More button */}
+        {/* Floating Reactions Overlay */}
+        <FloatingReactions />
+        
+        {/* Raise Hand Indicator - Shows raised hand status on participant tiles */}
+        <RaiseHandIndicator />
+        
+        {/* Student Monitor PiP - Shows students when teacher is screen sharing (Host only) */}
+        {props.participantType === 'host' && <StudentMonitorPiP key="student-monitor-pip" isHost={true} />}
+        
+        {/* Top Action Buttons Row - Icon-only buttons in horizontal row */}
         <div style={{
           position: 'fixed',
-          bottom: '180px', // Position it much higher above the More button
-          right: '20px', // Same horizontal position as More button
-          zIndex: 1000, // Lower z-index to appear under camera background selection
+          bottom: '80px', // Space above bottom control bar (60px height + 20px gap)
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 1000,
           display: 'flex',
-          alignItems: 'center'
+          flexDirection: 'row',
+          gap: '8px',
+          alignItems: 'center',
+          justifyContent: 'center'
         }}>
-          <ChatButton isHost={props.participantType === 'host'} />
+          {/* Raise Hand Button - Icon only */}
+          <div style={{ position: 'relative' }}>
+            <RaiseHandButton isHost={props.participantType === 'host'} iconOnly={true} />
+          </div>
+          
+          {/* Reactions Button - Icon only */}
+          <div style={{ position: 'relative' }}>
+            <ReactionsButton isHost={props.participantType === 'host'} iconOnly={true} />
+          </div>
+          
+          {/* Chat Button - Icon only */}
+          <div style={{ position: 'relative' }}>
+            <ChatButton isHost={props.participantType === 'host'} iconOnly={true} />
+          </div>
+          
+          {/* File Sharing Button - Icon only */}
+          <div style={{ position: 'relative' }}>
+            <FileSharingButton 
+              onClick={() => props.setIsFileSharingOpen(true)} 
+              iconOnly={true} 
+            />
+          </div>
+          
+          {/* Screen Annotation Button - Icon only */}
+          <div style={{ position: 'relative' }}>
+            <ScreenAnnotationButton 
+              onClick={() => props.setIsScreenAnnotationEnabled(!props.isScreenAnnotationEnabled)}
+              isActive={props.isScreenAnnotationEnabled}
+              iconOnly={true} 
+            />
+          </div>
+          
+          {/* More Button - Icon only */}
+          <div style={{ position: 'relative' }}>
+            <MoreControlsWrapper
+              isHost={props.participantType === 'host'}
+              canRecord={props.participantType === 'host' ? props.canRecord : false}
+              roomName={props.roomName}
+              iconOnly={true}
+              meetingEnded={props.meetingEnded}
+              setMeetingEnded={props.setMeetingEnded}
+              connectionDetails={props.connectionDetails}
+              router={router}
+            />
+          </div>
         </div>
         
         <DebugMode />
         <RecordingIndicator />
         
-
+        {/* File Sharing & Materials */}
+        <FileSharing
+          isOpen={props.isFileSharingOpen}
+          onClose={() => props.setIsFileSharingOpen(false)}
+          roomName={props.connectionDetails?.roomName || props.roomName}
+          isHost={props.participantType === 'host'}
+          onFileSelect={(file) => {
+            if (file.fileType === 'application/pdf') {
+              props.setSelectedPdfFile(file);
+              props.setIsPdfViewerOpen(true);
+              
+              // If host, broadcast PDF open to everyone
+              if (props.participantType === 'host' && room) {
+                const openData = {
+                  type: 'pdf_viewer_open',
+                  fileId: file.id,
+                  pageNumber: 1,
+                  sender: room.localParticipant.identity,
+                  timestamp: Date.now(),
+                  id: `open-${Date.now()}`,
+                  isHost: true,
+                  file: file,
+                };
+                const encodedData = new TextEncoder().encode(JSON.stringify(openData));
+                room.localParticipant.publishData(encodedData, { topic: 'pdf-viewer' });
+              }
+            }
+          }}
+        />
         
-        {/* Guest-specific controls */}
-        {props.participantType === 'guest' && (
-          <div style={{
-            position: 'fixed',
-            bottom: '20px',
-            right: '20px',
-            zIndex: 1000
-          }}>
-            <MoreControls
-              isHost={false}
-              canRecord={false}
-              roomName={props.roomName}
-              onEndMeeting={() => {
-                // Guests can't end meetings
-                alert('Only hosts can end meetings for all participants.');
-              }}
-            />
-          </div>
-        )}
+        {/* PDF Viewer with Annotations */}
+        <PdfViewer
+          isOpen={props.isPdfViewerOpen}
+          onClose={() => {
+            // If host is closing, broadcast to everyone
+            if (props.participantType === 'host' && props.selectedPdfFile && room) {
+              const closeData = {
+                type: 'pdf_viewer_close',
+                fileId: props.selectedPdfFile.id,
+                pageNumber: 1,
+                sender: room.localParticipant.identity,
+                timestamp: Date.now(),
+                id: `close-${Date.now()}`,
+                isHost: true,
+              };
+              const encodedData = new TextEncoder().encode(JSON.stringify(closeData));
+              room.localParticipant.publishData(encodedData, { topic: 'pdf-viewer' });
+            }
+            props.setIsPdfViewerOpen(false);
+            props.setSelectedPdfFile(null);
+          }}
+          file={props.selectedPdfFile}
+          roomName={props.connectionDetails?.roomName || props.roomName}
+          isHost={props.participantType === 'host'}
+        />
         
-        {/* Picture-in-Picture removed - LiveKit VideoConference component handles participant rendering */}
+        {/* Screen Annotation Overlay */}
+        <ScreenAnnotation
+          isEnabled={props.isScreenAnnotationEnabled}
+          onClose={() => props.setIsScreenAnnotationEnabled(false)}
+        />
         
-        {/* Host-specific controls */}
+        {/* Video Request Notification - Shows when host requests video action */}
+        <VideoRequestNotification />
+        
+        {/* Mute Control Listener - Handles mute/unmute requests from host */}
+        <MuteControlListener />
+        
+        {/* Waiting List - Shows pending participants for host */}
         {props.participantType === 'host' && (
-          <div style={{
-            position: 'fixed',
-            bottom: '100px',
-            right: '20px',
-            zIndex: 1000
-          }}>
-            <MoreControls
-              isHost={true}
-              canRecord={props.canRecord}
-              roomName={props.roomName}
-              onEndMeeting={async () => {
-                if (props.meetingEnded) return; // Prevent multiple end meeting calls
-                
-                console.log('🚪 End Meeting button clicked!');
-                console.log('Current props:', { participantType: props.participantType, roomName: props.roomName });
-                
-                // Host can end the meeting for all participants
-                const confirmMessage = `🚨 END MEETING FOR ALL PARTICIPANTS
-
-This action will:
-• Disconnect ALL participants from the meeting
-• Delete the room entirely
-• Cannot be undone
-
-Are you sure you want to end the meeting for everyone?`;
-                
-                if (confirm(confirmMessage)) {
-                  props.setMeetingEnded(true); // Mark meeting as ended to prevent reconnection
-                  
-                  try {
-                    // Call the server-side API to end the meeting for everyone
-                    // Use the actual LiveKit room name from connection details
-                    const actualRoomName = props.connectionDetails?.roomName || props.roomName;
-                    console.log('Ending meeting for room:', actualRoomName);
-                    
-                    const response = await fetch(`/api/admin/rooms/${props.roomName}/end-meeting`, {
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json',
-                      },
-                      body: JSON.stringify({
-                        roomName: actualRoomName
-                      })
-                    });
-
-                    if (response.ok) {
-                      const result = await response.json();
-                      console.log('Meeting ended successfully:', result);
-                      
-                      // Show success message
-                      const successMessage = `✅ MEETING ENDED SUCCESSFULLY!
-
-${result.message}
-
-The meeting has been terminated for all participants and the room has been deleted. You will now be redirected to the home page.`;
-                      
-                      alert(successMessage);
-                      
-                      // Disconnect host and redirect immediately
-                      room.disconnect();
-                      router.push('/');
-                    } else {
-                      const error = await response.json();
-                      console.error('Failed to end meeting:', error);
-                      
-                      let errorMessage = 'Failed to end meeting';
-                      if (error.error) {
-                        errorMessage += `: ${error.error}`;
-                      }
-                      if (error.details) {
-                        errorMessage += `\n\nDetails: ${error.details}`;
-                      }
-                      
-                      alert(`❌ ${errorMessage}\n\nPlease try again or contact support if the problem persists.`);
-                      props.setMeetingEnded(false); // Reset on error to allow retry
-                    }
-                  } catch (error) {
-                    console.error('Error ending meeting:', error);
-                    
-                    let errorMessage = 'Error ending meeting';
-                    if (error instanceof Error) {
-                      errorMessage += `: ${error.message}`;
-                    }
-                    
-                    alert(`❌ ${errorMessage}\n\nThis might be due to a network issue or server problem. Please try again.`);
-                    props.setMeetingEnded(false); // Reset on error to allow retry
-                  }
-                }
-              }}
-            />
-          </div>
+          <WaitingList 
+            isHost={true} 
+            roomName={props.connectionDetails?.roomName || props.roomName}
+          />
         )}
       </RoomContext.Provider>
     </div>

@@ -50,6 +50,7 @@ dev-local.db
 dev-local.db-journal
 data/
 uploads/
+public/uploads/
 
 # SSL certificates (keep private)
 ssl/

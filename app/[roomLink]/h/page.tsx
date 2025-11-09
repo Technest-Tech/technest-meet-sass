@@ -13,6 +13,9 @@ interface RoomValidation {
     isActive: boolean;
     hostApproval: boolean;
     canRecord: boolean;
+    requireWaitingRoom: boolean;
+    allowGuestUnmute: boolean;
+    enablePrivateChat: boolean;
   };
 }
 
@@ -202,6 +205,9 @@ export default function HostRoomAccess() {
       userName={participantName}
       participantType={accessType as 'host' | 'guest'}
       canRecord={roomValidation.room?.canRecord || false}
+      requireWaitingRoom={roomValidation.room?.requireWaitingRoom || false}
+      allowGuestUnmute={roomValidation.room?.allowGuestUnmute ?? true}
+      enablePrivateChat={roomValidation.room?.enablePrivateChat ?? true}
     />
   );
 }

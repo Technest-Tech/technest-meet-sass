@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { PageClientImpl } from '@/app/rooms/[roomName]/PageClientImpl';
 import { NameInputPage } from '@/lib/NameInputPage';
+import { WaitingRoom } from '@/lib/WaitingRoom';
 
 interface RoomValidation {
   exists: boolean;
@@ -13,6 +14,9 @@ interface RoomValidation {
     isActive: boolean;
     hostApproval: boolean;
     canRecord: boolean;
+    requireWaitingRoom: boolean;
+    allowGuestUnmute: boolean;
+    enablePrivateChat: boolean;
   };
 }
 
@@ -26,6 +30,8 @@ export default function GuestRoomAccess() {
   const [error, setError] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
   const [showNameInput, setShowNameInput] = useState(false);
+  const [requiresWaiting, setRequiresWaiting] = useState(false);
+  const [waitingParticipantId, setWaitingParticipantId] = useState<string | null>(null);
 
   // Debug logging
   console.log('🔍 Guest Room Access Debug:', {
@@ -49,7 +55,13 @@ export default function GuestRoomAccess() {
         if (response.ok) {
           const data = await response.json();
           setRoomValidation(data);
-          setShowNameInput(true); // Show name input after successful validation
+          
+          // Check if waiting room is required for guests
+          if (data.room?.requireWaitingRoom && accessType === 'guest') {
+            // Mark as requiring waiting, but still show name input
+            setRequiresWaiting(true);
+          }
+          setShowNameInput(true);
         } else {
           const errorData = await response.json();
           setError(errorData.message || 'Room not found or access denied');
@@ -187,8 +199,29 @@ export default function GuestRoomAccess() {
     actualRoomName: roomName,
     workingSystemPath: `/rooms/${roomName}?name=${participantName}`,
     message: 'Guest joins meeting with basic permissions',
-    roomValidation: roomValidation
+    roomValidation: roomValidation,
+    requiresWaiting: roomValidation.room?.requireWaitingRoom,
+    currentlyWaiting: requiresWaiting
   });
+
+  // If waiting room is required and guest hasn't been admitted yet, show waiting room
+  if (roomValidation.room?.requireWaitingRoom && requiresWaiting && userName) {
+    return (
+      <WaitingRoom
+        roomName={roomLink}
+        participantName={userName}
+        onAdmitted={() => {
+          console.log('✅ Guest admitted to meeting');
+          setRequiresWaiting(false);
+        }}
+        onRejected={() => {
+          console.log('❌ Guest rejected from meeting');
+          setError('Your request to join was rejected by the host');
+          setRequiresWaiting(false);
+        }}
+      />
+    );
+  }
 
   // Use the working system's PageClientImpl with the converted parameters
   // This ensures we get exactly the same functionality as the working system
@@ -202,6 +235,9 @@ export default function GuestRoomAccess() {
       userName={participantName}
       participantType={accessType as 'host' | 'guest'}
       canRecord={roomValidation.room?.canRecord || false}
+      requireWaitingRoom={roomValidation.room?.requireWaitingRoom || false}
+      allowGuestUnmute={roomValidation.room?.allowGuestUnmute ?? true}
+      enablePrivateChat={roomValidation.room?.enablePrivateChat ?? true}
     />
   );
 }

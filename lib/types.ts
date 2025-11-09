@@ -27,4 +27,140 @@ export type ConnectionDetails = {
   participantToken: string;
 };
 
+// Reaction types
+export type ReactionType = '👍' | '❤️' | '😂' | '👏' | '🎉' | '😮' | '🙌';
+
+export interface ReactionData {
+  type: 'reaction';
+  reactionType: ReactionType;
+  sender: string;
+  timestamp: number;
+  id: string;
+}
+
+// Raise Hand types
+export type RaiseHandState = boolean; // true = raised, false = lowered
+
+export interface RaiseHandData {
+  type: 'raise-hand';
+  sender: string;
+  isRaised: boolean;
+  timestamp: number;
+  id: string;
+}
+
+// File Sharing types
+export interface RoomFile {
+  id: string;
+  roomId: string;
+  filename: string;
+  originalName: string;
+  fileType: string;
+  size: number;
+  uploadedBy: string;
+  uploadedAt: number;
+}
+
+export interface FileUploadData {
+  type: 'file_upload';
+  file: RoomFile;
+  sender: string;
+  timestamp: number;
+}
+
+export interface FileDeleteData {
+  type: 'file_delete';
+  fileId: string;
+  sender: string;
+  timestamp: number;
+}
+
+// Drawing types (shared with Whiteboard)
+export interface DrawingPoint {
+  x: number;
+  y: number;
+  pressure?: number;
+}
+
+export interface DrawingStroke {
+  id: string;
+  points: DrawingPoint[];
+  color: string;
+  width: number;
+  tool: 'pen' | 'eraser' | 'highlighter' | 'pointer';
+}
+
+// PDF Annotation types
+export interface PdfAnnotationData {
+  type: 'pdf_annotation_stroke' | 'pdf_annotation_clear' | 'pdf_viewer_open' | 'pdf_viewer_close' | 'pdf_page_change' | 'pdf_scroll_sync';
+  fileId: string;
+  pageNumber: number;
+  stroke?: DrawingStroke;
+  sender: string;
+  timestamp: number;
+  id: string;
+  isHost?: boolean;
+  file?: RoomFile; // For opening PDF
+  scrollTop?: number; // For scroll synchronization
+  scrollLeft?: number; // For horizontal scroll
+}
+
+// Screen Annotation types
+export interface ScreenAnnotationData {
+  type: 'screen_annotation_stroke' | 'screen_annotation_clear' | 'screen_pointer_position';
+  stroke?: DrawingStroke;
+  position?: { x: number; y: number };
+  sender: string;
+  timestamp: number;
+  id: string;
+}
+
+// Waiting Room types
+export interface WaitingRoomData {
+  type: 'waiting_room_admit' | 'waiting_room_reject';
+  participantName: string;
+  timestamp: number;
+}
+
+// Chat Message types (Enhanced)
+export interface ChatMessageData {
+  type: 'chat_message';
+  id: string;
+  sender: string;
+  message: string;
+  timestamp: number;
+  recipientType: 'all' | 'host' | 'specific'; // Who can see this message
+  recipientId?: string; // For specific recipient
+  isPrivate: boolean;
+}
+
+// Mute Control types
+export interface MuteControlData {
+  type: 'mute_command' | 'unmute_command' | 'mute_all_command';
+  targetParticipant?: string; // Specific participant or undefined for all
+  sender: string;
+  timestamp: number;
+  allowUnmute: boolean; // Whether the participant can unmute themselves
+}
+
+// Video Request types
+export interface VideoRequestData {
+  type: 'video_request_on' | 'video_request_off' | 'video_request_response';
+  targetParticipant: string;
+  requestType: 'camera_on' | 'camera_off';
+  response?: 'accepted' | 'declined';
+  sender: string;
+  timestamp: number;
+  id: string;
+}
+
+// Participant Status types
+export interface ParticipantStatusData {
+  type: 'participant_status_update';
+  participantIdentity: string;
+  audioEnabled: boolean;
+  videoEnabled: boolean;
+  timestamp: number;
+}
+
 

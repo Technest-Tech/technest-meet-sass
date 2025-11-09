@@ -19,7 +19,10 @@ export async function PUT(
     }
 
     const { roomId } = await params;
-    const { name, description, hostApproval, maxParticipants, isActive, canRecord } = await request.json();
+    const body = await request.json();
+    const { name, description, hostApproval, maxParticipants, isActive, canRecord, requireWaitingRoom, allowGuestUnmute, enablePrivateChat } = body;
+
+    console.log('Updating room', roomId, 'with body:', body);
 
     if (!name) {
       return NextResponse.json(
@@ -49,12 +52,17 @@ export async function PUT(
         hostApproval: hostApproval !== undefined ? hostApproval : existingRoom.hostApproval,
         maxParticipants: maxParticipants || existingRoom.maxParticipants,
         isActive: isActive !== undefined ? isActive : existingRoom.isActive,
-        canRecord: canRecord !== undefined ? canRecord : existingRoom.canRecord
+        canRecord: canRecord !== undefined ? canRecord : existingRoom.canRecord,
+        requireWaitingRoom: requireWaitingRoom !== undefined ? requireWaitingRoom : existingRoom.requireWaitingRoom,
+        allowGuestUnmute: allowGuestUnmute !== undefined ? allowGuestUnmute : existingRoom.allowGuestUnmute,
+        enablePrivateChat: enablePrivateChat !== undefined ? enablePrivateChat : existingRoom.enablePrivateChat
       },
       include: {
         participants: true
       }
     });
+
+    console.log('Room updated successfully:', updatedRoom);
 
     return NextResponse.json(updatedRoom);
 
