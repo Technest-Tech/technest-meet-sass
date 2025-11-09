@@ -21,13 +21,17 @@ if (typeof window !== 'undefined') {
   });
 }
 
-// Background image - using the logo from public folder
-const BACKGROUND_IMAGES = [
-  { name: 'Almajd', path: '/logo.png' },
-];
+// Background images - currently empty, users can upload their own
+const BACKGROUND_IMAGES: Array<{ name: string; path: string }> = [];
 
 // Background options
 type BackgroundType = 'none' | 'blur' | 'image';
+
+interface CustomBackground {
+  id: string;
+  name: string;
+  dataUrl: string;
+}
 
 export function CameraSettings() {
   const { cameraTrack, localParticipant } = useLocalParticipant();
@@ -36,11 +40,28 @@ export function CameraSettings() {
     null,
   );
   const [processorsLoaded, setProcessorsLoaded] = React.useState(false);
+  const [customBackgrounds, setCustomBackgrounds] = React.useState<CustomBackground[]>([]);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Check if processors are loaded
   React.useEffect(() => {
     if (BackgroundBlur && VirtualBackground) {
       setProcessorsLoaded(true);
+    }
+  }, []);
+
+  // Load custom backgrounds from localStorage on mount
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('custom_backgrounds');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setCustomBackgrounds(parsed);
+        } catch (error) {
+          console.error('Error loading custom backgrounds:', error);
+        }
+      }
     }
   }, []);
 
@@ -56,6 +77,54 @@ export function CameraSettings() {
       setVirtualBackgroundImagePath(imagePath);
     } else if (type !== 'image') {
       setVirtualBackgroundImagePath(null);
+    }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Check file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image size should be less than 5MB');
+        return;
+      }
+
+      // Check file type
+      if (!file.type.startsWith('image/')) {
+        alert('Please select an image file');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const dataUrl = event.target?.result as string;
+        const newBg: CustomBackground = {
+          id: Date.now().toString(),
+          name: file.name.replace(/\.[^/.]+$/, ''), // Remove extension
+          dataUrl: dataUrl
+        };
+        const updated = [...customBackgrounds, newBg];
+        setCustomBackgrounds(updated);
+        localStorage.setItem('custom_backgrounds', JSON.stringify(updated));
+        // Auto-select the newly uploaded background
+        selectBackground('image', dataUrl);
+      };
+      reader.readAsDataURL(file);
+    }
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const deleteCustomBackground = (id: string) => {
+    const updated = customBackgrounds.filter(bg => bg.id !== id);
+    setCustomBackgrounds(updated);
+    localStorage.setItem('custom_backgrounds', JSON.stringify(updated));
+    // If deleted background was selected, reset to none
+    const deletedBg = customBackgrounds.find(bg => bg.id === id);
+    if (deletedBg && virtualBackgroundImagePath === deletedBg.dataUrl) {
+      selectBackground('none');
     }
   };
 
@@ -197,6 +266,136 @@ export function CameraSettings() {
                 </span>
               </button>
             ))}
+
+            {/* Custom uploaded backgrounds */}
+            {customBackgrounds.map((bg) => (
+              <div
+                key={bg.id}
+                style={{
+                  position: 'relative',
+                  width: '80px',
+                  height: '60px',
+                }}
+                onMouseEnter={(e) => {
+                  const deleteBtn = e.currentTarget.querySelector('.delete-btn') as HTMLElement;
+                  if (deleteBtn) deleteBtn.style.display = 'flex';
+                }}
+                onMouseLeave={(e) => {
+                  const deleteBtn = e.currentTarget.querySelector('.delete-btn') as HTMLElement;
+                  if (deleteBtn) deleteBtn.style.display = 'none';
+                }}
+              >
+                <button
+                  onClick={() => selectBackground('image', bg.dataUrl)}
+                  className="lk-button"
+                  aria-pressed={
+                    backgroundType === 'image' && virtualBackgroundImagePath === bg.dataUrl
+                  }
+                  style={{
+                    backgroundImage: `url(${bg.dataUrl})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                    backgroundRepeat: 'no-repeat',
+                    width: '100%',
+                    height: '100%',
+                    border:
+                      backgroundType === 'image' && virtualBackgroundImagePath === bg.dataUrl
+                        ? '2px solid #0090ff'
+                        : '1px solid #d1d1d1',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    padding: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      backgroundColor: 'rgba(0,0,0,0.6)',
+                      padding: '2px 5px',
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      position: 'absolute',
+                      bottom: '2px',
+                      left: '2px',
+                      right: '2px',
+                      zIndex: 1,
+                      display: 'block',
+                      textAlign: 'center',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {bg.name}
+                  </span>
+                </button>
+                <button
+                  className="delete-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteCustomBackground(bg.id);
+                  }}
+                  style={{
+                    position: 'absolute',
+                    top: '2px',
+                    right: '2px',
+                    width: '20px',
+                    height: '20px',
+                    borderRadius: '50%',
+                    backgroundColor: '#ef4444',
+                    color: 'white',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    display: 'none',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 10,
+                    padding: 0,
+                  }}
+                  title="Delete background"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+
+            {/* Upload button */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="lk-button"
+              style={{
+                width: '80px',
+                height: '60px',
+                border: '2px dashed rgba(255, 255, 255, 0.3)',
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '4px',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+              }}
+              title="Upload custom background"
+            >
+              <span style={{ fontSize: '24px' }}>📁</span>
+              <span style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.7)' }}>Upload</span>
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleImageUpload}
+              style={{ display: 'none' }}
+            />
           </div>
         </div>
       )}

@@ -24,6 +24,9 @@ export interface SettingsMenuProps extends React.HTMLAttributes<HTMLDivElement> 
  * @alpha
  */
 export function SettingsMenu(props: SettingsMenuProps) {
+  // Destructure custom props to avoid passing them to DOM
+  const { canRecord, onClose, ...domProps } = props;
+  
   const layoutContext = useMaybeLayoutContext();
   const room = useRoomContext();
   const recordingEndpoint = process.env.NEXT_PUBLIC_LK_RECORD_ENDPOINT;
@@ -37,9 +40,9 @@ export function SettingsMenu(props: SettingsMenuProps) {
   const settings = React.useMemo(() => {
     return {
       media: { camera: true, microphone: true, label: 'Media Devices', speaker: true },
-      recording: (recordingEndpoint && props.canRecord) ? { label: 'Recording' } : undefined,
+      recording: (recordingEndpoint && canRecord) ? { label: 'Recording' } : undefined,
     };
-  }, [recordingEndpoint, props.canRecord]);
+  }, [recordingEndpoint, canRecord]);
 
   const tabs = React.useMemo(
     () => Object.keys(settings).filter((t) => t !== undefined) as Array<keyof typeof settings>,
@@ -84,30 +87,52 @@ export function SettingsMenu(props: SettingsMenuProps) {
     }
   };
 
-  const handleClose = () => {
-    console.log('Closing settings menu');
-    if (props.onClose) {
-      props.onClose();
-    } else if (layoutContext?.widget.dispatch) {
-      layoutContext.widget.dispatch({ msg: 'toggle_settings' });
-    } else {
-      // Fallback: dispatch custom event
-      window.dispatchEvent(new CustomEvent('close_settings'));
-    }
-  };
-
   return (
-    <div className="settings-menu" style={{ width: '100%', position: 'relative' }} {...props}>
-      <div className={styles.tabs}>
+    <div className="settings-menu" style={{ width: '100%', position: 'relative' }} {...domProps}>
+      {/* Tabs */}
+      <div style={{
+        display: 'flex',
+        gap: '12px',
+        marginBottom: '24px',
+        borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+        paddingBottom: '12px'
+      }}>
         {tabs.map(
           (tab) =>
             settings[tab] && (
               <button
-                className={`${styles.tab} lk-button`}
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                aria-pressed={tab === activeTab}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: tab === activeTab 
+                    ? 'rgba(79, 195, 247, 0.2)' 
+                    : 'rgba(255, 255, 255, 0.05)',
+                  color: tab === activeTab ? '#4fc3f7' : 'rgba(255, 255, 255, 0.7)',
+                  border: tab === activeTab 
+                    ? '1px solid #4fc3f7' 
+                    : '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+                onMouseEnter={(e) => {
+                  if (tab !== activeTab) {
+                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (tab !== activeTab) {
+                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+                  }
+                }}
               >
+                <span>{tab === 'media' ? '📹' : '⏺️'}</span>
                 {
                   // @ts-ignore
                   settings[tab].label
@@ -116,61 +141,119 @@ export function SettingsMenu(props: SettingsMenuProps) {
             ),
         )}
       </div>
-      <div className="tab-content">
+      <div className="tab-content" style={{ color: 'white' }}>
         {activeTab === 'media' && (
           <>
             {settings.media && settings.media.camera && (
-              <>
-                <h3>Camera</h3>
+              <div style={{ marginBottom: '32px' }}>
+                <h3 style={{ 
+                  margin: '0 0 16px 0',
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  color: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  📹 Camera
+                </h3>
                 <section>
                   <CameraSettings />
                 </section>
-              </>
+              </div>
             )}
             {settings.media && settings.media.microphone && (
-              <>
-                <h3>Microphone</h3>
+              <div style={{ marginBottom: '32px' }}>
+                <h3 style={{ 
+                  margin: '0 0 16px 0',
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  color: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  🎤 Microphone
+                </h3>
                 <section>
                   <MicrophoneSettings />
                 </section>
-              </>
+              </div>
             )}
             {settings.media && settings.media.speaker && (
-              <>
-                <h3>Speaker & Headphones</h3>
+              <div style={{ marginBottom: '32px' }}>
+                <h3 style={{ 
+                  margin: '0 0 16px 0',
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  color: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  🔊 Speaker & Headphones
+                </h3>
                 <section className="lk-button-group">
-                  <span className="lk-button">Audio Output</span>
+                  <span className="lk-button" style={{ color: 'white' }}>Audio Output</span>
                   <div className="lk-button-group-menu">
                     <MediaDeviceMenu kind="audiooutput"></MediaDeviceMenu>
                   </div>
                 </section>
-              </>
+              </div>
             )}
           </>
         )}
         {activeTab === 'recording' && (
-          <>
-            <h3>Record Meeting</h3>
+          <div style={{ marginBottom: '32px' }}>
+            <h3 style={{ 
+              margin: '0 0 16px 0',
+              fontSize: '16px',
+              fontWeight: '600',
+              color: 'white',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              ⏺️ Record Meeting
+            </h3>
             <section>
-              <p>
+              <p style={{ 
+                color: 'rgba(255, 255, 255, 0.8)',
+                marginBottom: '16px'
+              }}>
                 {isRecording
-                  ? 'Meeting is currently being recorded'
+                  ? '🔴 Meeting is currently being recorded'
                   : 'No active recordings for this meeting'}
               </p>
-              <button disabled={processingRecRequest} onClick={() => toggleRoomRecording()}>
-                {isRecording ? 'Stop' : 'Start'} Recording
+              <button 
+                disabled={processingRecRequest} 
+                onClick={() => toggleRoomRecording()}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: isRecording ? '#ef4444' : '#22c55e',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: processingRecRequest ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  transition: 'all 0.2s ease',
+                  opacity: processingRecRequest ? 0.5 : 1
+                }}
+                onMouseEnter={(e) => {
+                  if (!processingRecRequest) {
+                    e.currentTarget.style.transform = 'scale(1.05)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'scale(1)';
+                }}
+              >
+                {processingRecRequest ? 'Processing...' : (isRecording ? 'Stop Recording' : 'Start Recording')}
               </button>
             </section>
-          </>
+          </div>
         )}
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
-        <button
-          className={`lk-button`}
-          onClick={handleClose}
-        >
-          Close
-        </button>
       </div>
     </div>
   );

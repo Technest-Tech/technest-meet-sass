@@ -12,6 +12,9 @@ interface Room {
   maxParticipants: number;
   isActive: boolean;
   canRecord: boolean;
+  requireWaitingRoom?: boolean;
+  allowGuestUnmute?: boolean;
+  enablePrivateChat?: boolean;
   createdAt: string;
   hostLink: string;
   guestLink: string;
@@ -32,7 +35,10 @@ export default function EditRoomModal({ room, onClose, onRoomUpdated }: EditRoom
   const [formData, setFormData] = useState({
     name: '',
     isActive: true,
-    canRecord: false
+    canRecord: false,
+    requireWaitingRoom: false,
+    allowGuestUnmute: true,
+    enablePrivateChat: true
   });
   const [isLoading, setIsLoading] = useState(false);
 
@@ -40,7 +46,10 @@ export default function EditRoomModal({ room, onClose, onRoomUpdated }: EditRoom
     setFormData({
       name: room.name,
       isActive: room.isActive,
-      canRecord: room.canRecord
+      canRecord: room.canRecord,
+      requireWaitingRoom: room.requireWaitingRoom ?? false,
+      allowGuestUnmute: room.allowGuestUnmute ?? true,
+      enablePrivateChat: room.enablePrivateChat ?? true
     });
   }, [room]);
 
@@ -50,19 +59,29 @@ export default function EditRoomModal({ room, onClose, onRoomUpdated }: EditRoom
 
     try {
       const token = localStorage.getItem('adminToken');
+      
+      const updateData = {
+        id: room.id,
+        name: formData.name,
+        description: room.description || '',
+        hostApproval: room.hostApproval,
+        maxParticipants: room.maxParticipants,
+        isActive: formData.isActive,
+        canRecord: formData.canRecord,
+        requireWaitingRoom: formData.requireWaitingRoom,
+        allowGuestUnmute: formData.allowGuestUnmute,
+        enablePrivateChat: formData.enablePrivateChat
+      };
+      
+      console.log('Updating room with data:', updateData);
+      
       const response = await fetch(`/api/admin/rooms/${room.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          ...formData,
-          description: room.description || '',
-          hostApproval: room.hostApproval,
-          maxParticipants: room.maxParticipants,
-          canRecord: formData.canRecord
-        }),
+        body: JSON.stringify(updateData),
       });
 
       if (response.ok) {
@@ -172,6 +191,81 @@ export default function EditRoomModal({ room, onClose, onRoomUpdated }: EditRoom
                 className={cn(
                   'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
                   formData.canRecord ? 'translate-x-6' : 'translate-x-1'
+                )}
+              />
+            </button>
+          </div>
+
+          {/* Waiting Room */}
+          <div className="flex items-center justify-between">
+            <div className="text-right">
+              <label htmlFor="requireWaitingRoom" className="text-sm font-medium text-gray-700">
+                غرفة الانتظار
+              </label>
+              <p className="text-xs text-gray-500">يتطلب موافقة المضيف قبل الدخول</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleInputChange('requireWaitingRoom', !formData.requireWaitingRoom)}
+              className={cn(
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                formData.requireWaitingRoom ? 'bg-yellow-600' : 'bg-gray-200'
+              )}
+            >
+              <span
+                className={cn(
+                  'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                  formData.requireWaitingRoom ? 'translate-x-6' : 'translate-x-1'
+                )}
+              />
+            </button>
+          </div>
+
+          {/* Allow Guest Unmute */}
+          <div className="flex items-center justify-between">
+            <div className="text-right">
+              <label htmlFor="allowGuestUnmute" className="text-sm font-medium text-gray-700">
+                السماح للضيوف بإلغاء كتم الصوت
+              </label>
+              <p className="text-xs text-gray-500">يمكن للضيوف إلغاء كتم الصوت بأنفسهم</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleInputChange('allowGuestUnmute', !formData.allowGuestUnmute)}
+              className={cn(
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                formData.allowGuestUnmute ? 'bg-green-600' : 'bg-gray-200'
+              )}
+            >
+              <span
+                className={cn(
+                  'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                  formData.allowGuestUnmute ? 'translate-x-6' : 'translate-x-1'
+                )}
+              />
+            </button>
+          </div>
+
+          {/* Enable Private Chat */}
+          <div className="flex items-center justify-between">
+            <div className="text-right">
+              <label htmlFor="enablePrivateChat" className="text-sm font-medium text-gray-700">
+                الدردشة الخاصة
+              </label>
+              <p className="text-xs text-gray-500">السماح بالرسائل الخاصة بين المشاركين</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleInputChange('enablePrivateChat', !formData.enablePrivateChat)}
+              className={cn(
+                'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                formData.enablePrivateChat ? 'bg-purple-600' : 'bg-gray-200'
+              )}
+            >
+              <span
+                className={cn(
+                  'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                  formData.enablePrivateChat ? 'translate-x-6' : 'translate-x-1'
                 )}
               />
             </button>

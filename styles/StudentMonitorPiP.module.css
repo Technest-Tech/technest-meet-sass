@@ -1,0 +1,231 @@
+.container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9000 !important; /* Below PDF viewer (99999) but above most UI elements */
+  background: rgba(17, 24, 39, 0.95);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+  min-width: 280px;
+  max-width: 600px;
+  transition: box-shadow 0.3s ease;
+  user-select: none;
+  /* Base position set by top/right, transform moves from there (exactly like PictureInPicture) */
+  box-sizing: border-box;
+}
+
+.container:hover {
+  box-shadow: 0 25px 30px -5px rgba(0, 0, 0, 0.4), 0 15px 15px -5px rgba(0, 0, 0, 0.15);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: move;
+}
+
+.dragHandle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  cursor: grab;
+}
+
+.dragHandle:active {
+  cursor: grabbing;
+}
+
+.dragIcon {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.title {
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.headerButtons {
+  display: flex;
+  gap: 4px;
+}
+
+.minimizeButton,
+.expandButton {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  transition: all 0.2s ease;
+  padding: 0;
+}
+
+.minimizeButton:hover,
+.expandButton:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+.studentsGrid {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.studentsGrid::-webkit-scrollbar {
+  width: 6px;
+}
+
+.studentsGrid::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+}
+
+.studentsGrid::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.studentsGrid::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.studentCard {
+  position: relative;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+}
+
+.studentCard:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.videoContainer {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #1f2937;
+  overflow: hidden;
+}
+
+.studentVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.placeholder {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.placeholderInitial {
+  color: white;
+  font-size: 24px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.muteIndicator {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(239, 68, 68, 0.9);
+  color: white;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.studentName {
+  padding: 6px 8px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.minimizedBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: rgba(17, 24, 39, 0.95);
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  width: 100%;
+  height: 100%;
+}
+
+.minimizedBar:hover {
+  background: rgba(17, 24, 39, 1);
+  transform: scale(1.02);
+}
+
+.minimizedIcon {
+  font-size: 16px;
+  margin-right: 8px;
+}
+
+.minimizedText {
+  color: white;
+  font-size: 13px;
+  font-weight: 500;
+  flex: 1;
+}
+
+.expandButton {
+  margin-left: 8px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .container {
+    max-width: calc(100vw - 40px);
+    right: 20px;
+    left: 20px;
+    transform: none !important;
+  }
+
+  .studentsGrid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+

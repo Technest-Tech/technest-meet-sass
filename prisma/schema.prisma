@@ -22,18 +22,23 @@ model User {
 }
 
 model Room {
-  id                String           @id @default(cuid())
+  id                String              @id @default(cuid())
   name              String
   description       String?
-  hostApproval      Boolean          @default(false)
-  maxParticipants   Int              @default(50)
-  isActive          Boolean          @default(true)
-  canRecord         Boolean          @default(false)
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  hostApproval      Boolean             @default(false)
+  maxParticipants   Int                 @default(50)
+  isActive          Boolean             @default(true)
+  canRecord         Boolean             @default(false)
+  requireWaitingRoom Boolean            @default(false)
+  allowGuestUnmute  Boolean             @default(true)
+  enablePrivateChat Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
   participants      Participant[]
-  hostLink          String           @unique
-  guestLink         String           @unique
+  files             RoomFile[]
+  waitingParticipants WaitingParticipant[]
+  hostLink          String              @unique
+  guestLink         String              @unique
 
   @@map("rooms")
 }
@@ -49,6 +54,32 @@ model Participant {
   updatedAt DateTime       @updatedAt
   @@unique([roomId, name])
   @@map("participants")
+}
+
+model RoomFile {
+  id            String   @id @default(cuid())
+  roomId        String
+  filename      String   // Stored filename on disk
+  originalName  String   // Original filename from upload
+  fileType      String   // MIME type
+  size          Int      // File size in bytes
+  uploadedBy    String   // Participant identity
+  uploadedAt    DateTime @default(now())
+  room          Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  
+  @@map("room_files")
+}
+
+model WaitingParticipant {
+  id              String   @id @default(cuid())
+  roomId          String
+  participantName String
+  participantType String   // HOST or GUEST
+  status          String   @default("waiting") // waiting, admitted, rejected
+  joinedAt        DateTime @default(now())
+  room            Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  
+  @@map("waiting_participants")
 }
 
 

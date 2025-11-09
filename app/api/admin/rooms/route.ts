@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const { name, description, hostApproval, maxParticipants, isActive, canRecord } = await request.json();
+    const { name, description, hostApproval, maxParticipants, isActive, canRecord, requireWaitingRoom, allowGuestUnmute, enablePrivateChat } = await request.json();
 
     if (!name) {
       return NextResponse.json(
@@ -115,6 +115,9 @@ export async function POST(request: NextRequest) {
         maxParticipants: maxParticipants || 50,
         isActive: isActive !== undefined ? isActive : true,
         canRecord: canRecord !== undefined ? canRecord : false,
+        requireWaitingRoom: requireWaitingRoom !== undefined ? requireWaitingRoom : false,
+        allowGuestUnmute: allowGuestUnmute !== undefined ? allowGuestUnmute : true,
+        enablePrivateChat: enablePrivateChat !== undefined ? enablePrivateChat : true,
         hostLink,
         guestLink
       },
@@ -187,7 +190,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const { id, name, description, hostApproval, maxParticipants, isActive, canRecord } = await request.json();
+    const { id, name, description, hostApproval, maxParticipants, isActive, canRecord, requireWaitingRoom, allowGuestUnmute, enablePrivateChat } = await request.json();
 
     if (!id) {
       return NextResponse.json(
@@ -276,6 +279,9 @@ export async function PUT(request: NextRequest) {
         maxParticipants: maxParticipants !== undefined ? maxParticipants : existingRoom.maxParticipants,
         isActive: isActive !== undefined ? isActive : existingRoom.isActive,
         canRecord: canRecord !== undefined ? canRecord : existingRoom.canRecord,
+        requireWaitingRoom: requireWaitingRoom !== undefined ? requireWaitingRoom : existingRoom.requireWaitingRoom,
+        allowGuestUnmute: allowGuestUnmute !== undefined ? allowGuestUnmute : existingRoom.allowGuestUnmute,
+        enablePrivateChat: enablePrivateChat !== undefined ? enablePrivateChat : existingRoom.enablePrivateChat,
         hostLink: roomLink,
         guestLink: roomLink,
         updatedAt: new Date()

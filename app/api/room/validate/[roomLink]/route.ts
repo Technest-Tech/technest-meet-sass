@@ -33,7 +33,10 @@ export async function GET(
         name: true,
         isActive: true,
         hostApproval: true,
-        canRecord: true
+        canRecord: true,
+        requireWaitingRoom: true,
+        allowGuestUnmute: true,
+        enablePrivateChat: true
       }
     });
 
@@ -54,7 +57,10 @@ export async function GET(
         name: room.name,
         isActive: room.isActive,
         hostApproval: room.hostApproval,
-        canRecord: room.canRecord
+        canRecord: room.canRecord,
+        requireWaitingRoom: room.requireWaitingRoom,
+        allowGuestUnmute: room.allowGuestUnmute,
+        enablePrivateChat: room.enablePrivateChat
       }
     });
 
