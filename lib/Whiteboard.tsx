@@ -2,82 +2,134 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useRoomContext } from '@livekit/components-react';
-import { DataPacket_Kind } from 'livekit-client';
-import styles from '../styles/Whiteboard.module.css';
-
-interface DrawingPoint {
-  x: number;
-  y: number;
-  pressure?: number;
-}
-
-interface DrawingStroke {
-  id: string;
-  points: DrawingPoint[];
-  color: string;
-  width: number;
-  tool: 'pen' | 'eraser';
-}
-
-interface WhiteboardImage {
-  id: string;
-  src: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  originalWidth: number;
-  originalHeight: number;
-}
+import styles from '../styles/NormalWhiteboard.module.css';
+import { NormalWhiteboardToolbar } from './NormalWhiteboardToolbar';
+import { NormalWhiteboardLayers } from './NormalWhiteboardLayers';
+import {
+  DrawAction,
+  Layer,
+  ToolType,
+  Point,
+  generateId,
+  clearCanvas,
+  fillCanvas,
+  drawGrid,
+  downloadCanvas,
+  drawStroke,
+  drawRectangle,
+  drawCircle,
+  drawEllipse,
+  drawLine,
+  drawArrow,
+  drawTriangle,
+  drawStar,
+  drawText,
+  drawImage,
+} from './utils/whiteboardUtils';
 
 interface WhiteboardProps {
   isOpen: boolean;
   onClose: () => void;
   isHost: boolean;
-  onHostToggle?: (isOpen: boolean) => void; // Callback for host to control all participants
+  onHostToggle?: (isOpen: boolean) => void;
 }
-
-const COLORS = [
-  '#000000', '#FF0000'
-];
-
-const BRUSH_SIZES = [2, 8];
 
 export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: WhiteboardProps) {
   const room = useRoomContext();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [currentColor, setCurrentColor] = useState('#000000');
-  const [currentWidth, setCurrentWidth] = useState(4);
-  const [currentTool, setCurrentTool] = useState<'pen' | 'eraser'>('pen');
-  const [currentMode, setCurrentMode] = useState<'draw' | 'move'>('draw');
-  const [strokes, setStrokes] = useState<DrawingStroke[]>([]);
-  const [localStrokes, setLocalStrokes] = useState<DrawingStroke[]>([]);
-  const [currentStroke, setCurrentStroke] = useState<DrawingStroke | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
+
+  // Participant state
   const [participantId, setParticipantId] = useState<string>('');
   const [isConnected, setIsConnected] = useState(false);
-  const [images, setImages] = useState<WhiteboardImage[]>([]);
-  const [localImages, setLocalImages] = useState<WhiteboardImage[]>([]);
-  const [showImageUpload, setShowImageUpload] = useState(false);
-  const [isDraggingImage, setIsDraggingImage] = useState(false);
-  const [draggedImageId, setDraggedImageId] = useState<string | null>(null);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [isDragOver, setIsDragOver] = useState(false);
+
+  // Tool state
+  const [currentTool, setCurrentTool] = useState<ToolType>('pen');
+  const [currentColor, setCurrentColor] = useState('#000000');
+  const [currentWidth, setCurrentWidth] = useState(3);
+  const [currentOpacity, setCurrentOpacity] = useState(1);
+  const [fillShapes, setFillShapes] = useState(false);
+
+  // Text tool state
+  const [fontSize, setFontSize] = useState(16);
+  const [fontFamily, setFontFamily] = useState('Arial');
+  const [isTextInputActive, setIsTextInputActive] = useState(false);
+  const [textInputPosition, setTextInputPosition] = useState<Point>({ x: 0, y: 0 });
+  const [textInputValue, setTextInputValue] = useState('');
+
+  // Drawing state
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [currentAction, setCurrentAction] = useState<DrawAction | null>(null);
+  const [actions, setActions] = useState<DrawAction[]>([]);
   
-  // Throttle real-time updates to prevent overwhelming the data channel
+  // History state (undo/redo) - synchronized across all participants
+  const [history, setHistory] = useState<DrawAction[][]>([[]]);
+  const [historyStep, setHistoryStep] = useState(0);
+
+  // Layer state - synchronized across all participants
+  const [layers, setLayers] = useState<Layer[]>([
+    { id: 'layer-1', name: 'Layer 1', visible: true, locked: false, opacity: 1, zIndex: 0 },
+  ]);
+  const [activeLayerId, setActiveLayerId] = useState('layer-1');
+
+  // Canvas state
+  const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState<Point>({ x: 0, y: 0 });
+
+  // Background state
+  const [backgroundColor, setBackgroundColor] = useState('#ffffff');
+  const [showGrid, setShowGrid] = useState(false);
+  const [gridSize, setGridSize] = useState(20);
+
+  // UI state
+  const [showLayersPanel, setShowLayersPanel] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+
+  // Throttle/debounce refs
   const lastUpdateTime = useRef<number>(0);
-  const UPDATE_THROTTLE_MS = 50; // Send updates every 50ms max
-  
-  // Debounce stroke updates to prevent excessive re-renders
-  const debouncedStrokeUpdate = useRef<NodeJS.Timeout | null>(null);
-  
-  // Animation frame for smooth drawing
+  // Detect if device is mobile for more aggressive throttling
+  const isMobile = typeof window !== 'undefined' && 
+    ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+  const UPDATE_THROTTLE_MS = isMobile ? 80 : 50; // More throttling on mobile
+  const debouncedUpdate = useRef<NodeJS.Timeout | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
+  // Set participant ID
   useEffect(() => {
     if (room?.localParticipant) {
       setParticipantId(room.localParticipant.identity);
       setIsConnected(true);
+    }
+  }, [room]);
+
+  // Safety check: ensure active layer exists
+  useEffect(() => {
+    if (layers.length > 0 && !layers.find(l => l.id === activeLayerId)) {
+      // Active layer was deleted, switch to first available layer
+      setActiveLayerId(layers[0].id);
+    }
+  }, [layers, activeLayerId]);
+
+  // Send data to other participants
+  const sendDataToParticipants = useCallback((data: any) => {
+    if (!room) return;
+    
+    try {
+      const encodedData = new TextEncoder().encode(JSON.stringify(data));
+      
+      // Check data size limit (16KB)
+      if (encodedData.length > 16384) {
+        console.error('Data too large for LiveKit data channel:', encodedData.length, 'bytes');
+        return;
+      }
+      
+      room.localParticipant.publishData(encodedData, { topic: 'whiteboard' });
+    } catch (error) {
+      console.error('Error sending whiteboard data:', error);
     }
   }, [room]);
 
@@ -89,244 +141,265 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
       try {
         const data = JSON.parse(new TextDecoder().decode(payload));
         
-        // Debug: Log all incoming data
-        console.log('Received data:', {
-          type: data.type,
-          from: participant.identity,
-          to: participantId,
-          isHost: data.isHost
-        });
-        
-        if (data.type === 'stroke' && participant.identity !== participantId) {
-          // Add stroke from other participant
-          console.log('Adding completed stroke from:', participant.identity);
-          setStrokes(prev => [...prev, data.stroke]);
-        } else if (data.type === 'stroke_update' && participant.identity !== participantId) {
-          // Real-time stroke update from other participant
-          console.log('Real-time stroke update from:', participant.identity, 'points:', data.stroke.points.length);
-          
-          // Debug: Check if this is the host receiving from a participant
-          console.log('Host receiving from participant:', {
-            isHost: participantId.includes('host') || participantId.includes('Host'),
-            participantIdentity: participant.identity,
-            currentParticipantId: participantId
-          });
-          
-          // Debounce stroke updates to prevent excessive re-renders
-          if (debouncedStrokeUpdate.current) {
-            clearTimeout(debouncedStrokeUpdate.current);
-          }
-          
-          debouncedStrokeUpdate.current = setTimeout(() => {
-            setStrokes(prev => {
-              const updatedStrokes = [...prev];
-              const existingIndex = updatedStrokes.findIndex(s => s.id === data.stroke.id);
-              
-              if (existingIndex >= 0) {
-                // Update existing stroke
-                updatedStrokes[existingIndex] = data.stroke;
-              } else {
-                // Add new stroke
-                updatedStrokes.push(data.stroke);
-              }
-              
-              return updatedStrokes;
-            });
-          }, 16); // 60fps update rate
-        } else if (data.type === 'clear' && participant.identity !== participantId) {
-          // Clear whiteboard from other participant
-          console.log('Clear command from:', participant.identity);
-          setStrokes([]);
-          setLocalStrokes([]);
-          setImages([]);
-          setLocalImages([]);
-        } else if (data.type === 'whiteboard_toggle' && participant.identity !== participantId) {
-          // Host is controlling whiteboard state for all participants
-          console.log('Whiteboard toggle from:', participant.identity, 'action:', data.action);
-          
-          if (data.isHost && data.action === 'open') {
-            // Host opened whiteboard for everyone
-            if (onHostToggle) {
-              onHostToggle(true);
+        if (participant.identity === participantId) return; // Ignore own messages
+
+        switch (data.type) {
+          case 'action_complete':
+            // Add completed action from another participant
+            setActions(prev => [...prev, data.action]);
+            break;
+
+          case 'action_update':
+            // Real-time action update (shapes, strokes being drawn)
+            setCurrentAction(data.action);
+            break;
+
+          case 'clear':
+            // Clear whiteboard
+            setActions([]);
+            setHistory([[]]);
+            setHistoryStep(0);
+            setCurrentAction(null);
+            break;
+
+          case 'undo':
+            // Synchronized undo
+            setHistoryStep(data.historyStep);
+            setActions(data.actions);
+            setCurrentAction(null);
+            break;
+
+          case 'redo':
+            // Synchronized redo
+            setHistoryStep(data.historyStep);
+            setActions(data.actions);
+            setCurrentAction(null);
+            break;
+
+          case 'layer_add':
+            // Add layer
+            setLayers(prev => [...prev, data.layer]);
+            break;
+
+          case 'layer_delete':
+            // Delete layer
+            setLayers(prev => prev.filter(l => l.id !== data.layerId));
+            if (data.layerId === activeLayerId && data.newActiveLayerId) {
+              setActiveLayerId(data.newActiveLayerId);
             }
-          } else if (data.isHost && data.action === 'close') {
-            // Host closed whiteboard for everyone
-            if (onHostToggle) {
-              onHostToggle(false);
+            break;
+
+          case 'layer_update':
+            // Update layer properties
+            setLayers(prev => prev.map(l => l.id === data.layer.id ? data.layer : l));
+            break;
+
+          case 'layer_reorder':
+            // Reorder layers
+            setLayers(data.layers);
+            break;
+
+          case 'active_layer_change':
+            // Active layer changed (optional - usually local only)
+            // setActiveLayerId(data.layerId);
+            break;
+
+          case 'whiteboard_toggle':
+            // Host controlling whiteboard state
+            if (data.isHost && onHostToggle) {
+              onHostToggle(data.action === 'open');
             }
-          }
-        } else if (data.type === 'image_add' && participant.identity !== participantId) {
-          // Add image from other participant
-          console.log('Adding image from:', participant.identity, {
-            imageId: data.image?.id,
-            imageSize: data.image?.src?.length,
-            imageDimensions: data.image ? `${data.image.width}x${data.image.height}` : 'unknown'
-          });
-          setImages(prev => [...prev, data.image]);
-        } else if (data.type === 'image_update' && participant.identity !== participantId) {
-          // Update image position/size from other participant
-          console.log('Updating image from:', participant.identity);
-          setImages(prev => 
-            prev.map(img => img.id === data.image.id ? data.image : img)
-          );
-        } else if (data.type === 'image_remove' && participant.identity !== participantId) {
-          // Remove image from other participant
-          console.log('Removing image from:', participant.identity);
-          setImages(prev => prev.filter(img => img.id !== data.imageId));
+            break;
+
+          case 'background_update':
+            // Background settings update
+            setBackgroundColor(data.backgroundColor);
+            setShowGrid(data.showGrid);
+            setGridSize(data.gridSize);
+            break;
+
+          case 'history_sync':
+            // Full history synchronization
+            setHistory(data.history);
+            setHistoryStep(data.historyStep);
+            setActions(data.actions);
+            break;
         }
       } catch (error) {
         console.error('Error parsing whiteboard data:', error);
       }
     };
 
-    // Subscribe to data channel messages
     room.on('dataReceived', handleDataReceived);
-    
-    // Debug: Log when data channel is set up
-    console.log('Data channel listener set up for participant:', participantId);
-    console.log('Room state:', room.state);
-    console.log('Local participant:', room.localParticipant?.identity);
     
     return () => {
       room.off('dataReceived', handleDataReceived);
-      console.log('Data channel listener removed for participant:', participantId);
     };
-  }, [room, participantId, onHostToggle]);
-
-  // Cleanup effect for debounced updates and animation frames
-  useEffect(() => {
-    return () => {
-      if (debouncedStrokeUpdate.current) {
-        clearTimeout(debouncedStrokeUpdate.current);
-      }
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, []);
-
-  // Send data to other participants
-  const sendDataToParticipants = useCallback((data: any) => {
-    if (!room) return;
-    
-    try {
-      console.log('Sending data:', {
-        type: data.type,
-        from: participantId,
-        to: 'all participants',
-        dataSize: JSON.stringify(data).length
-      });
-      
-      const encodedData = new TextEncoder().encode(JSON.stringify(data));
-      
-      // Check if data is too large (LiveKit has limits)
-      if (encodedData.length > 16384) { // 16KB limit
-        console.error('Data too large for LiveKit data channel:', encodedData.length, 'bytes');
-        alert(`Image is too large to share (${Math.round(encodedData.length/1024)}KB). Please try a smaller image or use a different format.`);
-        return;
-      }
-      
-      // Try to publish data with topic for better organization
-      try {
-        room.localParticipant.publishData(encodedData, {
-          topic: 'whiteboard'
-        });
-        console.log('Data sent successfully with topic');
-      } catch (topicError) {
-        // Fallback to publishing without topic
-        console.log('Falling back to publishing without topic');
-        room.localParticipant.publishData(encodedData);
-        console.log('Data sent successfully without topic');
-      }
-    } catch (error) {
-      console.error('Error sending whiteboard data:', error);
-    }
-  }, [room, participantId]);
+  }, [room, participantId, activeLayerId, onHostToggle]);
 
   // Initialize canvas
   useEffect(() => {
-    if (!canvasRef.current || !isOpen) return;
+    setMounted(true);
+    if (!canvasRef.current || !containerRef.current || !isOpen) return;
 
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const container = containerRef.current;
 
-    // Set canvas size
-    const resizeCanvas = () => {
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = rect.height;
-      
-      // Redraw all strokes
-      redrawCanvas();
+    const updateSize = () => {
+      const rect = container.getBoundingClientRect();
+      canvas.width = Math.floor(rect.width);
+      canvas.height = Math.floor(rect.height);
+      setCanvasSize({ width: Math.floor(rect.width), height: Math.floor(rect.height) });
     };
 
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
-    
-    return () => window.removeEventListener('resize', resizeCanvas);
+    updateSize();
+    window.addEventListener('resize', updateSize);
+
+    return () => {
+      window.removeEventListener('resize', updateSize);
+    };
   }, [isOpen]);
 
-  // Redraw canvas with all strokes (images are handled as overlays)
+  // Redraw canvas
   const redrawCanvas = useCallback(() => {
     if (!canvasRef.current) return;
-    
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvasRef.current.getContext('2d');
     if (!ctx) return;
 
     // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    clearCanvas(ctx, canvasSize.width, canvasSize.height);
 
-    // Draw all completed strokes
-    [...strokes, ...localStrokes].forEach(stroke => {
-      if (stroke.points.length < 2) return;
+    // Fill background
+    fillCanvas(ctx, canvasSize.width, canvasSize.height, backgroundColor);
 
-      ctx.beginPath();
-      ctx.strokeStyle = stroke.tool === 'eraser' ? '#ffffff' : stroke.color;
-      ctx.lineWidth = stroke.width;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
+    // Draw grid if enabled
+    if (showGrid) {
+      drawGrid(ctx, canvasSize.width, canvasSize.height, gridSize, '#cccccc');
+    }
 
-      const firstPoint = stroke.points[0];
-      ctx.moveTo(firstPoint.x, firstPoint.y);
+    // Apply zoom and pan
+    ctx.save();
+    ctx.translate(pan.x, pan.y);
+    ctx.scale(zoom, zoom);
 
-      for (let i = 1; i < stroke.points.length; i++) {
-        const point = stroke.points[i];
-        ctx.lineTo(point.x, point.y);
-      }
-
-      ctx.stroke();
+    // Sort actions by layer z-index
+    const sortedActions = [...actions].sort((a, b) => {
+      const layerA = layers.find(l => l.id === a.layerId);
+      const layerB = layers.find(l => l.id === b.layerId);
+      return (layerA?.zIndex || 0) - (layerB?.zIndex || 0);
     });
 
-    // Draw current stroke in real-time (if drawing)
-    if (currentStroke && currentStroke.points.length >= 2) {
-      ctx.beginPath();
-      ctx.strokeStyle = currentStroke.tool === 'eraser' ? '#ffffff' : currentStroke.color;
-      ctx.lineWidth = currentStroke.width;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
+    // Draw all actions
+    sortedActions.forEach(action => {
+      const layer = layers.find(l => l.id === action.layerId);
+      if (!layer || !layer.visible) return;
 
-      const firstPoint = currentStroke.points[0];
-      ctx.moveTo(firstPoint.x, firstPoint.y);
+      ctx.globalAlpha = action.opacity * layer.opacity;
 
-      for (let i = 1; i < currentStroke.points.length; i++) {
-        const point = currentStroke.points[i];
-        ctx.lineTo(point.x, point.y);
+      switch (action.type) {
+        case 'stroke':
+          if (action.points && action.points.length > 0) {
+            drawStroke(ctx, action.points, action.color, action.width, action.opacity, action.tool);
+          }
+          break;
+        case 'shape':
+          if (action.startPoint && action.endPoint) {
+            switch (action.shapeType) {
+              case 'rectangle':
+                drawRectangle(ctx, action.startPoint, action.endPoint, action.color, action.width, action.opacity, action.fill || false);
+                break;
+              case 'circle':
+                drawCircle(ctx, action.startPoint, action.endPoint, action.color, action.width, action.opacity, action.fill || false);
+                break;
+              case 'ellipse':
+                drawEllipse(ctx, action.startPoint, action.endPoint, action.color, action.width, action.opacity, action.fill || false);
+                break;
+              case 'line':
+                drawLine(ctx, action.startPoint, action.endPoint, action.color, action.width, action.opacity);
+                break;
+              case 'arrow':
+                drawArrow(ctx, action.startPoint, action.endPoint, action.color, action.width, action.opacity);
+                break;
+              case 'triangle':
+                drawTriangle(ctx, action.startPoint, action.endPoint, action.color, action.width, action.opacity, action.fill || false);
+                break;
+              case 'star':
+                drawStar(ctx, action.startPoint, action.endPoint, action.color, action.width, action.opacity, action.fill || false);
+                break;
+            }
+          }
+          break;
+        case 'text':
+          if (action.text && action.startPoint) {
+            drawText(ctx, action.text, action.startPoint, action.color, action.fontSize || 16, action.fontFamily || 'Arial', action.opacity);
+          }
+          break;
+        case 'image':
+          if (action.imageData && action.imagePosition && action.imageSize) {
+            const img = new Image();
+            img.src = action.imageData;
+            if (img.complete) {
+              drawImage(ctx, img, action.imagePosition, action.imageSize, action.opacity);
+            }
+          }
+          break;
       }
+    });
 
-      ctx.stroke();
+    // Draw current action if drawing
+    if (currentAction) {
+      const layer = layers.find(l => l.id === currentAction.layerId);
+      if (layer && layer.visible) {
+        ctx.globalAlpha = currentAction.opacity * layer.opacity;
+        
+        switch (currentAction.type) {
+          case 'stroke':
+            if (currentAction.points && currentAction.points.length > 0) {
+              drawStroke(ctx, currentAction.points, currentAction.color, currentAction.width, currentAction.opacity, currentAction.tool);
+            }
+            break;
+          case 'shape':
+            if (currentAction.startPoint && currentAction.endPoint) {
+              switch (currentAction.shapeType) {
+                case 'rectangle':
+                  drawRectangle(ctx, currentAction.startPoint, currentAction.endPoint, currentAction.color, currentAction.width, currentAction.opacity, currentAction.fill || false);
+                  break;
+                case 'circle':
+                  drawCircle(ctx, currentAction.startPoint, currentAction.endPoint, currentAction.color, currentAction.width, currentAction.opacity, currentAction.fill || false);
+                  break;
+                case 'ellipse':
+                  drawEllipse(ctx, currentAction.startPoint, currentAction.endPoint, currentAction.color, currentAction.width, currentAction.opacity, currentAction.fill || false);
+                  break;
+                case 'line':
+                  drawLine(ctx, currentAction.startPoint, currentAction.endPoint, currentAction.color, currentAction.width, currentAction.opacity);
+                  break;
+                case 'arrow':
+                  drawArrow(ctx, currentAction.startPoint, currentAction.endPoint, currentAction.color, currentAction.width, currentAction.opacity);
+                  break;
+                case 'triangle':
+                  drawTriangle(ctx, currentAction.startPoint, currentAction.endPoint, currentAction.color, currentAction.width, currentAction.opacity, currentAction.fill || false);
+                  break;
+                case 'star':
+                  drawStar(ctx, currentAction.startPoint, currentAction.endPoint, currentAction.color, currentAction.width, currentAction.opacity, currentAction.fill || false);
+                  break;
+              }
+            }
+            break;
+        }
+      }
     }
-  }, [strokes, localStrokes, currentStroke]);
 
-  // Redraw when strokes change or when drawing
+    ctx.restore();
+  }, [actions, currentAction, layers, backgroundColor, showGrid, gridSize, zoom, pan, canvasSize]);
+
+  // Redraw when dependencies change
   useEffect(() => {
     redrawCanvas();
-  }, [strokes, localStrokes, redrawCanvas]);
+  }, [redrawCanvas]);
 
   // Smooth real-time drawing with requestAnimationFrame
   useEffect(() => {
-    if (isDrawing && currentStroke) {
+    if (isDrawing && currentAction) {
       const animate = () => {
         redrawCanvas();
         animationFrameRef.current = requestAnimationFrame(animate);
@@ -342,570 +415,678 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [isDrawing, currentStroke, redrawCanvas]);
+  }, [isDrawing, currentAction, redrawCanvas]);
 
-  // Mouse event handlers
-  const getMousePos = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  // Get mouse/touch position
+  const getCanvasPoint = useCallback((e: React.MouseEvent | React.TouchEvent): Point => {
     if (!canvasRef.current) return { x: 0, y: 0 };
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
     
-    const rect = canvasRef.current.getBoundingClientRect();
-    const scaleX = canvasRef.current.width / rect.width;
-    const scaleY = canvasRef.current.height / rect.height;
-    
-    return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY
-    };
-  }, []);
+    let clientX: number, clientY: number;
+    if ('touches' in e) {
+      // Use the first touch point for drawing
+      if (e.touches.length > 0) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+      } else {
+        return { x: 0, y: 0 };
+      }
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
 
-  const startDrawing = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isOpen || currentMode !== 'draw') return;
+    const canvasX = clientX - rect.left;
+    const canvasY = clientY - rect.top;
+
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    const x = (canvasX * scaleX - pan.x) / zoom;
+    const y = (canvasY * scaleY - pan.y) / zoom;
+
+    return { x, y };
+  }, [zoom, pan]);
+
+  // Mouse/touch handlers
+  const handlePointerDown = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    // Prevent default touch behaviors
+    if ('touches' in e) {
+      e.preventDefault();
+      // Ignore multi-touch for now (could be used for pan/zoom later)
+      if (e.touches.length > 1) return;
+    } else {
+      e.preventDefault();
+    }
+    
+    const point = getCanvasPoint(e);
+
+    // Check if we're in pan mode
+    const isPanMode = currentTool === 'pointer' || ('button' in e && e.button === 1);
+    if (isPanMode) {
+      setIsPanning(true);
+      setPanStart(point);
+      return;
+    }
+
+    // Text tool - show input
+    if (currentTool === 'text') {
+      setIsTextInputActive(true);
+      setTextInputPosition(point);
+      setTextInputValue('');
+      return;
+    }
+
+    // Check if layer is locked
+    const activeLayer = layers.find(l => l.id === activeLayerId);
+    if (activeLayer?.locked) return;
     
     setIsDrawing(true);
-    const pos = getMousePos(e);
-    
-    const newStroke: DrawingStroke = {
-      id: `${Date.now()}-${Math.random()}`,
-      points: [pos],
-      color: currentTool === 'eraser' ? '#ffffff' : currentColor,
-      width: currentWidth,
-      tool: currentTool
-    };
-    
-    setCurrentStroke(newStroke);
-    
-    // Force immediate redraw to show the starting point
-    setTimeout(() => redrawCanvas(), 0);
-  }, [isOpen, currentMode, getMousePos, currentColor, currentWidth, currentTool, redrawCanvas]);
 
-  const draw = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawing || !currentStroke || !isOpen || currentMode !== 'draw') return;
-    
-    const pos = getMousePos(e);
-    const updatedStroke = {
-      ...currentStroke,
-      points: [...currentStroke.points, pos]
+    // Create new action based on tool
+    const isShape = ['rectangle', 'circle', 'ellipse', 'line', 'arrow', 'triangle', 'star'].includes(currentTool);
+
+    const newAction: DrawAction = {
+      id: generateId(),
+      type: isShape ? 'shape' : 'stroke',
+      tool: currentTool,
+      color: currentColor,
+      width: currentWidth,
+      opacity: currentOpacity,
+      layerId: activeLayerId,
+      fill: fillShapes,
+      ...(isShape ? {
+        shapeType: currentTool as any,
+        startPoint: point,
+        endPoint: point,
+      } : {
+        points: [point],
+      }),
     };
+
+    setCurrentAction(newAction);
+  }, [currentTool, currentColor, currentWidth, currentOpacity, fillShapes, activeLayerId, layers, getCanvasPoint]);
+
+  const handlePointerMove = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    // Prevent default behaviors
+    if ('touches' in e) {
+      e.preventDefault();
+      // Ignore multi-touch during drawing
+      if (e.touches.length > 1) return;
+    } else {
+      e.preventDefault();
+    }
     
-    setCurrentStroke(updatedStroke);
-    
-    // Update local strokes for immediate visual feedback
-    setLocalStrokes(prev => 
-      prev.map(stroke => 
-        stroke.id === currentStroke.id ? updatedStroke : stroke
-      )
-    );
-    
-    // Send real-time stroke update to other participants (throttled)
+    const point = getCanvasPoint(e);
+
+    if (isPanning && panStart) {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      
+      let clientX: number, clientY: number;
+      if ('touches' in e) {
+        if (e.touches.length > 0) {
+          clientX = e.touches[0].clientX;
+          clientY = e.touches[0].clientY;
+        } else {
+          return;
+        }
+      } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+      }
+      
+      const currentScreenX = clientX - rect.left;
+      const currentScreenY = clientY - rect.top;
+      const startScreenX = panStart.x * zoom + pan.x;
+      const startScreenY = panStart.y * zoom + pan.y;
+      
+      setPan({
+        x: pan.x + (currentScreenX - startScreenX),
+        y: pan.y + (currentScreenY - startScreenY)
+      });
+      
+      setPanStart({
+        x: (currentScreenX - pan.x) / zoom,
+        y: (currentScreenY - pan.y) / zoom
+      });
+      return;
+    }
+
+    if (!isDrawing || !currentAction) return;
+
+    // Update current action
+    const updatedAction = currentAction.type === 'stroke'
+      ? { ...currentAction, points: [...(currentAction.points || []), point] }
+      : { ...currentAction, endPoint: point };
+
+    setCurrentAction(updatedAction);
+
+    // Send real-time update (throttled)
     const now = Date.now();
     if (now - lastUpdateTime.current >= UPDATE_THROTTLE_MS) {
-      const message = {
-        type: 'stroke_update',
-        stroke: updatedStroke
-      };
-      sendDataToParticipants(message);
+      sendDataToParticipants({
+        type: 'action_update',
+        action: updatedAction
+      });
       lastUpdateTime.current = now;
     }
-  }, [isDrawing, currentStroke, isOpen, getMousePos, sendDataToParticipants]);
+  }, [isDrawing, isPanning, currentAction, getCanvasPoint, panStart, zoom, pan, sendDataToParticipants]);
 
-  const stopDrawing = useCallback(() => {
-    if (!currentStroke || !isOpen || currentMode !== 'draw') return;
+  const handlePointerUp = useCallback(() => {
+    if (isPanning) {
+      setIsPanning(false);
+      return;
+    }
+
+    if (!isDrawing || !currentAction) return;
     
     setIsDrawing(false);
     
-    // Add completed stroke to local strokes
-    setLocalStrokes(prev => [...prev, currentStroke]);
+    // Add action to history
+    const newActions = [...actions, currentAction];
+    setActions(newActions);
     
-    // Send stroke to other participants via LiveKit data channel
-    const message = {
-      type: 'stroke',
-      stroke: currentStroke
-    };
-    sendDataToParticipants(message);
-    
-    setCurrentStroke(null);
-  }, [currentStroke, isOpen, sendDataToParticipants]);
+    // Update history for undo/redo
+    const newHistory = history.slice(0, historyStep + 1);
+    newHistory.push(newActions);
+    setHistory(newHistory);
+    setHistoryStep(newHistory.length - 1);
 
-  const clearWhiteboard = useCallback(() => {
-    setStrokes([]);
-    setLocalStrokes([]);
-    setImages([]);
-    setLocalImages([]);
+    // Send completed action to other participants
+    sendDataToParticipants({
+      type: 'action_complete',
+      action: currentAction
+    });
+
+    setCurrentAction(null);
+  }, [isDrawing, isPanning, currentAction, actions, history, historyStep, sendDataToParticipants]);
+
+  // Text input handlers
+  const handleTextSubmit = useCallback(() => {
+    if (!textInputValue.trim()) {
+      setIsTextInputActive(false);
+      return;
+    }
+
+    const newAction: DrawAction = {
+      id: generateId(),
+      type: 'text',
+      tool: 'text',
+      color: currentColor,
+      width: currentWidth,
+      opacity: currentOpacity,
+      layerId: activeLayerId,
+      text: textInputValue,
+      fontSize,
+      fontFamily,
+      startPoint: textInputPosition,
+    };
+
+    const newActions = [...actions, newAction];
+    setActions(newActions);
+
+    // Update history
+    const newHistory = history.slice(0, historyStep + 1);
+    newHistory.push(newActions);
+    setHistory(newHistory);
+    setHistoryStep(newHistory.length - 1);
+
+    // Send to other participants
+    sendDataToParticipants({
+      type: 'action_complete',
+      action: newAction
+    });
+
+    setIsTextInputActive(false);
+    setTextInputValue('');
+  }, [textInputValue, currentColor, currentWidth, currentOpacity, activeLayerId, fontSize, fontFamily, textInputPosition, actions, history, historyStep, sendDataToParticipants]);
+
+  // Undo/Redo - Synchronized
+  const undo = useCallback(() => {
+    if (historyStep > 0) {
+      const newStep = historyStep - 1;
+      const newActions = history[newStep];
+      
+      setHistoryStep(newStep);
+      setActions(newActions);
+
+      // Broadcast undo to all participants
+      sendDataToParticipants({
+        type: 'undo',
+        historyStep: newStep,
+        actions: newActions
+      });
+    }
+  }, [historyStep, history, sendDataToParticipants]);
+
+  const redo = useCallback(() => {
+    if (historyStep < history.length - 1) {
+      const newStep = historyStep + 1;
+      const newActions = history[newStep];
+      
+      setHistoryStep(newStep);
+      setActions(newActions);
+
+      // Broadcast redo to all participants
+      sendDataToParticipants({
+        type: 'redo',
+        historyStep: newStep,
+        actions: newActions
+      });
+    }
+  }, [historyStep, history, sendDataToParticipants]);
+
+  // Layer management - Synchronized
+  const handleLayersChange = useCallback((newLayers: Layer[]) => {
+    setLayers(newLayers);
     
-    // Send clear command to other participants
-    const message = { type: 'clear' };
-    sendDataToParticipants(message);
+    // Broadcast layer reorder
+    sendDataToParticipants({
+      type: 'layer_reorder',
+      layers: newLayers
+    });
   }, [sendDataToParticipants]);
 
-  const downloadWhiteboard = useCallback(() => {
-    if (!canvasRef.current) return;
+  const handleActiveLayerChange = useCallback((layerId: string) => {
+    setActiveLayerId(layerId);
     
-    const canvas = canvasRef.current;
-    const link = document.createElement('a');
-    link.download = `whiteboard-${new Date().toISOString().slice(0, 19)}.png`;
-    link.href = canvas.toDataURL();
-    link.click();
+    // Optional: broadcast active layer change
+    // sendDataToParticipants({
+    //   type: 'active_layer_change',
+    //   layerId
+    // });
   }, []);
 
-  // Image handling functions
-  const handleImageUpload = useCallback((file: File) => {
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isOpen) return;
+
+      // Undo: Ctrl+Z or Cmd+Z
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      }
+
+      // Redo: Ctrl+Y or Cmd+Shift+Z
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        redo();
+      }
+
+      // Escape: Cancel current action
+      if (e.key === 'Escape') {
+        setIsDrawing(false);
+        setCurrentAction(null);
+        setIsTextInputActive(false);
+      }
+
+      // Enter: Submit text
+      if (e.key === 'Enter' && isTextInputActive && !e.shiftKey) {
+        e.preventDefault();
+        handleTextSubmit();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, undo, redo, isTextInputActive, handleTextSubmit]);
+
+  // Clear canvas
+  const handleClear = useCallback(() => {
+    const newActions: DrawAction[] = [];
+    setActions(newActions);
+    
+    const newHistory = [[]];
+    setHistory(newHistory);
+    setHistoryStep(0);
+
+    // Broadcast clear to all participants
+    sendDataToParticipants({
+      type: 'clear'
+    });
+  }, [sendDataToParticipants]);
+
+  // Export canvas
+  const handleExport = useCallback((format: 'png' | 'jpg' = 'png') => {
+    if (!canvasRef.current) return;
+    const filename = `whiteboard-${new Date().toISOString().slice(0, 10)}`;
+    downloadCanvas(canvasRef.current, filename, format);
+  }, []);
+
+  // Import image
+  const handleImportImage = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) {
       alert('Please select an image file');
       return;
     }
 
+    setIsUploadingImage(true);
+
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
-        if (!canvasRef.current) return;
-        
+        if (!canvasRef.current) {
+          setIsUploadingImage(false);
+          return;
+        }
+
         const canvas = canvasRef.current;
-        const maxWidth = canvas.width * 0.8;
-        const maxHeight = canvas.height * 0.8;
-        
+        const maxWidth = canvas.width * 0.5;
+        const maxHeight = canvas.height * 0.5;
+
         let { width, height } = img;
-        
-        // Scale image to fit within canvas bounds
+
+        // Scale image to fit (start smaller)
         if (width > maxWidth || height > maxHeight) {
           const scale = Math.min(maxWidth / width, maxHeight / height);
           width *= scale;
           height *= scale;
         }
-        
-        // Create a compressed version for sharing
+
+        // Compress image for sharing with multiple attempts
         const tempCanvas = document.createElement('canvas');
         const tempCtx = tempCanvas.getContext('2d');
-        if (!tempCtx) return;
-        
+        if (!tempCtx) {
+          setIsUploadingImage(false);
+          return;
+        }
+
         tempCanvas.width = width;
         tempCanvas.height = height;
         tempCtx.drawImage(img, 0, 0, width, height);
-        
-        // Try multiple compression levels to get under size limit
+
         let compressedSrc = '';
-        let quality = 0.8;
+        let currentQuality = 0.6;
+        let currentWidth = width;
+        let currentHeight = height;
+        const MAX_SIZE = 15000; // Leave buffer under 16KB limit
         let attempts = 0;
-        const maxAttempts = 5;
-        
+        const maxAttempts = 10;
+
+        // Try to compress until we get under the size limit
         while (attempts < maxAttempts) {
-          compressedSrc = tempCanvas.toDataURL('image/jpeg', quality);
+          compressedSrc = tempCanvas.toDataURL('image/jpeg', currentQuality);
           
-          // Check if compressed size is acceptable
-          if (compressedSrc.length < 12000) { // Leave some buffer under 16KB limit
+          // Create message to check size
+          const testMessage = {
+            type: 'action_complete',
+            action: {
+              id: generateId(),
+              type: 'image',
+              tool: 'pen',
+              color: currentColor,
+              width: currentWidth,
+              opacity: currentOpacity,
+              layerId: activeLayerId,
+              imageData: compressedSrc,
+              imagePosition: { x: 0, y: 0 },
+              imageSize: { width: currentWidth, height: currentHeight },
+            }
+          };
+          
+          const testSize = new TextEncoder().encode(JSON.stringify(testMessage)).length;
+          
+          if (testSize < MAX_SIZE) {
+            // Success! Image is small enough
             break;
           }
           
-          // Reduce quality and try again
-          quality -= 0.15;
           attempts++;
-        }
-        
-        // If still too large, reduce dimensions
-        if (compressedSrc.length >= 12000) {
-          const scaleFactor = 0.8;
-          const newWidth = Math.floor(width * scaleFactor);
-          const newHeight = Math.floor(height * scaleFactor);
           
-          tempCanvas.width = newWidth;
-          tempCanvas.height = newHeight;
-          tempCtx.drawImage(img, 0, 0, newWidth, newHeight);
-          
-          compressedSrc = tempCanvas.toDataURL('image/jpeg', 0.6);
-          
-          // Update dimensions
-          width = newWidth;
-          height = newHeight;
-        }
-        
-        // Final fallback: create a very small thumbnail
-        if (compressedSrc.length >= 12000) {
-          const thumbnailSize = 200; // Max 200px
-          const aspectRatio = img.width / img.height;
-          let thumbWidth, thumbHeight;
-          
-          if (aspectRatio > 1) {
-            thumbWidth = thumbnailSize;
-            thumbHeight = Math.floor(thumbnailSize / aspectRatio);
+          // Try reducing quality first
+          if (currentQuality > 0.2) {
+            currentQuality -= 0.1;
           } else {
-            thumbHeight = thumbnailSize;
-            thumbWidth = Math.floor(thumbnailSize * aspectRatio);
+            // If quality is already low, reduce dimensions
+            currentWidth = Math.floor(currentWidth * 0.8);
+            currentHeight = Math.floor(currentHeight * 0.8);
+            
+            if (currentWidth < 50 || currentHeight < 50) {
+              // Image is too small, give up
+              alert('Image is too large to share. Please try a smaller image.');
+              setIsUploadingImage(false);
+              return;
+            }
+            
+            tempCanvas.width = currentWidth;
+            tempCanvas.height = currentHeight;
+            tempCtx.drawImage(img, 0, 0, currentWidth, currentHeight);
+            currentQuality = 0.6; // Reset quality for new size
           }
-          
-          tempCanvas.width = thumbWidth;
-          tempCanvas.height = thumbHeight;
-          tempCtx.drawImage(img, 0, 0, thumbWidth, thumbHeight);
-          
-          compressedSrc = tempCanvas.toDataURL('image/jpeg', 0.5);
-          
-          // Update dimensions
-          width = thumbWidth;
-          height = thumbHeight;
         }
-        
-        const newImage: WhiteboardImage = {
-          id: `img-${Date.now()}-${Math.random()}`,
-          src: compressedSrc,
-          x: (canvas.width - width) / 2,
-          y: (canvas.height - height) / 2,
-          width,
-          height,
-          originalWidth: img.width,
-          originalHeight: img.height
+
+        if (attempts >= maxAttempts) {
+          alert('Unable to compress image small enough for sharing. Please try a smaller image.');
+          setIsUploadingImage(false);
+          return;
+        }
+
+        const newAction: DrawAction = {
+          id: generateId(),
+          type: 'image',
+          tool: 'pen',
+          color: currentColor,
+          width: currentWidth,
+          opacity: currentOpacity,
+          layerId: activeLayerId,
+          imageData: compressedSrc,
+          imagePosition: {
+            x: (canvas.width - currentWidth) / 2,
+            y: (canvas.height - currentHeight) / 2,
+          },
+          imageSize: { width: currentWidth, height: currentHeight },
         };
-        
-        setLocalImages(prev => [...prev, newImage]);
-        
-        // Send image to other participants
-        const message = {
-          type: 'image_add',
-          image: newImage
-        };
-        
-        console.log('Sending image to participants:', {
-          imageId: newImage.id,
-          imageSize: newImage.src.length,
-          imageDimensions: `${newImage.width}x${newImage.height}`
+
+        const newActions = [...actions, newAction];
+        setActions(newActions);
+
+        // Update history
+        const newHistory = history.slice(0, historyStep + 1);
+        newHistory.push(newActions);
+        setHistory(newHistory);
+        setHistoryStep(newHistory.length - 1);
+
+        // Send to other participants
+        sendDataToParticipants({
+          type: 'action_complete',
+          action: newAction
         });
-        
-        sendDataToParticipants(message);
+
+        setIsUploadingImage(false);
+      };
+      img.onerror = () => {
+        alert('Failed to load image');
+        setIsUploadingImage(false);
       };
       img.src = e.target?.result as string;
     };
-    reader.readAsDataURL(file);
-    setShowImageUpload(false);
-  }, [sendDataToParticipants]);
-
-  const updateImagePosition = useCallback((imageId: string, x: number, y: number) => {
-    setLocalImages(prev => 
-      prev.map(img => 
-        img.id === imageId ? { ...img, x, y } : img
-      )
-    );
-    
-    // Send update to other participants
-    const updatedImage = [...images, ...localImages].find(img => img.id === imageId);
-    if (updatedImage) {
-      const message = {
-        type: 'image_update',
-        image: { ...updatedImage, x, y }
-      };
-      sendDataToParticipants(message);
-    }
-  }, [images, localImages, sendDataToParticipants]);
-
-  const removeImage = useCallback((imageId: string) => {
-    setLocalImages(prev => prev.filter(img => img.id !== imageId));
-    
-    // Send removal to other participants
-    const message = {
-      type: 'image_remove',
-      imageId
+    reader.onerror = () => {
+      alert('Failed to read image file');
+      setIsUploadingImage(false);
     };
-    sendDataToParticipants(message);
-  }, [sendDataToParticipants]);
+    reader.readAsDataURL(file);
+  }, [currentColor, currentWidth, currentOpacity, activeLayerId, actions, history, historyStep, sendDataToParticipants]);
 
-  // Drag and drop handlers
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  }, []);
+  // Update background settings
+  const handleBackgroundColorChange = useCallback((color: string) => {
+    setBackgroundColor(color);
+    sendDataToParticipants({
+      type: 'background_update',
+      backgroundColor: color,
+      showGrid,
+      gridSize
+    });
+  }, [showGrid, gridSize, sendDataToParticipants]);
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-  }, []);
+  const handleShowGridChange = useCallback((show: boolean) => {
+    setShowGrid(show);
+    sendDataToParticipants({
+      type: 'background_update',
+      backgroundColor,
+      showGrid: show,
+      gridSize
+    });
+  }, [backgroundColor, gridSize, sendDataToParticipants]);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    
-    const files = Array.from(e.dataTransfer.files);
-    const imageFile = files.find(file => file.type.startsWith('image/'));
-    
-    if (imageFile) {
-      handleImageUpload(imageFile);
-    } else {
-      alert('Please drop an image file');
-    }
-  }, [handleImageUpload]);
+  const handleGridSizeChange = useCallback((size: number) => {
+    setGridSize(size);
+    sendDataToParticipants({
+      type: 'background_update',
+      backgroundColor,
+      showGrid,
+      gridSize: size
+    });
+  }, [backgroundColor, showGrid, sendDataToParticipants]);
 
   if (!isOpen) return null;
 
   return (
-    <div className={styles.whiteboardOverlay}>
-      <div className={styles.whiteboardContainer}>
+    <div className={styles.overlay}>
+      <div className={styles.container}>
+        {/* Toolbar */}
+        <NormalWhiteboardToolbar
+          currentTool={currentTool}
+          onToolChange={setCurrentTool}
+          currentColor={currentColor}
+          onColorChange={setCurrentColor}
+          currentWidth={currentWidth}
+          onWidthChange={setCurrentWidth}
+          currentOpacity={currentOpacity}
+          onOpacityChange={setCurrentOpacity}
+          fillShapes={fillShapes}
+          onFillShapesChange={setFillShapes}
+          fontSize={fontSize}
+          onFontSizeChange={setFontSize}
+          fontFamily={fontFamily}
+          onFontFamilyChange={setFontFamily}
+          backgroundColor={backgroundColor}
+          onBackgroundColorChange={handleBackgroundColorChange}
+          showGrid={showGrid}
+          onShowGridChange={handleShowGridChange}
+          gridSize={gridSize}
+          onGridSizeChange={handleGridSizeChange}
+          zoom={zoom}
+          onZoomChange={setZoom}
+          canUndo={historyStep > 0}
+          canRedo={historyStep < history.length - 1}
+          onUndo={undo}
+          onRedo={redo}
+          onClear={handleClear}
+          onExport={handleExport}
+          onImportImage={handleImportImage}
+          onClose={onClose}
+          onToggleLayers={() => setShowLayersPanel(!showLayersPanel)}
+          showLayersPanel={showLayersPanel}
+        />
 
-        {/* Compact Top Toolbar - All Controls */}
-        <div className={styles.compactToolbar}>
-          {/* Action Buttons */}
-          <div className={styles.toolGroup}>
-            <button
-              onClick={downloadWhiteboard}
-              className={`${styles.compactButton} ${styles.downloadButton}`}
-              title="Download"
-            >
-              💾
-            </button>
-            <button
-              onClick={clearWhiteboard}
-              className={`${styles.compactButton} ${styles.clearButton}`}
-              title="Clear"
-            >
-              🗑️
-            </button>
-            <button
-              onClick={onClose}
-              className={`${styles.compactButton} ${styles.closeButton}`}
-              title="Close"
-            >
-              ✕
-            </button>
-          </div>
-
-          {/* Drawing Tools */}
-          <div className={styles.toolGroup}>
-            <button
-              onClick={() => setCurrentTool('pen')}
-              className={`${styles.compactButton} ${
-                currentTool === 'pen' ? styles.active : ''
-              }`}
-              title="Pen"
-            >
-              ✏️
-            </button>
-            <button
-              onClick={() => setCurrentTool('eraser')}
-              className={`${styles.compactButton} ${
-                currentTool === 'eraser' ? styles.active : ''
-              }`}
-              title="Eraser"
-            >
-              🧽
-            </button>
-          </div>
-
-          {/* Colors */}
-          <div className={styles.toolGroup}>
-            {COLORS.map((color) => (
-              <button
-                key={color}
-                onClick={() => setCurrentColor(color)}
-                className={`${styles.compactColorButton} ${
-                  currentColor === color ? styles.active : ''
-                }`}
-                style={{ backgroundColor: color }}
-                title={color}
-              />
-            ))}
-          </div>
-
-          {/* Brush Sizes */}
-          <div className={styles.toolGroup}>
-            {BRUSH_SIZES.map((size) => (
-              <button
-                key={size}
-                onClick={() => setCurrentWidth(size)}
-                className={`${styles.compactSizeButton} ${
-                  currentWidth === size ? styles.active : ''
-                }`}
-                title={`Size: ${size}px`}
-              >
-                {size}
-              </button>
-            ))}
-          </div>
-
-          {/* Image Upload */}
-          <div className={styles.toolGroup}>
-            <button
-              onClick={() => setShowImageUpload(true)}
-              className={styles.compactButton}
-              title="Upload Image"
-            >
-              🖼️
-            </button>
-          </div>
-        </div>
-
-        {/* Canvas */}
-        <div className={styles.whiteboardCanvas}>
-          {/* White Background */}
-          <div className={styles.whiteboardBackground}></div>
-          
-          {/* Background Images */}
-          {[...images, ...localImages].map((imageData) => (
-            <img
-              key={imageData.id}
-              src={imageData.src}
-              alt="Whiteboard image"
-              className={styles.backgroundImage}
-              style={{
-                position: 'absolute',
-                left: imageData.x,
-                top: imageData.y,
-                width: imageData.width,
-                height: imageData.height,
-                zIndex: 1,
-                pointerEvents: 'none'
-              }}
-            />
-          ))}
-          
-          {/* Image Interaction Overlays (only in move mode) */}
-          {currentMode === 'move' && [...images, ...localImages].map((imageData) => (
-            <div
-              key={`overlay-${imageData.id}`}
-              className={styles.imageOverlay}
-              style={{
-                position: 'absolute',
-                left: imageData.x,
-                top: imageData.y,
-                width: imageData.width,
-                height: imageData.height,
-                cursor: 'move',
-                border: '2px dashed transparent',
-                transition: 'border-color 0.2s',
-                zIndex: 3
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = '#3b82f6';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = 'transparent';
-              }}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setIsDraggingImage(true);
-                setDraggedImageId(imageData.id);
-                const rect = e.currentTarget.getBoundingClientRect();
-                setDragOffset({
-                  x: e.clientX - rect.left,
-                  y: e.clientY - rect.top
-                });
-              }}
-              onMouseMove={(e) => {
-                if (isDraggingImage && draggedImageId === imageData.id) {
-                  e.preventDefault();
-                  const canvas = canvasRef.current;
-                  if (!canvas) return;
-                  
-                  const canvasRect = canvas.getBoundingClientRect();
-                  const newX = e.clientX - canvasRect.left - dragOffset.x;
-                  const newY = e.clientY - canvasRect.top - dragOffset.y;
-                  
-                  // Constrain to canvas bounds
-                  const constrainedX = Math.max(0, Math.min(newX, canvas.width - imageData.width));
-                  const constrainedY = Math.max(0, Math.min(newY, canvas.height - imageData.height));
-                  
-                  updateImagePosition(imageData.id, constrainedX, constrainedY);
-                }
-              }}
-              onMouseUp={() => {
-                setIsDraggingImage(false);
-                setDraggedImageId(null);
-              }}
-            >
-              <button
-                className={styles.removeImageButton}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  removeImage(imageData.id);
-                }}
-                title="Remove image"
-              >
-                ✕
-              </button>
-            </div>
-          ))}
-          
+        {/* Canvas Container */}
+        <div ref={containerRef} className={styles.canvasContainer}>
           <canvas
             ref={canvasRef}
             className={styles.canvas}
-            onMouseDown={startDrawing}
-            onMouseMove={draw}
-            onMouseUp={stopDrawing}
-            onMouseLeave={stopDrawing}
-            onTouchStart={(e) => {
-              e.preventDefault();
-              const touch = e.touches[0];
-              const mouseEvent = new MouseEvent('mousedown', {
-                clientX: touch.clientX,
-                clientY: touch.clientY
-              });
-              startDrawing(mouseEvent as any);
-            }}
-            onTouchMove={(e) => {
-              e.preventDefault();
-              const touch = e.touches[0];
-              const mouseEvent = new MouseEvent('mousemove', {
-                clientX: touch.clientX,
-                clientY: touch.clientY
-              });
-              draw(mouseEvent as any);
-            }}
-            onTouchEnd={(e) => {
-              e.preventDefault();
-              stopDrawing();
+            onMouseDown={handlePointerDown}
+            onMouseMove={handlePointerMove}
+            onMouseUp={handlePointerUp}
+            onMouseLeave={handlePointerUp}
+            onTouchStart={handlePointerDown}
+            onTouchMove={handlePointerMove}
+            onTouchEnd={handlePointerUp}
+            onTouchCancel={handlePointerUp}
+            style={{
+              touchAction: 'none',
+              WebkitTouchCallout: 'none',
+              WebkitUserSelect: 'none',
+              userSelect: 'none',
             }}
           />
+
+          {/* Text Input Overlay */}
+          {isTextInputActive && (
+            <div
+              className={styles.textInput}
+              style={{
+                left: textInputPosition.x * zoom + pan.x,
+                top: textInputPosition.y * zoom + pan.y,
+              }}
+            >
+              <textarea
+                autoFocus
+                value={textInputValue}
+                onChange={(e) => setTextInputValue(e.target.value)}
+                onBlur={handleTextSubmit}
+                style={{
+                  fontSize: `${fontSize}px`,
+                  fontFamily,
+                  color: currentColor,
+                }}
+                placeholder="Type text..."
+              />
+            </div>
+          )}
         </div>
 
-      </div>
+        {/* Layers Panel */}
+        {showLayersPanel && (
+          <NormalWhiteboardLayers
+            layers={layers}
+            activeLayerId={activeLayerId}
+            onLayersChange={handleLayersChange}
+            onActiveLayerChange={handleActiveLayerChange}
+          />
+        )}
 
-      {/* Image Upload Modal */}
-      {showImageUpload && (
-        <div className={styles.imageUploadModal}>
-          <div className={styles.imageUploadContent}>
-            <div className={styles.imageUploadHeader}>
-              <h3>Upload Image</h3>
-              <button
-                onClick={() => setShowImageUpload(false)}
-                className={styles.closeButton}
-              >
-                ✕
-              </button>
+        {/* Image Upload Loading Spinner */}
+        {isUploadingImage && (
+          <div
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              backgroundColor: 'rgba(0, 0, 0, 0.9)',
+              color: 'white',
+              padding: isMobile ? '20px 28px' : '24px 32px',
+              borderRadius: '12px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '16px',
+              zIndex: 100,
+              backdropFilter: 'blur(8px)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+              minWidth: isMobile ? '200px' : '240px',
+            }}
+          >
+            <div
+              style={{
+                width: isMobile ? '40px' : '48px',
+                height: isMobile ? '40px' : '48px',
+                border: '4px solid rgba(255, 255, 255, 0.2)',
+                borderTop: '4px solid white',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite',
+              }}
+            />
+            <div style={{ 
+              fontSize: isMobile ? '14px' : '16px', 
+              fontWeight: '500',
+              textAlign: 'center'
+            }}>
+              Processing image...
             </div>
-            <div className={styles.imageUploadBody}>
-              <div 
-                className={`${styles.uploadArea} ${isDragOver ? styles.uploadAreaDragOver : ''}`}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-              >
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      handleImageUpload(file);
-                    }
-                  }}
-                  className={styles.fileInput}
-                  id="image-upload"
-                />
-                <label htmlFor="image-upload" className={styles.uploadLabel}>
-                  <div className={styles.uploadIcon}>
-                    {isDragOver ? '📤' : '📁'}
-                  </div>
-                  <div className={styles.uploadText}>
-                    <strong>
-                      {isDragOver ? 'Drop image here' : 'Click to select image'}
-                    </strong>
-                    <span>or drag and drop</span>
-                  </div>
-                  <div className={styles.uploadFormats}>
-                    Supports: JPG, PNG, GIF, WebP
-                  </div>
-                </label>
-              </div>
-            </div>
+            <style>{`
+              @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+            `}</style>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

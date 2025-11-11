@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useRoomContext, useLocalParticipant, useParticipants } from '@livekit/components-react';
 import { RaiseHandData } from './types';
 import { playRaiseHandSound } from './reactionSounds';
+import { isObserver } from './utils/observer-filter';
 
 export function RaiseHandIndicator() {
   const [raisedHands, setRaisedHands] = useState<Map<string, boolean>>(new Map());
@@ -71,7 +72,8 @@ export function RaiseHandIndicator() {
       allParticipantIdentities.add(localParticipant.identity);
     }
     
-    participants.forEach(p => {
+    // Filter out observers - they cannot raise hands
+    participants.filter(p => !isObserver(p)).forEach(p => {
       allParticipantIdentities.add(p.identity);
     });
 

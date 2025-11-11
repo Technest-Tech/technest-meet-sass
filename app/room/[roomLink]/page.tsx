@@ -22,6 +22,7 @@ export default function DirectRoomAccess() {
   const roomLink = params.roomLink as string;
   const accessType = searchParams.get('type');
   const [roomValidation, setRoomValidation] = useState<RoomValidation | null>(null);
+  const [roomFeatures, setRoomFeatures] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
@@ -38,11 +39,19 @@ export default function DirectRoomAccess() {
 
       try {
         // Check if room exists in admin database
-        const response = await fetch(`/api/room/validate/${roomLink}?type=${accessType}`);
+        const response = await fetch(`/api/room/validate/${roomLink}?type=${accessType}`, {
+          cache: 'no-store', // Force fresh data, no caching
+          headers: {
+            'Cache-Control': 'no-cache',
+          },
+        });
         
         if (response.ok) {
           const data = await response.json();
+          console.log('🔍 Room validation data:', data);
+          console.log('🎯 Room features:', data.room);
           setRoomValidation(data);
+          setRoomFeatures(data.room); // Store all room feature flags
           setShowNameInput(true); // Show name input after successful validation
         } else {
           const errorData = await response.json();
@@ -224,6 +233,7 @@ export default function DirectRoomAccess() {
       codec="vp8"
       userName={participantName}
       participantType={accessType as 'host' | 'guest'}
+      roomFeatures={roomFeatures}
     />
   );
 }

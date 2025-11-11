@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useRoomContext, useLocalParticipant } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import toast from 'react-hot-toast';
+import { logger } from './utils/logger';
 
 interface MuteControlData {
   type: 'mute_command' | 'unmute_command' | 'mute_all_command';
@@ -32,11 +33,11 @@ export function MuteControlListener() {
         const decoder = new TextDecoder();
         const message = JSON.parse(decoder.decode(data)) as MuteControlData;
 
-        console.log('📩 Received mute control message:', message);
+        logger.debug('Received mute control message:', message);
 
         // Don't process messages we sent
         if (message.sender === localParticipant.identity) {
-          console.log('⏭️ Ignoring own message');
+          logger.debug('Ignoring own message');
           return;
         }
 
@@ -45,15 +46,15 @@ export function MuteControlListener() {
           message.type === 'mute_all_command' || 
           message.targetParticipant === localParticipant.identity;
 
-        console.log('🎯 Is message for me?', isForMe, 'My identity:', localParticipant.identity);
+        logger.debug('Is message for me?', { isForMe, myIdentity: localParticipant.identity });
 
         if (!isForMe) return;
 
         if (message.type === 'mute_command' || message.type === 'mute_all_command') {
-          console.log('🔇 Muting microphone...');
+          logger.debug('Muting microphone...');
           // Mute the microphone
           await localParticipant.setMicrophoneEnabled(false);
-          console.log('✅ Microphone muted successfully');
+          logger.success('Microphone muted successfully');
           toast('🔇 The host muted your microphone', {
             duration: 4000,
             style: {
@@ -63,11 +64,11 @@ export function MuteControlListener() {
             },
           });
         } else if (message.type === 'unmute_command') {
-          console.log('🎤 Unmuting microphone...');
+          logger.debug('Unmuting microphone...');
           // Unmute the microphone (only if allowed)
           if (message.allowUnmute) {
             await localParticipant.setMicrophoneEnabled(true);
-            console.log('✅ Microphone unmuted successfully');
+            logger.success('Microphone unmuted successfully');
             toast('🎤 The host unmuted your microphone', {
               duration: 4000,
               style: {
@@ -79,7 +80,7 @@ export function MuteControlListener() {
           }
         }
       } catch (error) {
-        console.error('Error handling mute control:', error);
+        logger.error('Error handling mute control:', error);
       }
     };
 

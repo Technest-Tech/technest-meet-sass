@@ -8,16 +8,23 @@ import { playRaiseHandSound } from './reactionSounds';
 interface RaiseHandButtonProps {
   isHost?: boolean;
   iconOnly?: boolean;
+  disabled?: boolean;
+  showProBadge?: boolean;
 }
 
-export function RaiseHandButton({ isHost = false, iconOnly = false }: RaiseHandButtonProps) {
+export function RaiseHandButton({ 
+  isHost = false, 
+  iconOnly = false,
+  disabled = false,
+  showProBadge = false 
+}: RaiseHandButtonProps) {
   const [isRaised, setIsRaised] = useState(false);
   const room = useRoomContext();
   const { localParticipant } = useLocalParticipant();
 
   // Toggle raise hand state
   const toggleRaiseHand = async () => {
-    if (!room || !localParticipant) return;
+    if (!room || !localParticipant || disabled) return;
 
     try {
       const newState = !isRaised;
@@ -45,11 +52,12 @@ export function RaiseHandButton({ isHost = false, iconOnly = false }: RaiseHandB
   };
 
   return (
-    <div className="raise-hand-button-container" style={{ position: 'relative' }}>
+    <div className="raise-hand-button-container group" style={{ position: 'relative' }}>
       {/* Raise Hand Button */}
       <button
           className="raise-hand-button"
           onClick={toggleRaiseHand}
+          disabled={disabled}
           style={{
             padding: iconOnly ? '12px' : '12px 20px',
             backgroundColor: isRaised 
@@ -60,7 +68,8 @@ export function RaiseHandButton({ isHost = false, iconOnly = false }: RaiseHandB
               ? '2px solid rgba(251, 191, 36, 1)' 
               : '1px solid rgba(255, 255, 255, 0.2)',
             borderRadius: '12px',
-            cursor: 'pointer',
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            opacity: disabled ? 0.5 : 1,
             fontSize: iconOnly ? '20px' : '15px',
             fontWeight: '600',
             backdropFilter: 'blur(10px)',
@@ -137,6 +146,47 @@ export function RaiseHandButton({ isHost = false, iconOnly = false }: RaiseHandB
             }
           `}</style>
         </button>
+
+      {/* PRO Badge */}
+      {showProBadge && (
+        <span style={{
+          position: 'absolute',
+          top: '-8px',
+          right: '-8px',
+          padding: '2px 6px',
+          background: 'linear-gradient(to right, #a855f7, #ec4899)',
+          color: 'white',
+          fontSize: '10px',
+          fontWeight: 'bold',
+          borderRadius: '4px',
+          zIndex: 1
+        }}>
+          PRO
+        </span>
+      )}
+
+      {/* Tooltip on hover for disabled */}
+      {disabled && (
+        <div style={{
+          position: 'absolute',
+          bottom: 'calc(100% + 8px)',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          padding: '8px 12px',
+          backgroundColor: '#1f2937',
+          color: 'white',
+          fontSize: '12px',
+          borderRadius: '8px',
+          whiteSpace: 'nowrap',
+          zIndex: 50,
+          pointerEvents: 'none',
+          opacity: 0,
+          transition: 'opacity 0.2s'
+        }}
+        className="group-hover:opacity-100">
+          Upgrade required for this feature
+        </div>
+      )}
     </div>
   );
 }

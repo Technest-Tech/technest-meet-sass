@@ -18,6 +18,9 @@ import { MicrophoneSettings } from './MicrophoneSettings';
 export interface SettingsMenuProps extends React.HTMLAttributes<HTMLDivElement> {
   canRecord?: boolean;
   onClose?: () => void;
+  roomFeatures?: {
+    enableVirtualBackground?: boolean;
+  };
 }
 
 /**
@@ -25,7 +28,7 @@ export interface SettingsMenuProps extends React.HTMLAttributes<HTMLDivElement> 
  */
 export function SettingsMenu(props: SettingsMenuProps) {
   // Destructure custom props to avoid passing them to DOM
-  const { canRecord, onClose, ...domProps } = props;
+  const { canRecord, onClose, roomFeatures, ...domProps } = props;
   
   const layoutContext = useMaybeLayoutContext();
   const room = useRoomContext();
@@ -158,7 +161,7 @@ export function SettingsMenu(props: SettingsMenuProps) {
                   📹 Camera
                 </h3>
                 <section>
-                  <CameraSettings />
+                  <CameraSettings roomFeatures={roomFeatures} />
                 </section>
               </div>
             )}

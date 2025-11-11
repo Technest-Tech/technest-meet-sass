@@ -6,6 +6,7 @@ import { useRoomContext, useLocalParticipant, useParticipants } from '@livekit/c
 import toast from 'react-hot-toast';
 import { Lock, Download, Users } from 'lucide-react';
 import styles from '@/styles/Chat.module.css';
+import { filterObservers } from './utils/observer-filter';
 
 interface ChatMessage {
   id: string;
@@ -399,7 +400,7 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
             >
               <option value="all">Everyone</option>
               {!isHost && <option value="host">Host (Private)</option>}
-              {isHost && participants.map(p => (
+              {isHost && filterObservers(participants).map(p => (
                 <option key={p.identity} value="specific">{p.identity} (Private)</option>
               ))}
             </select>
@@ -417,7 +418,7 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
                   flex: 1
                 }}
               >
-                {participants.filter(p => p.identity !== localParticipant?.identity).map(p => (
+                {filterObservers(participants).filter(p => p.identity !== localParticipant?.identity).map(p => (
                   <option key={p.identity} value={p.identity}>{p.identity}</option>
                 ))}
               </select>

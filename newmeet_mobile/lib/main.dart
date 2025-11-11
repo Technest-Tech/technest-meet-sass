@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'screens/room_entry_screen.dart';
 import 'services/livekit_service.dart';
+import 'theme/app_theme.dart';
 
 void main() {
   print('🚀 NewMeet: App starting...');
@@ -23,15 +24,7 @@ class NewMeetApp extends StatelessWidget {
       ],
       child: MaterialApp(
         title: 'NewMeet Mobile',
-        theme: ThemeData(
-          primarySwatch: Colors.blue,
-          useMaterial3: true,
-          appBarTheme: const AppBarTheme(
-            backgroundColor: Colors.blue,
-            foregroundColor: Colors.white,
-            elevation: 0,
-          ),
-        ),
+        theme: AppTheme.darkTheme,
         home: const RoomEntryScreen(),
         debugShowCheckedModeBanner: false,
         onGenerateRoute: (settings) {

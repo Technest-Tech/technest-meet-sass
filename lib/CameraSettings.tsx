@@ -33,7 +33,7 @@ interface CustomBackground {
   dataUrl: string;
 }
 
-export function CameraSettings() {
+export function CameraSettings({ roomFeatures }: { roomFeatures?: { enableVirtualBackground?: boolean } }) {
   const { cameraTrack, localParticipant } = useLocalParticipant();
   const [backgroundType, setBackgroundType] = React.useState<BackgroundType>('none');
   const [virtualBackgroundImagePath, setVirtualBackgroundImagePath] = React.useState<string | null>(
@@ -42,6 +42,7 @@ export function CameraSettings() {
   const [processorsLoaded, setProcessorsLoaded] = React.useState(false);
   const [customBackgrounds, setCustomBackgrounds] = React.useState<CustomBackground[]>([]);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const isVirtualBackgroundEnabled = roomFeatures?.enableVirtualBackground ?? false;
 
   // Check if processors are loaded
   React.useEffect(() => {
@@ -169,7 +170,19 @@ export function CameraSettings() {
       
       {processorsLoaded && (
         <div style={{ marginTop: '10px' }}>
-          <div style={{ marginBottom: '8px' }}>Background Effects</div>
+          <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            Background Effects
+            {!isVirtualBackgroundEnabled && (
+              <span style={{
+                padding: '2px 6px',
+                background: 'linear-gradient(to right, #a855f7, #ec4899)',
+                color: 'white',
+                fontSize: '10px',
+                fontWeight: 'bold',
+                borderRadius: '4px'
+              }}>PRO</span>
+            )}
+          </div>
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             <button
               onClick={() => selectBackground('none')}
@@ -184,9 +197,11 @@ export function CameraSettings() {
             </button>
 
             <button
-              onClick={() => selectBackground('blur')}
+              onClick={() => isVirtualBackgroundEnabled && selectBackground('blur')}
               className="lk-button"
               aria-pressed={backgroundType === 'blur'}
+              disabled={!isVirtualBackgroundEnabled}
+              title={!isVirtualBackgroundEnabled ? 'Upgrade required for this feature' : undefined}
               style={{
                 border: backgroundType === 'blur' ? '2px solid #0090ff' : '1px solid #d1d1d1',
                 minWidth: '80px',
@@ -194,6 +209,8 @@ export function CameraSettings() {
                 position: 'relative',
                 overflow: 'hidden',
                 height: '60px',
+                opacity: !isVirtualBackgroundEnabled ? 0.5 : 1,
+                cursor: !isVirtualBackgroundEnabled ? 'not-allowed' : 'pointer',
               }}
             >
               <div
@@ -225,8 +242,10 @@ export function CameraSettings() {
             {BACKGROUND_IMAGES.map((image) => (
               <button
                 key={image.path}
-                onClick={() => selectBackground('image', image.path)}
+                onClick={() => isVirtualBackgroundEnabled && selectBackground('image', image.path)}
                 className="lk-button"
+                disabled={!isVirtualBackgroundEnabled}
+                title={!isVirtualBackgroundEnabled ? 'Upgrade required for this feature' : undefined}
                 aria-pressed={
                   backgroundType === 'image' && virtualBackgroundImagePath === image.path
                 }
@@ -243,6 +262,8 @@ export function CameraSettings() {
                       : '1px solid #d1d1d1',
                   position: 'relative',
                   overflow: 'hidden',
+                  opacity: !isVirtualBackgroundEnabled ? 0.5 : 1,
+                  cursor: !isVirtualBackgroundEnabled ? 'not-allowed' : 'pointer',
                 }}
                 onError={(e) => {
                   // Fallback if image fails to load
@@ -361,8 +382,9 @@ export function CameraSettings() {
 
             {/* Upload button */}
             <button
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => isVirtualBackgroundEnabled && fileInputRef.current?.click()}
               className="lk-button"
+              disabled={!isVirtualBackgroundEnabled}
               style={{
                 width: '80px',
                 height: '60px',
@@ -373,18 +395,23 @@ export function CameraSettings() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '4px',
-                cursor: 'pointer',
+                cursor: !isVirtualBackgroundEnabled ? 'not-allowed' : 'pointer',
                 transition: 'all 0.2s ease',
+                opacity: !isVirtualBackgroundEnabled ? 0.5 : 1,
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+                if (isVirtualBackgroundEnabled) {
+                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+                }
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                if (isVirtualBackgroundEnabled) {
+                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                }
               }}
-              title="Upload custom background"
+              title={!isVirtualBackgroundEnabled ? 'Upgrade required for this feature' : 'Upload custom background'}
             >
               <span style={{ fontSize: '24px' }}>📁</span>
               <span style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.7)' }}>Upload</span>

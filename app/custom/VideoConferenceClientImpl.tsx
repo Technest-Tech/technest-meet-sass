@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Room, RoomEvent, RoomConnectOptions, Track, TrackPublication, VideoPresets, DisconnectReason } from 'livekit-client';
-import { RoomContext, VideoTrack, useLocalParticipant, useParticipants } from '@livekit/components-react';
+import { RoomContext, VideoTrack, useLocalParticipant, useParticipants, useTrackToggle } from '@livekit/components-react';
 import { TrackToggle, MediaDeviceMenu } from '@livekit/components-react';
 import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
 import { RecordingIndicator } from '@/lib/RecordingIndicator';
@@ -14,6 +14,7 @@ import { MoreControls } from '@/lib/MoreControls';
 import { ReactionsButton } from '@/lib/ReactionsButton';
 import { FloatingReactions } from '@/lib/FloatingReactions';
 import { StudentMonitorPiP } from '@/lib/StudentMonitorPiP';
+import { logger } from '@/lib/utils/logger';
 
 interface VideoConferenceClientImplProps {
   liveKitUrl: string;
@@ -24,13 +25,134 @@ interface VideoConferenceClientImplProps {
   roomName?: string;
 }
 
+// Custom toggle button with better visual feedback
+function CustomTrackToggle({ source, label }: { source: Track.Source; label: string }) {
+  const { buttonProps, enabled } = useTrackToggle({ source });
+  
+  const isCamera = source === Track.Source.Camera;
+  const isMicrophone = source === Track.Source.Microphone;
+  
+  return (
+    <button
+      {...buttonProps}
+      className="custom-track-toggle"
+      style={{
+        background: enabled ? 'rgba(34, 197, 94, 0.9)' : 'rgba(239, 68, 68, 0.9)',
+        border: `2px solid ${enabled ? 'rgba(34, 197, 94, 1)' : 'rgba(239, 68, 68, 1)'}`,
+        borderRadius: '12px',
+        padding: '8px 12px',
+        color: 'white',
+        minWidth: '60px',
+        minHeight: '50px',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '4px',
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+        touchAction: 'manipulation',
+        userSelect: 'none',
+        WebkitTapHighlightColor: 'transparent'
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = 'scale(1.05)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = 'scale(1)';
+      }}
+      onMouseDown={(e) => {
+        e.currentTarget.style.transform = 'scale(0.95)';
+      }}
+      onMouseUp={(e) => {
+        e.currentTarget.style.transform = 'scale(1.05)';
+      }}
+      onTouchStart={(e) => {
+        e.currentTarget.style.transform = 'scale(0.95)';
+      }}
+      onTouchEnd={(e) => {
+        e.currentTarget.style.transform = 'scale(1)';
+      }}
+    >
+      {/* Icon */}
+      <svg
+        className="custom-toggle-icon"
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        {isCamera && enabled && (
+          // Camera on icon
+          <>
+            <path d="M23 7l-7 5 7 5V7z" />
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+          </>
+        )}
+        {isCamera && !enabled && (
+          // Camera off icon with slash
+          <>
+            <line x1="1" y1="1" x2="23" y2="23" />
+            <path d="M21 21H3a2 2 0 01-2-2V8a2 2 0 012-2h3m3-3h6l2 3h4a2 2 0 012 2v9.34m-7.72-2.06a4 4 0 11-5.56-5.56" />
+          </>
+        )}
+        {isMicrophone && enabled && (
+          // Microphone on icon
+          <>
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            <line x1="12" y1="19" x2="12" y2="23" />
+            <line x1="8" y1="23" x2="16" y2="23" />
+          </>
+        )}
+        {isMicrophone && !enabled && (
+          // Microphone off icon with slash
+          <>
+            <line x1="1" y1="1" x2="23" y2="23" />
+            <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+            <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23" />
+            <line x1="12" y1="19" x2="12" y2="23" />
+            <line x1="8" y1="23" x2="16" y2="23" />
+          </>
+        )}
+      </svg>
+      
+      {/* Label */}
+      <span className="custom-toggle-label" style={{
+        fontSize: '10px',
+        fontWeight: '600',
+        textAlign: 'center',
+        lineHeight: '1',
+        textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)'
+      }}>
+        {label}
+      </span>
+      
+      {/* Status text */}
+      <span className="custom-toggle-status" style={{
+        fontSize: '8px',
+        fontWeight: '500',
+        opacity: 0.9,
+        textAlign: 'center',
+        lineHeight: '1'
+      }}>
+        {enabled ? 'ON' : 'OFF'}
+      </span>
+    </button>
+  );
+}
+
 // Video participant component
 function VideoParticipant({ participant, isLocal = false }: { participant: any; isLocal?: boolean }) {
   const videoTrack = participant.getTrack(Track.Source.Camera);
   const audioTrack = participant.getTrack(Track.Source.Microphone);
 
   // Debug logging
-  console.log(`VideoParticipant render - ${isLocal ? 'Local' : 'Remote'}:`, {
+  logger.debug(`VideoParticipant render - ${isLocal ? 'Local' : 'Remote'}:`, {
     participant: participant.identity,
     videoTrack: videoTrack ? {
       sid: videoTrack.sid,
@@ -97,7 +219,7 @@ function VideoLayout({ room }: { room: Room }) {
   const { localParticipant } = useLocalParticipant();
   const participants = useParticipants();
 
-  console.log('VideoLayout render:', {
+  logger.debug('VideoLayout render:', {
     localParticipant: localParticipant ? {
       identity: localParticipant.identity,
       sid: localParticipant.sid
@@ -109,7 +231,7 @@ function VideoLayout({ room }: { room: Room }) {
   });
 
   if (!localParticipant) {
-    console.log('No local participant available');
+    logger.debug('No local participant available');
     return null;
   }
 
@@ -199,7 +321,7 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
   const handleUserInteraction = () => {
     if (!hasUserInteracted) {
       setHasUserInteracted(true);
-      console.log('User interaction detected, enabling audio context');
+      logger.debug('User interaction detected, enabling audio context');
     }
   };
 
@@ -207,7 +329,7 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
   useEffect(() => {
     const handleConnectionStateChange = () => {
       setConnectionStatus(room.state);
-      console.log('Room connection state:', room.state);
+      logger.debug('Room connection state:', room.state);
       
       // Update refs based on connection state
       if (room.state === 'connected') {
@@ -229,11 +351,11 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
     };
 
     const handleDisconnected = (reason?: DisconnectReason) => {
-      console.log('Room disconnected, reason:', reason);
+      logger.debug('Room disconnected, reason:', reason);
       
       // If disconnected due to being removed by host, redirect to home
       if (reason === DisconnectReason.PARTICIPANT_REMOVED) {
-        console.log('Participant was removed by host, redirecting to home');
+        logger.info('Participant was removed by host, redirecting to home');
         window.location.href = '/';
         return;
       }
@@ -244,7 +366,7 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
     };
 
     const handleConnected = () => {
-      console.log('Room connected successfully');
+      logger.success('Room connected successfully');
       setConnectionStatus('Connected');
       hasConnected.current = true;
       isConnecting.current = false;
@@ -252,11 +374,11 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
     };
 
     const handleParticipantConnected = (participant: any) => {
-      console.log('Participant connected:', participant.identity);
+      logger.info('Participant connected:', participant.identity);
     };
 
     const handleParticipantDisconnected = (participant: any) => {
-      console.log('Participant disconnected:', participant.identity);
+      logger.info('Participant disconnected:', participant.identity);
     };
 
     room.on(RoomEvent.ConnectionStateChanged, handleConnectionStateChange);
@@ -281,11 +403,11 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
         room.setE2EEEnabled(true).then(() => {
           setE2eeSetupComplete(true);
         }).catch((err) => {
-          console.error('Failed to enable E2EE:', err);
+          logger.error('Failed to enable E2EE:', err);
           setError('Failed to enable encryption');
         });
       }).catch((err) => {
-        console.error('Failed to set E2EE key:', err);
+        logger.error('Failed to set E2EE key:', err);
         setError('Failed to set encryption key');
       });
     } else {
@@ -296,13 +418,13 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
   // Connection effect - only run when ready and user has interacted
   useEffect(() => {
     if (e2eeSetupComplete && hasUserInteracted && !isConnecting.current && !hasConnected.current) {
-      console.log('Connecting to room...', props.liveKitUrl);
+      logger.debug('Connecting to room...', props.liveKitUrl);
       isConnecting.current = true;
       
       // Set connection timeout
       connectionTimeoutRef.current = setTimeout(() => {
         if (isConnecting.current && room.state === 'connecting') {
-          console.log('Connection timeout, disconnecting...');
+          logger.warn('Connection timeout, disconnecting...');
           room.disconnect();
           isConnecting.current = false;
           setError('Connection timeout. Please check your internet connection and try again.');
@@ -313,17 +435,13 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
       const connectToRoom = async () => {
         try {
           await room.connect(props.liveKitUrl, props.token, connectOptions);
-          console.log('Successfully connected to room');
+          logger.success('Successfully connected to room');
           
-          // Enable camera and microphone after successful connection
-          try {
-            await room.localParticipant.enableCameraAndMicrophone();
-          } catch (error) {
-            console.error('Failed to enable camera/microphone:', error);
-            // Don't set this as a fatal error, just log it
-          }
+          // Camera and microphone are disabled by default
+          // Users can enable them manually using the toggle buttons
+          logger.info('Camera and microphone are disabled by default. Use toggle buttons to enable.');
         } catch (error) {
-          console.error('Failed to connect to room:', error);
+          logger.error('Failed to connect to room:', error);
           isConnecting.current = false;
           
           // Only show error if it's not a client-initiated disconnect
@@ -347,20 +465,17 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
     
     // Force re-run of connection effect
     if (e2eeSetupComplete && hasUserInteracted) {
-      console.log('Retrying connection...');
+      logger.debug('Retrying connection...');
       const connectToRoom = async () => {
         try {
           isConnecting.current = true;
           await room.connect(props.liveKitUrl, props.token, connectOptions);
-          console.log('Successfully connected to room on retry');
+          logger.success('Successfully connected to room on retry');
           
-          try {
-            await room.localParticipant.enableCameraAndMicrophone();
-          } catch (error) {
-            console.error('Failed to enable camera/microphone on retry:', error);
-          }
+          // Camera and microphone are disabled by default
+          logger.info('Camera and microphone are disabled by default. Use toggle buttons to enable.');
         } catch (error) {
-          console.error('Failed to connect to room on retry:', error);
+          logger.error('Failed to connect to room on retry:', error);
           isConnecting.current = false;
           setError(`Retry failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
           setCanRetry(true);
@@ -374,8 +489,8 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
   // Track debugging effect
   useEffect(() => {
     if (room.state === 'connected') {
-      console.log('Room connected, setting up track listeners');
-      console.log('Local participant:', {
+      logger.debug('Room connected, setting up track listeners');
+      logger.debug('Local participant:', {
         identity: room.localParticipant.identity,
         sid: room.localParticipant.sid,
         tracks: Array.from(room.localParticipant.trackPublications.values()).map(publication => ({
@@ -387,7 +502,7 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
       });
 
       const handleTrackPublished = (publication: TrackPublication) => {
-        console.log('Track published:', {
+        logger.debug('Track published:', {
           trackSid: publication.trackSid,
           source: publication.source,
           track: publication.track ? {
@@ -398,12 +513,12 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
           } : null
         });
         if (publication.source === Track.Source.Camera) {
-          console.log('Camera track published:', publication.trackSid);
+          logger.debug('Camera track published:', publication.trackSid);
         }
       };
 
       const handleTrackUnpublished = (publication: TrackPublication) => {
-        console.log('Track unpublished:', {
+        logger.debug('Track unpublished:', {
           trackSid: publication.trackSid,
           source: publication.source
         });
@@ -425,7 +540,7 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
   useEffect(() => {
     return () => {
       if (room && room.state === 'connected') {
-        console.log('Component unmounting, disconnecting from room');
+        logger.debug('Component unmounting, disconnecting from room');
         room.disconnect();
       }
       // Clear any pending timeout
@@ -636,7 +751,7 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
         </div>
         
         {/* Responsive Control Bar */}
-        <div className="mobile-control-bar" style={{
+        <div className="mobile-control-bar custom-control-bar" style={{
           position: 'fixed',
           bottom: '0px',
           left: '0',
@@ -650,27 +765,13 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
           backgroundColor: 'rgba(0, 0, 0, 0.9)',
           backdropFilter: 'blur(10px)',
           borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-          minHeight: '60px'
+          minHeight: '60px',
+          boxSizing: 'border-box'
         }}>
           {/* Left side - Camera and Microphone */}
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <section className="lk-button-group">
-              <TrackToggle source={Track.Source.Camera}>
-                <span className="mobile-button-content">
-                  <span className="mobile-button-icon">📹</span>
-                  <span className="mobile-button-label">Camera</span>
-                </span>
-              </TrackToggle>
-            </section>
-            
-            <section className="lk-button-group">
-              <TrackToggle source={Track.Source.Microphone}>
-                <span className="mobile-button-content">
-                  <span className="mobile-button-icon">🎤</span>
-                  <span className="mobile-button-label">Mic</span>
-                </span>
-              </TrackToggle>
-            </section>
+          <div className="custom-toggle-container" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <CustomTrackToggle source={Track.Source.Camera} label="Camera" />
+            <CustomTrackToggle source={Track.Source.Microphone} label="Mic" />
           </div>
 
           {/* Center - More Controls */}
@@ -712,7 +813,7 @@ Are you sure you want to end the meeting for everyone?`;
         <FloatingReactions />
         
         {/* Student Monitor PiP - Shows students when teacher is screen sharing (Host only) */}
-        <StudentMonitorPiP isHost={props.isHost} />
+        <StudentMonitorPiP isHost={props.isHost} disabled={false} showProBadge={false} />
         
         {/* Picture-in-Picture for remote participants with both screen share and camera */}
         <PictureInPicture room={room} />

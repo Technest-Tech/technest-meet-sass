@@ -7,10 +7,11 @@ interface NameInputPageProps {
   roomLink: string;
   accessType: 'host' | 'guest';
   roomName?: string;
+  clientName?: string;
   onNameSubmit: (name: string) => void;
 }
 
-export function NameInputPage({ roomLink, accessType, roomName, onNameSubmit }: NameInputPageProps) {
+export function NameInputPage({ roomLink, accessType, roomName, clientName, onNameSubmit }: NameInputPageProps) {
   const [name, setName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
@@ -32,28 +33,36 @@ export function NameInputPage({ roomLink, accessType, roomName, onNameSubmit }: 
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
+    <div className="min-h-screen bg-gradient-to-br from-primary-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-10 w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-20 h-20 bg-gradient-to-br from-primary-100 to-indigo-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg className="w-10 h-10 text-primary-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">
+          <h1 className="text-3xl font-bold text-gray-900 mb-3">
             Welcome to the Meeting
           </h1>
-          <p className="text-gray-600">
-            {roomName && `Room: ${roomName}`}
-          </p>
-          <p className="text-sm text-gray-500 mt-1">
+          {clientName && (
+            <div className="mb-3">
+              <p className="text-sm text-gray-500 mb-1">Organization:</p>
+              <p className="text-lg font-semibold text-primary-600">{clientName}</p>
+            </div>
+          )}
+          {roomName && (
+            <p className="text-gray-600 mb-2">
+              <span className="text-sm text-gray-500">Room:</span> {roomName}
+            </p>
+          )}
+          <p className="text-sm text-gray-500 mt-2">
             Please enter your name to join as {accessType === 'host' ? 'Host' : 'Guest'}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2 text-left" dir="ltr">
               Your Name
             </label>
             <input
@@ -62,18 +71,19 @@ export function NameInputPage({ roomLink, accessType, roomName, onNameSubmit }: 
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Enter your name"
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-lg"
+              className="w-full px-4 py-3 border border-gray-300 rounded-xl bg-white text-gray-900 focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all duration-200 text-lg text-left"
               required
               maxLength={50}
               disabled={isSubmitting}
+              dir="ltr"
             />
           </div>
 
-          <div className="flex space-x-3">
+          <div className="flex gap-3">
             <button
               type="button"
               onClick={handleBack}
-              className="flex-1 px-4 py-3 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors duration-200"
+              className="flex-1 px-4 py-3 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl font-medium transition-colors duration-200"
               disabled={isSubmitting}
             >
               Back
@@ -81,14 +91,13 @@ export function NameInputPage({ roomLink, accessType, roomName, onNameSubmit }: 
             <button
               type="submit"
               disabled={!name.trim() || isSubmitting}
-              className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors duration-200 flex items-center justify-center"
+              className="flex-1 px-4 py-3 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 disabled:from-gray-300 disabled:to-gray-300 disabled:cursor-not-allowed text-white rounded-xl font-medium transition-all duration-200 flex items-center justify-center shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
             >
               {isSubmitting ? (
                 <>
-                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
+                  <div className="relative w-5 h-5 mr-2">
+                    <div className="absolute inset-0 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  </div>
                   Joining...
                 </>
               ) : (

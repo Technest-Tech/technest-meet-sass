@@ -6,7 +6,7 @@ class AppConfig {
   static const Map<Environment, String> _baseUrls = {
     Environment.development: 'http://localhost:3000',
     Environment.staging: 'https://staging.almajd.link',
-    Environment.production: 'https://live.almajd.link',
+    Environment.production: 'https://almajdmeet.org',
   };
   
   // Get current base URL
