@@ -3,30 +3,38 @@ import '@livekit/components-styles';
 import '@livekit/components-styles/prefabs';
 import type { Metadata, Viewport } from 'next';
 import { Toaster } from 'react-hot-toast';
+import { Cairo } from 'next/font/google';
+
+const cairo = Cairo({
+  subsets: ['arabic', 'latin'],
+  weight: ['400', '500', '600', '700', '800', '900'],
+  variable: '--font-cairo',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: {
-    default: 'Almajd Academy | Video Conferencing',
+    default: 'Academic-meet | Video Conferencing',
     template: '%s',
   },
   description:
-    'Almajd Academy provides secure video conferencing for educational and business meetings. Access your meetings using room links provided by your administrator.',
+    'Academic-meet provides secure video conferencing for educational and business meetings. Access your meetings using room links provided by your administrator.',
   twitter: {
-    creator: '@almajdacademy',
-    site: '@almajdacademy',
+    creator: '@academicmeet',
+    site: '@academicmeet',
     card: 'summary_large_image',
   },
   openGraph: {
-    url: 'https://almajdacademy.com',
+    url: 'https://academic-meet.com',
     images: [
       {
-        url: 'https://almajdacademy.com/images/almajd-open-graph.png',
+        url: 'https://academic-meet.com/images/academic-meet-open-graph.png',
         width: 2000,
         height: 1000,
         type: 'image/png',
       },
     ],
-    siteName: 'Almajd Academy',
+    siteName: 'Academic-meet',
   },
   icons: {
     icon: {
@@ -45,15 +53,15 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#667eea',
+  themeColor: '#0f4c75',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body data-lk-theme="default">
+    <html lang="ar" dir="rtl" className={cairo.variable}>
+      <body data-lk-theme="default" className={cairo.className}>
         <Toaster 
-          position="top-right"
+          position="top-left"
           toastOptions={{
             style: {
               zIndex: 9999999,

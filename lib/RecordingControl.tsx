@@ -9,11 +9,14 @@ interface RecordingControlProps {
 }
 
 export function RecordingControl({ isHost, canRecord }: RecordingControlProps) {
-  // Don't show recording controls if recording is not allowed for this room
-  if (!canRecord) {
-    return null;
-  }
-  
-  // Always use simple recording control
-  return <SimpleRecordingControl isHost={isHost} />;
+  const featureEnabled = Boolean(canRecord);
+
+  // Always use simple recording control but reflect feature availability
+  return (
+    <SimpleRecordingControl
+      isHost={isHost}
+      isFeatureEnabled={featureEnabled}
+      showProBadge={!featureEnabled}
+    />
+  );
 }

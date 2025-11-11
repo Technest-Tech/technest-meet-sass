@@ -5,6 +5,7 @@ import { useParticipants, useLocalParticipant, useRoomContext } from '@livekit/c
 import { UserMinus, Users, X, Mic, MicOff, Video, VideoOff, MessageSquare, MoreVertical, Info } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { RaiseHandData, VideoRequestData } from './types';
+import { isObserver } from './utils/observer-filter';
 
 interface ParticipantManagerProps {
   isHost: boolean;
@@ -149,13 +150,21 @@ export function ParticipantManager({ isHost, roomName }: ParticipantManagerProps
     });
   }, [participants, localParticipant]);
 
-  // Combine local and remote participants, excluding the host
+  // Combine local and remote participants, excluding the host and observers
   const allParticipants = React.useMemo(() => {
     const all = [...participants];
     if (localParticipant) {
       all.push(localParticipant);
     }
-    return all.filter(p => p.identity !== localParticipant?.identity);
+    return all.filter(p => {
+      // Exclude the local participant (host/current user)
+      if (p.identity === localParticipant?.identity) {
+        return false;
+      }
+      
+      // Filter out observers - they should be completely invisible
+      return !isObserver(p);
+    });
   }, [participants, localParticipant]);
 
   // Count raised hands

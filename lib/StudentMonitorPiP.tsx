@@ -13,9 +13,11 @@ interface Position {
 
 interface StudentMonitorPiPProps {
   isHost?: boolean;
+  disabled?: boolean;
+  showProBadge?: boolean;
 }
 
-export function StudentMonitorPiP({ isHost = false }: StudentMonitorPiPProps) {
+export function StudentMonitorPiP({ isHost = false, disabled = false, showProBadge = false }: StudentMonitorPiPProps) {
   const room = useRoomContext();
   const { localParticipant } = useLocalParticipant();
   const participants = useParticipants();
@@ -288,26 +290,31 @@ export function StudentMonitorPiP({ isHost = false }: StudentMonitorPiPProps) {
       <div
         style={{
           position: 'fixed',
-          top: '20px',
+          top: '80px',
           right: '20px',
           zIndex: 9000,
-          background: 'rgba(17, 24, 39, 0.95)',
+          background: disabled ? 'rgba(17, 24, 39, 0.5)' : 'rgba(17, 24, 39, 0.95)',
           backdropFilter: 'blur(12px)',
           borderRadius: '12px',
           border: '1px solid rgba(255, 255, 255, 0.1)',
           padding: '12px 16px',
           boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-          cursor: 'pointer',
-          transition: 'all 0.2s ease'
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          transition: 'all 0.2s ease',
+          opacity: disabled ? 0.6 : 1
         }}
-        onClick={handleManualEnable}
+        onClick={disabled ? undefined : handleManualEnable}
         onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'rgba(17, 24, 39, 1)';
+          if (!disabled) {
+            e.currentTarget.style.background = 'rgba(17, 24, 39, 1)';
+          }
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'rgba(17, 24, 39, 0.95)';
+          if (!disabled) {
+            e.currentTarget.style.background = 'rgba(17, 24, 39, 0.95)';
+          }
         }}
-        title="Show Student Monitor"
+        title={disabled ? "This feature requires an upgrade" : "Show Student Monitor"}
       >
         <div style={{
           display: 'flex',
@@ -319,14 +326,27 @@ export function StudentMonitorPiP({ isHost = false }: StudentMonitorPiPProps) {
         }}>
           <span>👥</span>
           <span>Show Student Monitor{students.length > 0 ? ` (${students.length})` : ''}</span>
+          {showProBadge && (
+            <span style={{
+              padding: '2px 8px',
+              background: 'linear-gradient(to right, #a855f7, #ec4899)',
+              color: 'white',
+              fontSize: '10px',
+              fontWeight: 'bold',
+              borderRadius: '4px',
+              marginLeft: '4px'
+            }}>
+              PRO
+            </span>
+          )}
         </div>
       </div>
     );
     return mounted && typeof document !== 'undefined' ? createPortal(toggleButton, document.body) : null;
   }
 
-  // Don't show if conditions not met
-  if (!shouldShow) {
+  // Don't show if conditions not met or feature is disabled
+  if (!shouldShow || disabled) {
     return null;
   }
 

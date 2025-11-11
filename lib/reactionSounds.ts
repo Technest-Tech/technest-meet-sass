@@ -219,6 +219,39 @@ export function playRaiseHandSound(isRaised: boolean): void {
   }
 }
 
+// Play notification sound for guest join request
+export function playGuestJoinNotificationSound(): void {
+  const ctx = getAudioContext();
+  if (!ctx) {
+    console.warn('🔇 Audio context not available');
+    return;
+  }
+
+  try {
+    console.log('🔊 Audio context state:', ctx.state);
+    
+    // Resume context if needed (required for autoplay)
+    if (ctx.state === 'suspended') {
+      console.log('🔊 Resuming audio context...');
+      ctx.resume().then(() => {
+        console.log('✅ Audio context resumed, playing sound');
+        playGuestJoinNotificationSound();
+      }).catch((err) => {
+        console.warn('⚠️ Could not resume audio context:', err);
+      });
+      return;
+    }
+
+    console.log('🔔 Playing guest join notification sound');
+    // Pleasant notification sound - three-tone ascending chime
+    playTone(587.33, 0.15, 0, 'sine', 0.4); // D5
+    playTone(783.99, 0.2, 0.1, 'sine', 0.45); // G5
+    playTone(987.77, 0.25, 0.2, 'sine', 0.4); // B5
+  } catch (error) {
+    console.error('❌ Error playing guest join notification sound:', error);
+  }
+}
+
 // Cleanup audio context (call on unmount)
 export function cleanupAudioContext(): void {
   if (audioContext && audioContext.state !== 'closed') {

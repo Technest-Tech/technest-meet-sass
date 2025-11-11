@@ -48,6 +48,79 @@ export async function generateShortLink(): Promise<string> {
   return result;
 }
 
+/**
+ * Generate a room link based on academy name (client name) + room name
+ * Format: sanitized_academy_name-sanitized_room_name
+ */
+export function generateRoomLink(academyName: string, roomName: string): string {
+  // Sanitize academy name: lowercase, replace spaces/special chars with hyphens, remove multiple hyphens
+  let sanitizedAcademy = academyName
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0600-\u06FF]/g, '-') // Allow Arabic characters
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .substring(0, 20); // Limit length
+  
+  // Remove common prefixes like "test-", "test_", "demo-", etc.
+  sanitizedAcademy = sanitizedAcademy.replace(/^(test[-_]?|demo[-_]?|sample[-_]?)/i, '');
+  
+  // Clean up any leading hyphens after prefix removal
+  sanitizedAcademy = sanitizedAcademy.replace(/^-+/, '');
+  
+  // Sanitize room name: lowercase, replace spaces/special chars with hyphens, remove multiple hyphens
+  let sanitizedRoom = roomName
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0600-\u06FF]/g, '-') // Allow Arabic characters
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .substring(0, 30); // Limit length
+  
+  // If sanitized academy name is empty, use default
+  const baseName = sanitizedAcademy || 'academy';
+  
+  // If sanitized room name is empty, use default
+  const roomPart = sanitizedRoom || 'room';
+  
+  return `${baseName}-${roomPart}`;
+}
+
+/**
+ * Generate preview room links (client-side, for preview only)
+ */
+export function generatePreviewRoomLinks(academyName: string, roomName: string): { hostLink: string; guestLink: string } {
+  // Sanitize academy name
+  let sanitizedAcademy = academyName
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0600-\u06FF]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .substring(0, 20);
+  
+  // Remove common prefixes like "test-", "test_", "demo-", etc.
+  sanitizedAcademy = sanitizedAcademy.replace(/^(test[-_]?|demo[-_]?|sample[-_]?)/i, '');
+  
+  // Clean up any leading hyphens after prefix removal
+  sanitizedAcademy = sanitizedAcademy.replace(/^-+/, '');
+  
+  // Sanitize room name
+  let sanitizedRoom = roomName
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0600-\u06FF]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .substring(0, 30);
+  
+  const baseName = sanitizedAcademy || 'academy';
+  const roomPart = sanitizedRoom || 'room';
+  
+  const link = `${baseName}-${roomPart}`;
+  
+  return {
+    hostLink: link,
+    guestLink: link,
+  };
+}
+
 export async function getNextParticipantName(roomId: string, type: 'HOST' | 'GUEST'): Promise<string> {
   const prefix = type === 'HOST' ? 'Teacher' : 'Student';
   

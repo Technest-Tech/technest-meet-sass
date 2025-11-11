@@ -9,11 +9,18 @@ import { triggerLocalReaction } from './FloatingReactions';
 interface ReactionsButtonProps {
   isHost?: boolean;
   iconOnly?: boolean;
+  disabled?: boolean;
+  showProBadge?: boolean;
 }
 
 const REACTIONS: ReactionType[] = ['👍', '❤️', '😂', '👏', '🎉', '😮', '🙌'];
 
-export function ReactionsButton({ isHost = false, iconOnly = false }: ReactionsButtonProps) {
+export function ReactionsButton({ 
+  isHost = false, 
+  iconOnly = false,
+  disabled = false,
+  showProBadge = false 
+}: ReactionsButtonProps) {
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
 
@@ -69,15 +76,18 @@ export function ReactionsButton({ isHost = false, iconOnly = false }: ReactionsB
   };
 
   const togglePicker = () => {
+    if (disabled) return;
     setIsPickerOpen(!isPickerOpen);
   };
 
   return (
-    <div ref={pickerRef} className="reactions-button-container" style={{ position: 'relative' }}>
+    <div ref={pickerRef} className="reactions-button-container group" style={{ position: 'relative' }}>
       {/* Reactions Button */}
       <button
-          className="reactions-button"
+          className={`reactions-button ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
           onClick={togglePicker}
+          disabled={disabled}
+          title={disabled ? 'This feature requires an upgrade' : undefined}
           style={{
             padding: iconOnly ? '12px' : '12px 16px',
             backgroundColor: isPickerOpen 
@@ -116,8 +126,49 @@ export function ReactionsButton({ isHost = false, iconOnly = false }: ReactionsB
           {!iconOnly && 'Reactions'}
         </button>
 
+      {/* PRO Badge */}
+      {showProBadge && (
+        <span style={{
+          position: 'absolute',
+          top: '-8px',
+          right: '-8px',
+          padding: '2px 6px',
+          background: 'linear-gradient(to right, #a855f7, #ec4899)',
+          color: 'white',
+          fontSize: '10px',
+          fontWeight: 'bold',
+          borderRadius: '4px',
+          zIndex: 1
+        }}>
+          PRO
+        </span>
+      )}
+
+      {/* Tooltip on hover for disabled */}
+      {disabled && (
+        <div style={{
+          position: 'absolute',
+          bottom: 'calc(100% + 8px)',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          padding: '8px 12px',
+          backgroundColor: '#1f2937',
+          color: 'white',
+          fontSize: '12px',
+          borderRadius: '8px',
+          whiteSpace: 'nowrap',
+          zIndex: 50,
+          pointerEvents: 'none',
+          opacity: 0,
+          transition: 'opacity 0.2s'
+        }}
+        className="group-hover:opacity-100">
+          Upgrade required for this feature
+        </div>
+      )}
+
       {/* Reaction Picker Popup */}
-      {isPickerOpen && (
+      {isPickerOpen && !disabled && (
         <div
           style={{
             position: 'fixed',

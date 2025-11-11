@@ -1,20 +1,38 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRoomContext } from '@livekit/components-react';
 import toast from 'react-hot-toast';
 
 interface SimpleRecordingControlProps {
   isHost: boolean;
+  isFeatureEnabled: boolean;
+  showProBadge?: boolean;
+  onRecordingStateChange?: (isRecording: boolean) => void;
 }
 
-export function SimpleRecordingControl({ isHost }: SimpleRecordingControlProps) {
+export function SimpleRecordingControl({
+  isHost,
+  isFeatureEnabled,
+  showProBadge = false,
+  onRecordingStateChange,
+}: SimpleRecordingControlProps) {
   const room = useRoomContext();
   const [isRecording, setIsRecording] = useState(false);
   const [processingRecRequest, setProcessingRecRequest] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    onRecordingStateChange?.(isRecording);
+  }, [isRecording, onRecordingStateChange]);
 
   // Don't show recording controls if not a host
   if (!isHost) {
@@ -176,60 +194,159 @@ export function SimpleRecordingControl({ isHost }: SimpleRecordingControlProps) 
   };
 
   return (
-    <button
-      onClick={toggleRecording}
-      disabled={processingRecRequest}
-      className="mobile-recording-button"
-      data-recording={isRecording}
-      data-recording-trigger="true"
-      title={
-        isRecording 
-          ? 'Stop screen recording'
-          : 'Start screen recording'
-      }
-    >
-      <span className="mobile-button-content">
-        {processingRecRequest ? (
-          <>
-            <span className="mobile-button-icon" style={{
-              width: '12px',
-              height: '12px',
-              border: '2px solid rgba(255,255,255,0.3)',
-              borderTop: '2px solid white',
-              borderRadius: '50%',
-              animation: 'spin 1s linear infinite'
-            }} />
-            <span className="mobile-button-label">Processing</span>
-          </>
-        ) : isRecording ? (
-          <>
-            <span className="mobile-button-icon" style={{
-              width: '8px',
-              height: '8px',
-              backgroundColor: 'white',
-              borderRadius: '2px'
-            }} />
-            <span className="mobile-button-label">Stop</span>
-          </>
-        ) : (
-          <>
-            <span className="mobile-button-icon" style={{
-              width: '8px',
-              height: '8px',
-              backgroundColor: 'white',
-              borderRadius: '50%'
-            }} />
-            <span className="mobile-button-label">Record</span>
-          </>
+    <>
+      <button
+        onClick={toggleRecording}
+        disabled={processingRecRequest || !isFeatureEnabled}
+        className="mobile-recording-button"
+        data-recording={isRecording}
+        data-recording-trigger="true"
+        title={
+          !isFeatureEnabled
+            ? 'Upgrade required for recording'
+            : isRecording
+              ? 'Stop screen recording'
+              : 'Start screen recording'
+        }
+        style={{
+          width: '100%',
+          padding: '10px 14px',
+          backgroundColor: !isFeatureEnabled
+            ? 'rgba(128, 128, 128, 0.15)'
+            : isRecording
+              ? 'rgba(220, 38, 38, 0.18)'
+              : 'rgba(255, 255, 255, 0.08)',
+          color: !isFeatureEnabled
+            ? 'rgba(255, 255, 255, 0.5)'
+            : isRecording
+              ? '#fca5a5'
+              : 'white',
+          border: '1px solid',
+          borderColor: !isFeatureEnabled
+            ? 'rgba(255, 255, 255, 0.12)'
+            : isRecording
+              ? 'rgba(220, 38, 38, 0.45)'
+              : 'rgba(255, 255, 255, 0.18)',
+          borderRadius: '10px',
+          cursor: processingRecRequest || !isFeatureEnabled ? 'not-allowed' : 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          fontSize: '13px',
+          fontWeight: 500,
+          transition: 'all 0.2s ease',
+        }}
+        onMouseEnter={(e) => {
+          if (!processingRecRequest && isFeatureEnabled && !isRecording) {
+            e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.16)';
+            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.28)';
+          }
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = !isFeatureEnabled
+            ? 'rgba(128, 128, 128, 0.15)'
+            : isRecording
+              ? 'rgba(220, 38, 38, 0.18)'
+              : 'rgba(255, 255, 255, 0.08)';
+          e.currentTarget.style.borderColor = !isFeatureEnabled
+            ? 'rgba(255, 255, 255, 0.12)'
+            : isRecording
+              ? 'rgba(220, 38, 38, 0.45)'
+              : 'rgba(255, 255, 255, 0.18)';
+        }}
+      >
+        <span
+          className="mobile-button-icon"
+          style={{
+            width: 12,
+            height: 12,
+            borderRadius: isRecording ? 3 : '50%',
+            backgroundColor: !isFeatureEnabled ? 'rgba(255, 255, 255, 0.25)' : 'white',
+            boxShadow: isRecording ? '0 0 0 6px rgba(248, 113, 113, 0.45)' : 'none',
+            animation: isRecording ? 'pulse 1.4s ease-in-out infinite' : 'none',
+          }}
+        />
+        <span className="mobile-button-label" style={{ flex: 1 }}>
+          {processingRecRequest
+            ? 'Preparing recorder...'
+            : isRecording
+              ? 'Stop Recording'
+              : 'Start Recording'}
+        </span>
+        {showProBadge && (
+          <span
+            style={{
+              padding: '2px 7px',
+              background: 'linear-gradient(90deg, #a855f7, #ec4899)',
+              borderRadius: 6,
+              fontSize: '10px',
+              fontWeight: 700,
+            }}
+          >
+            PRO
+          </span>
         )}
-      </span>
-      
+        {processingRecRequest && (
+          <span
+            style={{
+              width: 14,
+              height: 14,
+              borderRadius: '50%',
+              border: '2px solid rgba(255, 255, 255, 0.25)',
+              borderTopColor: 'white',
+              animation: 'spin 1s linear infinite',
+            }}
+          />
+        )}
+      </button>
+
+      {mounted && isRecording && createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            top: 20,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1200,
+            padding: '6px 14px',
+            background: 'rgba(220, 38, 38, 0.85)',
+            color: 'white',
+            borderRadius: 999,
+            fontSize: 13,
+            fontWeight: 600,
+            letterSpacing: 0.4,
+            border: '1px solid rgba(255, 255, 255, 0.18)',
+            boxShadow: '0 10px 30px rgba(220, 38, 38, 0.25)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: '#fee2e2',
+              boxShadow: '0 0 0 6px rgba(254, 202, 202, 0.35)',
+              animation: 'pulse 1.4s ease-in-out infinite',
+            }}
+          />
+          Recording…
+        </div>,
+        document.body
+      )}
+
       <style jsx>{`
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
         }
+        @keyframes pulse {
+          0%, 100% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(0.8); opacity: 0.65; }
+        }
       `}</style>
-    </button>
+    </>
   );
 }

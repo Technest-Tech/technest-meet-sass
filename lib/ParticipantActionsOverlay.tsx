@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParticipants, useLocalParticipant } from '@livekit/components-react';
 import { ParticipantActions } from './ParticipantActions';
+import { isObserver } from './utils/observer-filter';
 
 interface ParticipantActionsOverlayProps {
   isHost: boolean;
@@ -124,7 +125,7 @@ export function ParticipantActionsOverlay({ isHost, roomName }: ParticipantActio
   return (
     <>
       {participants
-        .filter(p => p.identity !== localParticipant?.identity)
+        .filter(p => p.identity !== localParticipant?.identity && !isObserver(p))
         .map((participant) => {
           const rect = participantElements.get(participant.identity);
           if (!rect) return null;

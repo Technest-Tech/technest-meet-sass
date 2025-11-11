@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { decodePassphrase } from '@/lib/client-utils';
 import { DebugMode } from '@/lib/Debug';
 import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
@@ -24,11 +25,14 @@ import { MuteControlListener } from '@/lib/MuteControlListener';
 import { WaitingList } from '@/lib/WaitingList';
 import { ParticipantManager } from '@/lib/ParticipantManager';
 import { RoomFile } from '@/lib/types';
+import { logger } from '@/lib/utils/logger';
 import {
   formatChatMessageLinks,
   LocalUserChoices,
   RoomContext,
   VideoConference,
+  useLocalParticipant,
+  useRoomContext,
 } from '@livekit/components-react';
 import {
   ExternalE2EEKeyProvider,
@@ -42,6 +46,7 @@ import {
   TrackPublishDefaults,
   VideoCaptureOptions,
   DisconnectReason,
+  Track,
 } from 'livekit-client';
 import { useRouter } from 'next/navigation';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
@@ -69,6 +74,7 @@ export function PageClientImpl(props: {
   requireWaitingRoom?: boolean; // Whether waiting room is enabled
   allowGuestUnmute?: boolean; // Whether guests can unmute themselves
   enablePrivateChat?: boolean; // Whether private chat is enabled
+  roomFeatures?: any; // Room feature flags from validation
 }) {
   const [preJoinChoices, setPreJoinChoices] = React.useState<LocalUserChoices | undefined>(
     undefined,
@@ -97,11 +103,11 @@ export function PageClientImpl(props: {
         setConnectionStatus('connecting');
         setHasAutoConnected(true); // Mark as auto-connected
         
-        // Set default choices - camera off, microphone on
+        // Set default choices - camera off, microphone off
         const defaultChoices: LocalUserChoices = {
           username: props.userName || 'Participant',
           videoEnabled: false, // Camera off by default
-          audioEnabled: true,  // Microphone on by default
+          audioEnabled: false, // Microphone off by default
           videoDeviceId: undefined,
           audioDeviceId: undefined,
         };
@@ -120,18 +126,53 @@ export function PageClientImpl(props: {
         const connectionDetailsResp = await fetch(url.toString());
         
         if (!connectionDetailsResp.ok) {
-          throw new Error(`Failed to connect: ${connectionDetailsResp.statusText}`);
+          // Try to parse error message from response
+          let errorMessage = `Failed to connect: ${connectionDetailsResp.statusText}`;
+          try {
+            const errorData = await connectionDetailsResp.json();
+            if (errorData.error) {
+              errorMessage = errorData.error;
+            }
+          } catch {
+            // If JSON parsing fails, use the status text
+          }
+          
+          // For 403 errors (like host already active), don't retry
+          if (connectionDetailsResp.status === 403) {
+            setConnectionStatus('error');
+            setErrorMessage(errorMessage);
+            setHasAutoConnected(true); // Prevent retries for 403 errors
+            setMeetingEnded(true); // Mark as ended to prevent further attempts
+            return;
+          }
+          
+          throw new Error(errorMessage);
         }
         
         const connectionDetailsData = await connectionDetailsResp.json();
+        
+        // Check if response contains an error field
+        if (connectionDetailsData.error) {
+          setConnectionStatus('error');
+          setErrorMessage(connectionDetailsData.error);
+          setHasAutoConnected(true); // Prevent retries
+          setMeetingEnded(true); // Mark as ended
+          return;
+        }
+        
         setConnectionDetails(connectionDetailsData);
         setConnectionStatus('connected');
         
       } catch (error) {
-        console.error('Failed to auto-connect:', error);
+        logger.error('Failed to auto-connect:', error);
         setConnectionStatus('error');
         setErrorMessage(error instanceof Error ? error.message : 'Connection failed');
-        setHasAutoConnected(false); // Reset on error to allow retry
+        // Only reset on non-403 errors to allow retry for network issues
+        const is403Error = error instanceof Error && error.message.includes('403');
+        setHasAutoConnected(is403Error); // Don't retry on 403 errors
+        if (is403Error) {
+          setMeetingEnded(true); // Mark as ended to prevent further attempts
+        }
       }
     };
 
@@ -148,16 +189,124 @@ export function PageClientImpl(props: {
     if (props.region) {
       url.searchParams.append('region', props.region);
     }
-    const connectionDetailsResp = await fetch(url.toString());
-    const connectionDetailsData = await connectionDetailsResp.json();
-    setConnectionDetails(connectionDetailsData);
+    
+    try {
+      const connectionDetailsResp = await fetch(url.toString());
+      
+      if (!connectionDetailsResp.ok) {
+        // Try to parse error message from response
+        let errorMessage = `Failed to connect: ${connectionDetailsResp.statusText}`;
+        try {
+          const errorData = await connectionDetailsResp.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } catch {
+          // If JSON parsing fails, use the status text
+        }
+        
+        setConnectionStatus('error');
+        setErrorMessage(errorMessage);
+        setMeetingEnded(true); // Prevent further attempts
+        return;
+      }
+      
+      const connectionDetailsData = await connectionDetailsResp.json();
+      
+      // Check if response contains an error field
+      if (connectionDetailsData.error) {
+        setConnectionStatus('error');
+        setErrorMessage(connectionDetailsData.error);
+        setMeetingEnded(true); // Prevent further attempts
+        return;
+      }
+      
+      setConnectionDetails(connectionDetailsData);
+      setConnectionStatus('connected');
+    } catch (error) {
+      logger.error('Failed to get connection details:', error);
+      setConnectionStatus('error');
+      setErrorMessage(error instanceof Error ? error.message : 'Connection failed');
+      setMeetingEnded(true);
+    }
   }, [props.roomName, props.region, props.participantType]);
 
-  const handlePreJoinError = React.useCallback((e: any) => console.error(e), []);
+  const handlePreJoinError = React.useCallback((e: any) => logger.error('PreJoin error:', e), []);
 
   return (
     <main data-lk-theme="default" style={{ height: '100vh', width: '100vw', overflow: 'hidden' }}>
-      {connectionStatus === 'connecting' ? (
+      {connectionStatus === 'error' && errorMessage ? (
+        <div style={{
+          height: '100vh',
+          width: '100vw',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#f3f4f6',
+          padding: '2rem',
+          textAlign: 'center',
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '2rem',
+            maxWidth: '500px',
+            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+          }}>
+            <div style={{
+              width: '64px',
+              height: '64px',
+              margin: '0 auto 1.5rem',
+              backgroundColor: '#fee2e2',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <svg style={{ width: '32px', height: '32px', color: '#dc2626' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+            </div>
+            <h1 style={{
+              fontSize: '1.5rem',
+              fontWeight: 'bold',
+              color: '#111827',
+              marginBottom: '1rem',
+            }}>
+              Connection Error
+            </h1>
+            <p style={{
+              fontSize: '1rem',
+              color: '#6b7280',
+              marginBottom: '2rem',
+              lineHeight: '1.5',
+            }}>
+              {errorMessage}
+            </p>
+            <button
+              onClick={() => {
+                window.location.href = '/';
+              }}
+              style={{
+                backgroundColor: '#3b82f6',
+                color: 'white',
+                padding: '0.75rem 1.5rem',
+                borderRadius: '8px',
+                border: 'none',
+                fontSize: '1rem',
+                fontWeight: '500',
+                cursor: 'pointer',
+                transition: 'background-color 0.2s',
+              }}
+              onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+              onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#3b82f6'}
+            >
+              Return to Home Page
+            </button>
+          </div>
+        </div>
+      ) : connectionStatus === 'connecting' ? (
         <div style={{
           height: '100vh',
           display: 'flex',
@@ -367,9 +516,611 @@ export function PageClientImpl(props: {
           setIsScreenAnnotationEnabled={setIsScreenAnnotationEnabled}
           selectedPdfFile={selectedPdfFile}
           setSelectedPdfFile={setSelectedPdfFile}
+          roomFeatures={props.roomFeatures}
         />
       )}
     </main>
+  );
+}
+
+// Custom Control Buttons Component
+function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
+  const { localParticipant } = useLocalParticipant();
+  const [isMicEnabled, setIsMicEnabled] = React.useState(false);
+  const [isCameraEnabled, setIsCameraEnabled] = React.useState(false);
+  const [isScreenSharing, setIsScreenSharing] = React.useState(false);
+  const [showLeaveDialog, setShowLeaveDialog] = React.useState(false);
+
+  // Track participant state changes
+  React.useEffect(() => {
+    if (localParticipant) {
+      setIsMicEnabled(localParticipant.isMicrophoneEnabled);
+      setIsCameraEnabled(localParticipant.isCameraEnabled);
+      setIsScreenSharing(localParticipant.isScreenShareEnabled);
+    }
+  }, [localParticipant]);
+
+  // Toggle microphone
+  const toggleMicrophone = async () => {
+    if (localParticipant) {
+      const enabled = localParticipant.isMicrophoneEnabled;
+      await localParticipant.setMicrophoneEnabled(!enabled);
+      setIsMicEnabled(!enabled);
+    }
+  };
+
+  // Toggle camera
+  const toggleCamera = async () => {
+    if (localParticipant) {
+      const enabled = localParticipant.isCameraEnabled;
+      await localParticipant.setCameraEnabled(!enabled);
+      setIsCameraEnabled(!enabled);
+    }
+  };
+
+  // Toggle screen share
+  const toggleScreenShare = async () => {
+    if (localParticipant) {
+      const enabled = localParticipant.isScreenShareEnabled;
+      await localParticipant.setScreenShareEnabled(!enabled);
+      setIsScreenSharing(!enabled);
+    }
+  };
+
+  // Base button style matching custom buttons
+  const getButtonStyle = (isActive: boolean, isDisabled: boolean = false, isDanger: boolean = false): React.CSSProperties => {
+    let backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    let borderColor = 'rgba(255, 255, 255, 0.2)';
+    
+    if (isDanger) {
+      backgroundColor = 'rgba(220, 38, 38, 0.9)';
+      borderColor = 'rgba(220, 38, 38, 1)';
+    } else if (isActive) {
+      backgroundColor = 'rgba(59, 130, 246, 0.9)';
+      borderColor = 'rgba(59, 130, 246, 1)';
+    }
+    
+    return {
+      backgroundColor,
+      border: `1px solid ${borderColor}`,
+      borderRadius: '12px',
+      padding: '12px',
+      color: 'white',
+      cursor: 'pointer',
+      fontSize: '14px',
+      fontWeight: '500',
+      backdropFilter: 'blur(10px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minWidth: '48px',
+      width: '48px',
+      height: '48px',
+      transition: 'all 0.2s ease',
+      position: 'relative',
+      boxShadow: isActive ? '0 4px 12px rgba(59, 130, 246, 0.3)' : 'none',
+    };
+  };
+
+  const handleMouseEnter = (e: React.MouseEvent<HTMLButtonElement>, isActive: boolean, isDanger: boolean = false) => {
+    if (isDanger) {
+      e.currentTarget.style.backgroundColor = 'rgba(185, 28, 28, 0.95)';
+    } else if (isActive) {
+      e.currentTarget.style.backgroundColor = 'rgba(37, 99, 235, 0.95)';
+    } else {
+      e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.85)';
+    }
+    e.currentTarget.style.transform = 'translateY(-2px)';
+  };
+
+  const handleMouseLeave = (e: React.MouseEvent<HTMLButtonElement>, isActive: boolean, isDanger: boolean = false) => {
+    if (isDanger) {
+      e.currentTarget.style.backgroundColor = 'rgba(220, 38, 38, 0.9)';
+    } else if (isActive) {
+      e.currentTarget.style.backgroundColor = 'rgba(59, 130, 246, 0.9)';
+    } else {
+      e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    }
+    e.currentTarget.style.transform = 'translateY(0)';
+  };
+
+  const [hoveredButton, setHoveredButton] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!showLeaveDialog) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowLeaveDialog(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showLeaveDialog]);
+
+  React.useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (!showLeaveDialog) return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [showLeaveDialog]);
+
+  const leaveDialog = React.useMemo(() => {
+    if (!showLeaveDialog || typeof document === 'undefined') {
+      return null;
+    }
+
+    return createPortal(
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+          animation: 'fadeIn 0.2s ease-out',
+        }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="leave-meeting-title"
+        aria-describedby="leave-meeting-description"
+      >
+        <div
+          style={{
+            backgroundColor: 'white',
+            borderRadius: '16px',
+            padding: '32px',
+            maxWidth: '420px',
+            width: '90%',
+            boxShadow:
+              '0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2)',
+            animation: 'slideUp 0.3s ease-out',
+          }}
+        >
+          <div
+            style={{
+              width: '64px',
+              height: '64px',
+              borderRadius: '50%',
+              backgroundColor: '#fee2e2',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 20px',
+            }}
+          >
+            <span style={{ fontSize: '32px' }}>🚪</span>
+          </div>
+
+          <h3
+            id="leave-meeting-title"
+            style={{
+              fontSize: '20px',
+              fontWeight: '600',
+              color: '#111827',
+              textAlign: 'center',
+              marginBottom: '12px',
+            }}
+          >
+            Leave Meeting?
+          </h3>
+
+          <p
+            id="leave-meeting-description"
+            style={{
+              fontSize: '14px',
+              color: '#6b7280',
+              textAlign: 'center',
+              marginBottom: '28px',
+              lineHeight: '1.5',
+            }}
+          >
+            Are you sure you want to leave this meeting? You can rejoin anytime.
+          </p>
+
+          <div
+            style={{
+              display: 'flex',
+              gap: '12px',
+              justifyContent: 'center',
+            }}
+          >
+            <button
+              onClick={() => setShowLeaveDialog(false)}
+              style={{
+                flex: 1,
+                padding: '12px 24px',
+                backgroundColor: '#f3f4f6',
+                color: '#374151',
+                border: 'none',
+                borderRadius: '10px',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#e5e7eb';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#f3f4f6';
+              }}
+            >
+              Cancel
+            </button>
+
+            <button
+              onClick={() => {
+                setShowLeaveDialog(false);
+                onLeave();
+              }}
+              style={{
+                flex: 1,
+                padding: '12px 24px',
+                backgroundColor: '#dc2626',
+                color: 'white',
+                border: 'none',
+                borderRadius: '10px',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#b91c1c';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = '#dc2626';
+              }}
+            >
+              Leave
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  }, [showLeaveDialog, onLeave]);
+
+  return (
+    <>
+      {/* Microphone Button - Color coded */}
+      <button
+        onClick={toggleMicrophone}
+        className="custom-track-toggle custom-control-button"
+        data-custom-button="true"
+        style={{
+          background: isMicEnabled ? 'rgba(34, 197, 94, 0.9)' : 'rgba(239, 68, 68, 0.9)',
+          border: `2px solid ${isMicEnabled ? 'rgba(34, 197, 94, 1)' : 'rgba(239, 68, 68, 1)'}`,
+          borderRadius: '12px',
+          padding: '6px 10px',
+          color: 'white',
+          minWidth: '56px',
+          minHeight: '48px',
+          height: '48px',
+          display: 'flex !important',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '2px',
+          cursor: 'pointer',
+          transition: 'all 0.2s ease',
+          touchAction: 'manipulation',
+          userSelect: 'none',
+          WebkitTapHighlightColor: 'transparent',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = 'scale(1.05)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'scale(1)';
+        }}
+        onMouseDown={(e) => {
+          e.currentTarget.style.transform = 'scale(0.95)';
+        }}
+        onMouseUp={(e) => {
+          e.currentTarget.style.transform = 'scale(1.05)';
+        }}
+        onTouchStart={(e) => {
+          e.currentTarget.style.transform = 'scale(0.95)';
+        }}
+        onTouchEnd={(e) => {
+          e.currentTarget.style.transform = 'scale(1)';
+        }}
+        title={isMicEnabled ? 'Mute microphone' : 'Unmute microphone'}
+      >
+        {/* Icon */}
+        <svg
+          className="custom-toggle-icon"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          {isMicEnabled ? (
+            // Microphone on icon
+            <>
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </>
+          ) : (
+            // Microphone off icon with slash
+            <>
+              <line x1="1" y1="1" x2="23" y2="23" />
+              <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+              <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </>
+          )}
+        </svg>
+        
+        {/* Label */}
+        <span className="custom-toggle-label" style={{
+          fontSize: '10px',
+          fontWeight: '600',
+          textAlign: 'center',
+          lineHeight: '1',
+          textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)'
+        }}>
+          Mic
+        </span>
+        
+        {/* Status text */}
+        <span className="custom-toggle-status" style={{
+          fontSize: '8px',
+          fontWeight: '500',
+          opacity: 0.9,
+          textAlign: 'center',
+          lineHeight: '1'
+        }}>
+          {isMicEnabled ? 'ON' : 'OFF'}
+        </span>
+      </button>
+
+      {/* Camera Button - Color coded */}
+      <button
+        onClick={toggleCamera}
+        className="custom-track-toggle custom-control-button"
+        data-custom-button="true"
+        style={{
+          background: isCameraEnabled ? 'rgba(34, 197, 94, 0.9)' : 'rgba(239, 68, 68, 0.9)',
+          border: `2px solid ${isCameraEnabled ? 'rgba(34, 197, 94, 1)' : 'rgba(239, 68, 68, 1)'}`,
+          borderRadius: '12px',
+          padding: '6px 10px',
+          color: 'white',
+          minWidth: '56px',
+          minHeight: '48px',
+          height: '48px',
+          display: 'flex !important',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '2px',
+          cursor: 'pointer',
+          transition: 'all 0.2s ease',
+          touchAction: 'manipulation',
+          userSelect: 'none',
+          WebkitTapHighlightColor: 'transparent',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = 'scale(1.05)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'scale(1)';
+        }}
+        onMouseDown={(e) => {
+          e.currentTarget.style.transform = 'scale(0.95)';
+        }}
+        onMouseUp={(e) => {
+          e.currentTarget.style.transform = 'scale(1.05)';
+        }}
+        onTouchStart={(e) => {
+          e.currentTarget.style.transform = 'scale(0.95)';
+        }}
+        onTouchEnd={(e) => {
+          e.currentTarget.style.transform = 'scale(1)';
+        }}
+        title={isCameraEnabled ? 'Turn off camera' : 'Turn on camera'}
+      >
+        {/* Icon */}
+        <svg
+          className="custom-toggle-icon"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          {isCameraEnabled ? (
+            // Camera on icon
+            <>
+              <path d="M23 7l-7 5 7 5V7z" />
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+            </>
+          ) : (
+            // Camera off icon with slash
+            <>
+              <line x1="1" y1="1" x2="23" y2="23" />
+              <path d="M21 21H3a2 2 0 01-2-2V8a2 2 0 012-2h3m3-3h6l2 3h4a2 2 0 012 2v9.34m-7.72-2.06a4 4 0 11-5.56-5.56" />
+            </>
+          )}
+        </svg>
+        
+        {/* Label */}
+        <span className="custom-toggle-label" style={{
+          fontSize: '10px',
+          fontWeight: '600',
+          textAlign: 'center',
+          lineHeight: '1',
+          textShadow: '0 1px 2px rgba(0, 0, 0, 0.3)'
+        }}>
+          Camera
+        </span>
+        
+        {/* Status text */}
+        <span className="custom-toggle-status" style={{
+          fontSize: '8px',
+          fontWeight: '500',
+          opacity: 0.9,
+          textAlign: 'center',
+          lineHeight: '1'
+        }}>
+          {isCameraEnabled ? 'ON' : 'OFF'}
+        </span>
+      </button>
+
+      {/* Screen Share Button */}
+      <div style={{ position: 'relative' }} className="group">
+        <button
+          onClick={toggleScreenShare}
+          style={getButtonStyle(isScreenSharing, false, false)}
+          onMouseEnter={(e) => {
+            handleMouseEnter(e, isScreenSharing);
+            setHoveredButton('screen');
+          }}
+          onMouseLeave={(e) => {
+            handleMouseLeave(e, isScreenSharing);
+            setHoveredButton(null);
+          }}
+          title={isScreenSharing ? 'Stop sharing' : 'Share screen'}
+        >
+          <span style={{ fontSize: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {isScreenSharing ? '⏹️' : '🖥️'}
+          </span>
+          {/* Active indicator */}
+          {isScreenSharing && (
+            <span style={{
+              position: 'absolute',
+              top: '6px',
+              right: '6px',
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              backgroundColor: '#22c55e',
+              animation: 'pulse 2s ease-in-out infinite',
+            }} />
+          )}
+        </button>
+        {/* Tooltip */}
+        {hoveredButton === 'screen' && (
+          <div style={{
+            position: 'absolute',
+            bottom: 'calc(100% + 8px)',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            padding: '6px 12px',
+            backgroundColor: '#1f2937',
+            color: 'white',
+            fontSize: '12px',
+            fontWeight: '500',
+            borderRadius: '6px',
+            whiteSpace: 'nowrap',
+            zIndex: 9999,
+            pointerEvents: 'none',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+          }}>
+            {isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
+          </div>
+        )}
+      </div>
+
+      {/* Leave Button */}
+      <div style={{ position: 'relative' }} className="group">
+        <button
+          onClick={() => setShowLeaveDialog(true)}
+          style={getButtonStyle(false, false, false)}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = 'rgba(220, 38, 38, 0.9)';
+            e.currentTarget.style.borderColor = 'rgba(220, 38, 38, 1)';
+            e.currentTarget.style.transform = 'translateY(-2px)';
+            setHoveredButton('leave');
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+            e.currentTarget.style.transform = 'translateY(0)';
+            setHoveredButton(null);
+          }}
+          title="Leave meeting"
+        >
+          <span style={{ fontSize: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444' }}>
+            🚪
+          </span>
+        </button>
+        {/* Tooltip */}
+        {hoveredButton === 'leave' && (
+          <div style={{
+            position: 'absolute',
+            bottom: 'calc(100% + 8px)',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            padding: '6px 12px',
+            backgroundColor: '#dc2626',
+            color: 'white',
+            fontSize: '12px',
+            fontWeight: '500',
+            borderRadius: '6px',
+            whiteSpace: 'nowrap',
+            zIndex: 9999,
+            pointerEvents: 'none',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+          }}>
+            Leave Meeting
+          </div>
+        )}
+      </div>
+
+      {leaveDialog}
+
+      {/* CSS for animations */}
+      <style jsx>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(1.2); }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes slideUp {
+          from { 
+            transform: translateY(20px);
+            opacity: 0;
+          }
+          to { 
+            transform: translateY(0);
+            opacity: 1;
+          }
+        }
+      `}</style>
+    </>
   );
 }
 
@@ -393,6 +1144,7 @@ function VideoConferenceComponent(props: {
   setIsScreenAnnotationEnabled: (enabled: boolean) => void;
   selectedPdfFile: RoomFile | null;
   setSelectedPdfFile: (file: RoomFile | null) => void;
+  roomFeatures?: any; // Room feature flags
 }) {
   const router = useRouter();
   const keyProvider = new ExternalE2EEKeyProvider();
@@ -442,7 +1194,7 @@ function VideoConferenceComponent(props: {
               alert(
                 `You're trying to join an encrypted meeting, but your browser does not support it. Please update it to the latest version and try again.`,
               );
-              console.error(e);
+              logger.error('Device unsupported error:', e);
             } else {
               throw e;
             }
@@ -456,7 +1208,7 @@ function VideoConferenceComponent(props: {
 
   // Debug logging for host controls
   React.useEffect(() => {
-    console.log('🔍 Host Controls Debug:', {
+    logger.debug('Host Controls Debug:', {
       participantType: props.participantType,
       roomName: props.roomName,
       connectionDetails: props.connectionDetails,
@@ -465,9 +1217,9 @@ function VideoConferenceComponent(props: {
     
     // Additional debugging for host controls rendering
     if (props.participantType === 'host') {
-      console.log('✅ Host controls should be visible');
+      logger.debug('Host controls should be visible');
     } else {
-      console.log('❌ Host controls hidden - participant type:', props.participantType);
+      logger.debug('Host controls hidden - participant type:', props.participantType);
     }
   }, [props.participantType, props.roomName, props.connectionDetails]);
 
@@ -492,25 +1244,29 @@ function VideoConferenceComponent(props: {
     setIsConnecting(true);
     
     try {
-      // Request media permissions first
-      console.log('Requesting media permissions...');
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: props.userChoices.videoEnabled,
-          audio: props.userChoices.audioEnabled
-        });
-        
-        // Stop the stream immediately as we just needed permission
-        stream.getTracks().forEach(track => track.stop());
-        console.log('Media permissions granted');
-      } catch (permissionError) {
-        console.error('Media permission denied:', permissionError);
-        // Continue anyway - LiveKit will handle the case where permissions are denied
+      // Request media permissions first (only if at least one is enabled)
+      if (props.userChoices.videoEnabled || props.userChoices.audioEnabled) {
+        logger.debug('Requesting media permissions...');
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: props.userChoices.videoEnabled,
+            audio: props.userChoices.audioEnabled
+          });
+          
+          // Stop the stream immediately as we just needed permission
+          stream.getTracks().forEach(track => track.stop());
+          logger.debug('Media permissions granted');
+        } catch (permissionError) {
+          logger.error('Media permission denied:', permissionError);
+          // Continue anyway - LiveKit will handle the case where permissions are denied
+        }
+      } else {
+        logger.debug('Skipping media permissions request - both audio and video are disabled');
       }
       
       // Clean up any existing connection first
       if (room && room.state !== 'disconnected') {
-        console.log('Cleaning up existing connection before reconnecting...');
+        logger.debug('Cleaning up existing connection before reconnecting...');
         await room.disconnect();
         // Wait a bit for cleanup to complete
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -537,31 +1293,31 @@ function VideoConferenceComponent(props: {
         // Enable camera and microphone based on user choices (camera off, microphone on by default)
         if (props.userChoices.videoEnabled) {
           room.localParticipant.setCameraEnabled(true).catch((error) => {
-            console.warn('Failed to enable camera:', error);
+            logger.warn('Failed to enable camera:', error);
             // Don't treat camera enable failure as a critical error
           });
         } else {
           // Ensure camera is disabled if not wanted
           room.localParticipant.setCameraEnabled(false).catch((error) => {
-            console.warn('Failed to disable camera:', error);
+            logger.warn('Failed to disable camera:', error);
           });
         }
         
         if (props.userChoices.audioEnabled) {
           room.localParticipant.setMicrophoneEnabled(true).catch((error) => {
-            console.warn('Failed to enable microphone:', error);
+            logger.warn('Failed to enable microphone:', error);
             // Don't treat microphone enable failure as a critical error
           });
         } else {
           // Ensure microphone is disabled if not wanted
           room.localParticipant.setMicrophoneEnabled(false).catch((error) => {
-            console.warn('Failed to disable microphone:', error);
+            logger.warn('Failed to disable microphone:', error);
           });
         }
       }, 1000); // 1 second delay
       
     } catch (error) {
-      console.error('Connection failed:', error);
+      logger.error('Connection failed:', error);
       setIsConnecting(false);
       setReconnectAttempts(prev => prev + 1);
       
@@ -588,14 +1344,14 @@ function VideoConferenceComponent(props: {
   const lowPowerMode = useLowCPUOptimizer(room);
   
   const handleError = React.useCallback((error: Error) => {
-    console.error('LiveKit error:', error);
+    logger.error('LiveKit error:', error);
     
     // Handle specific RTCPeerConnection errors
     if (error.message.includes('setRemoteDescription') || error.message.includes('addIceCandidate')) {
-      console.warn('RTCPeerConnection error - connection may be in invalid state');
+      logger.warn('RTCPeerConnection error - connection may be in invalid state');
       // Try to reconnect if the connection is in a bad state
       if (room && room.state !== 'disconnected') {
-        console.log('Attempting to reconnect due to RTCPeerConnection error');
+        logger.debug('Attempting to reconnect due to RTCPeerConnection error');
         room.disconnect();
         // Reset connection state
         setIsConnected(false);
@@ -606,7 +1362,7 @@ function VideoConferenceComponent(props: {
     
     // Handle AudioContext errors (browser permission issues)
     if (error.message.includes('AudioContext') || error.message.includes('not allowed to start')) {
-      console.warn('AudioContext permission error - user needs to interact with page first');
+      logger.warn('AudioContext permission error - user needs to interact with page first');
       // Reset to user interaction state to allow them to try again
       setIsConnected(false);
       setIsConnecting(false);
@@ -616,7 +1372,7 @@ function VideoConferenceComponent(props: {
     
     // Handle WebRTC connection errors
     if (error.message.includes('could not establish pc connection') || error.message.includes('Client initiated disconnect')) {
-      console.warn('WebRTC connection error - this may be due to component lifecycle issues');
+      logger.warn('WebRTC connection error - this may be due to component lifecycle issues');
       // Reset to user interaction state to allow them to try again
       setIsConnected(false);
       setIsConnecting(false);
@@ -626,20 +1382,20 @@ function VideoConferenceComponent(props: {
     
     // Handle camera track placeholder errors
     if (error.message.includes('Element not part of the array') || error.message.includes('camera_placeholder')) {
-      console.warn('Camera track placeholder error - this is usually a timing issue');
+      logger.warn('Camera track placeholder error - this is usually a timing issue');
       // Don't disconnect for this error, it's usually resolved automatically
       return;
     }
     
     // Don't show alert for common connection issues to avoid spam
     if (error.message.includes('duplicate') || error.message.includes('already exists')) {
-      console.warn('Duplicate participant detected, this is normal during reconnections');
+      logger.warn('Duplicate participant detected, this is normal during reconnections');
       return;
     }
     
     // Handle screen sharing permission cancellation gracefully
     if (error.message.includes('Permission denied by user') || error.message.includes('NotAllowedError')) {
-      console.log('Screen sharing permission was denied by user - this is expected behavior');
+      logger.debug('Screen sharing permission was denied by user - this is expected behavior');
       // Don't show alert for permission cancellation, just log it
       return;
     }
@@ -651,18 +1407,18 @@ function VideoConferenceComponent(props: {
   }, [room]);
   
   const handleEncryptionError = React.useCallback((error: Error) => {
-    console.error('LiveKit encryption error:', error);
+    logger.error('LiveKit encryption error:', error);
     alert(
       `Encountered an unexpected encryption error, check the console logs for details: ${error.message}`,
     );
   }, []);
 
   const handleOnLeave = React.useCallback((reason?: DisconnectReason) => {
-    console.log('Room disconnected, reason:', reason);
+    logger.debug('Room disconnected, reason:', reason);
     
     // If disconnected due to being removed by host, don't auto-reconnect
     if (reason === DisconnectReason.PARTICIPANT_REMOVED) {
-      console.log('Participant was removed by host, not reconnecting');
+      logger.info('Participant was removed by host, not reconnecting');
       props.setMeetingEnded(true); // Mark as ended to prevent reconnection
       router.push('/');
       return;
@@ -670,7 +1426,7 @@ function VideoConferenceComponent(props: {
     
     // If meeting was ended, don't reconnect
     if (props.meetingEnded) {
-      console.log('Meeting was ended, not reconnecting');
+      logger.info('Meeting was ended, not reconnecting');
       router.push('/');
       return;
     }
@@ -678,7 +1434,7 @@ function VideoConferenceComponent(props: {
     // Check if this is a user-initiated disconnect (clicking leave button)
     // CLIENT_INITIATED means user clicked the disconnect/leave button
     if (reason === DisconnectReason.CLIENT_INITIATED) {
-      console.log('User intentionally left meeting (CLIENT_INITIATED)');
+      logger.info('User intentionally left meeting (CLIENT_INITIATED)');
       props.setMeetingEnded(true); // Mark as ended to prevent reconnection
       router.push('/');
       return;
@@ -697,7 +1453,7 @@ function VideoConferenceComponent(props: {
     
     // Only redirect if this was an intentional leave (not a page reload)
     if (room.state === 'disconnected' && !document.hidden) {
-      console.log('Intentional leave detected, redirecting to home...');
+      logger.info('Intentional leave detected, redirecting to home...');
       props.setMeetingEnded(true); // Mark as ended to prevent reconnection
       router.push('/');
     }
@@ -707,19 +1463,19 @@ function VideoConferenceComponent(props: {
   React.useEffect(() => {
     // Don't auto-connect if meeting ended or user left
     if (props.meetingEnded) {
-      console.log('Meeting ended or user left, not auto-connecting');
+      logger.debug('Meeting ended or user left, not auto-connecting');
       return;
     }
     
     if (props.connectionDetails && !isConnected && !isConnecting && e2eeSetupComplete) {
       // Check if room is already connected to prevent duplicates
       if (room && room.state === 'connected') {
-        console.log('Room already connected, skipping auto-connect');
+        logger.debug('Room already connected, skipping auto-connect');
         setIsConnected(true);
         return;
       }
       
-      console.log('Auto-connecting to meeting...');
+      logger.debug('Auto-connecting to meeting...');
       handleUserInteraction();
     }
   }, [props.connectionDetails, isConnected, isConnecting, e2eeSetupComplete, handleUserInteraction, room, props.meetingEnded]);
@@ -727,7 +1483,7 @@ function VideoConferenceComponent(props: {
   // All hooks must be called before any conditional returns
   React.useEffect(() => {
     if (lowPowerMode) {
-      console.warn('Low power mode enabled');
+      logger.warn('Low power mode enabled');
     }
   }, [lowPowerMode]);
 
@@ -761,7 +1517,7 @@ function VideoConferenceComponent(props: {
           }
         }
       } catch (error) {
-        console.error('Error parsing PDF viewer sync data:', error);
+        logger.error('Error parsing PDF viewer sync data:', error);
       }
     };
 
@@ -776,18 +1532,18 @@ function VideoConferenceComponent(props: {
   React.useEffect(() => {
     const handleBeforeUnload = () => {
       if (room && room.state !== 'disconnected') {
-        console.log('Page unloading, disconnecting from room...');
+        logger.debug('Page unloading, disconnecting from room...');
         room.disconnect();
       }
     };
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        console.log('Page hidden, but keeping room connection active for screen sharing...');
+        logger.debug('Page hidden, but keeping room connection active for screen sharing...');
         // Don't disconnect when switching tabs - this allows screen sharing to continue
         // The room will only disconnect when the page is actually unloaded (beforeunload)
       } else {
-        console.log('Page visible again');
+        logger.debug('Page visible again');
       }
     };
 
@@ -802,7 +1558,7 @@ function VideoConferenceComponent(props: {
       
       // Cleanup room connection when component unmounts
       if (room && room.state !== 'disconnected') {
-        console.log('Component unmounting, disconnecting from room...');
+        logger.debug('Component unmounting, disconnecting from room...');
         room.disconnect();
       }
     };
@@ -968,11 +1724,12 @@ function VideoConferenceComponent(props: {
         canRecord={canRecord}
         roomName={roomName}
         iconOnly={iconOnly}
+        roomFeatures={props.roomFeatures}
         onEndMeeting={isHost ? async () => {
           if (meetingEnded) return; // Prevent multiple end meeting calls
           
-          console.log('🚪 End Meeting button clicked!');
-          console.log('Current props:', { participantType: isHost ? 'host' : 'guest', roomName });
+          logger.debug('End Meeting button clicked!');
+          logger.debug('Current props:', { participantType: isHost ? 'host' : 'guest', roomName });
           
           // Host can end the meeting for all participants
           const confirmMessage = `🚨 END MEETING FOR ALL PARTICIPANTS
@@ -991,7 +1748,7 @@ Are you sure you want to end the meeting for everyone?`;
               // Call the server-side API to end the meeting for everyone
               // Use the actual LiveKit room name from connection details
               const actualRoomName = connectionDetails?.roomName || roomName;
-              console.log('Ending meeting for room:', actualRoomName);
+              logger.info('Ending meeting for room:', actualRoomName);
               
               const response = await fetch(`/api/admin/rooms/${roomName}/end-meeting`, {
                 method: 'POST',
@@ -1005,7 +1762,7 @@ Are you sure you want to end the meeting for everyone?`;
 
               if (response.ok) {
                 const result = await response.json();
-                console.log('Meeting ended successfully:', result);
+                logger.success('Meeting ended successfully:', result);
                 
                 // Show success message
                 const successMessage = `✅ MEETING ENDED SUCCESSFULLY!
@@ -1023,7 +1780,7 @@ The meeting has been terminated for all participants and the room has been delet
                 router.push('/');
               } else {
                 const error = await response.json();
-                console.error('Failed to end meeting:', error);
+                logger.error('Failed to end meeting:', error);
                 
                 let errorMessage = 'Failed to end meeting';
                 if (error.error) {
@@ -1037,7 +1794,7 @@ The meeting has been terminated for all participants and the room has been delet
                 setMeetingEnded(false); // Reset on error to allow retry
               }
             } catch (error) {
-              console.error('Error ending meeting:', error);
+              logger.error('Error ending meeting:', error);
               
               let errorMessage = 'Error ending meeting';
               if (error instanceof Error) {
@@ -1134,12 +1891,19 @@ The meeting has been terminated for all participants and the room has been delet
         <RaiseHandIndicator />
         
         {/* Student Monitor PiP - Shows students when teacher is screen sharing (Host only) */}
-        {props.participantType === 'host' && <StudentMonitorPiP key="student-monitor-pip" isHost={true} />}
+        {props.participantType === 'host' && (
+          <StudentMonitorPiP 
+            key="student-monitor-pip" 
+            isHost={true}
+            disabled={!(props.roomFeatures?.enableStudentMonitorPiP ?? false)}
+            showProBadge={!(props.roomFeatures?.enableStudentMonitorPiP ?? false)}
+          />
+        )}
         
-        {/* Top Action Buttons Row - Icon-only buttons in horizontal row */}
-        <div style={{
+        {/* Custom Action Buttons Row - All controls in one horizontal row */}
+        <div className="custom-control-bar custom-action-buttons-row" style={{
           position: 'fixed',
-          bottom: '80px', // Space above bottom control bar (60px height + 20px gap)
+          bottom: '20px',
           left: '50%',
           transform: 'translateX(-50%)',
           zIndex: 1000,
@@ -1147,41 +1911,36 @@ The meeting has been terminated for all participants and the room has been delet
           flexDirection: 'row',
           gap: '8px',
           alignItems: 'center',
-          justifyContent: 'center'
+          justifyContent: 'center',
+          backgroundColor: 'rgba(0, 0, 0, 0.9)',
+          backdropFilter: 'blur(10px)',
+          borderRadius: '16px',
+          padding: '12px 16px',
+          paddingBottom: 'max(12px, env(safe-area-inset-bottom))',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          boxSizing: 'border-box',
+          maxWidth: 'calc(100vw - 40px)',
+          flexWrap: 'wrap'
         }}>
-          {/* Raise Hand Button - Icon only */}
-          <div style={{ position: 'relative' }}>
-            <RaiseHandButton isHost={props.participantType === 'host'} iconOnly={true} />
-          </div>
+          {/* Core Control Buttons - Mic, Camera, Screen Share, Leave */}
+          <CustomControlButtons 
+            onLeave={() => {
+              if (room) {
+                room.disconnect();
+                router.push('/');
+              }
+            }} 
+          />
           
-          {/* Reactions Button - Icon only */}
-          <div style={{ position: 'relative' }}>
-            <ReactionsButton isHost={props.participantType === 'host'} iconOnly={true} />
-          </div>
+          {/* Divider - Hidden on mobile */}
+          <div className="control-divider" style={{
+            width: '1px',
+            height: '40px',
+            backgroundColor: 'rgba(255, 255, 255, 0.2)',
+            margin: '0 4px',
+          }} />
           
-          {/* Chat Button - Icon only */}
-          <div style={{ position: 'relative' }}>
-            <ChatButton isHost={props.participantType === 'host'} iconOnly={true} />
-          </div>
-          
-          {/* File Sharing Button - Icon only */}
-          <div style={{ position: 'relative' }}>
-            <FileSharingButton 
-              onClick={() => props.setIsFileSharingOpen(true)} 
-              iconOnly={true} 
-            />
-          </div>
-          
-          {/* Screen Annotation Button - Icon only */}
-          <div style={{ position: 'relative' }}>
-            <ScreenAnnotationButton 
-              onClick={() => props.setIsScreenAnnotationEnabled(!props.isScreenAnnotationEnabled)}
-              isActive={props.isScreenAnnotationEnabled}
-              iconOnly={true} 
-            />
-          </div>
-          
-          {/* More Button - Icon only */}
+          {/* More Button - Icon only - Moved to prominent position */}
           <div style={{ position: 'relative' }}>
             <MoreControlsWrapper
               isHost={props.participantType === 'host'}
@@ -1192,6 +1951,57 @@ The meeting has been terminated for all participants and the room has been delet
               setMeetingEnded={props.setMeetingEnded}
               connectionDetails={props.connectionDetails}
               router={router}
+            />
+          </div>
+          
+          {/* Chat Button - Icon only */}
+          <div style={{ position: 'relative' }}>
+            <ChatButton 
+              isHost={props.participantType === 'host'} 
+              iconOnly={true}
+              disabled={!(props.roomFeatures?.enablePrivateChat ?? false)}
+              showProBadge={!(props.roomFeatures?.enablePrivateChat ?? false)}
+            />
+          </div>
+          
+          {/* Raise Hand Button - Icon only */}
+          <div style={{ position: 'relative' }}>
+            <RaiseHandButton 
+              isHost={props.participantType === 'host'} 
+              iconOnly={true}
+              disabled={!(props.roomFeatures?.enableRaiseHand ?? false)}
+              showProBadge={!(props.roomFeatures?.enableRaiseHand ?? false)}
+            />
+          </div>
+          
+          {/* Reactions Button - Icon only */}
+          <div style={{ position: 'relative' }}>
+            <ReactionsButton 
+              isHost={props.participantType === 'host'} 
+              iconOnly={true}
+              disabled={!(props.roomFeatures?.enableReactions ?? false)}
+              showProBadge={!(props.roomFeatures?.enableReactions ?? false)}
+            />
+          </div>
+          
+          {/* File Sharing Button - Icon only */}
+          <div style={{ position: 'relative' }}>
+            <FileSharingButton 
+              onClick={() => props.setIsFileSharingOpen(true)} 
+              iconOnly={true}
+              disabled={!(props.roomFeatures?.enableFileSharing ?? false)}
+              showProBadge={!(props.roomFeatures?.enableFileSharing ?? false)}
+            />
+          </div>
+          
+          {/* Screen Annotation Button - Icon only */}
+          <div style={{ position: 'relative' }}>
+            <ScreenAnnotationButton 
+              onClick={() => props.setIsScreenAnnotationEnabled(!props.isScreenAnnotationEnabled)}
+              isActive={props.isScreenAnnotationEnabled}
+              iconOnly={true}
+              disabled={!(props.roomFeatures?.enableScreenAnnotation ?? false)}
+              showProBadge={!(props.roomFeatures?.enableScreenAnnotation ?? false)}
             />
           </div>
         </div>

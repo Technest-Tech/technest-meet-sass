@@ -5,26 +5,164 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// Seed configuration
+// Run with: npm run db:seed
+
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-model User {
+// Account types enum
+enum AccountRole {
+  SUPER_ADMIN
+  CLIENT
+}
+
+enum AccountStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  EXPIRED
+}
+
+enum FeatureType {
+  RECORDING
+  WAITING_ROOM
+  PRIVATE_CHAT
+  GUEST_UNMUTE
+  HOST_APPROVAL
+  SCREEN_ANNOTATION
+  FILE_SHARING
+  PDF_VIEWER
+  REACTIONS
+  RAISE_HAND
+  E2EE
+  CUSTOM_BRANDING
+  PICTURE_IN_PICTURE
+  STUDENT_MONITOR_PIP
+  COLLABORATIVE_WHITEBOARD
+  NORMAL_WHITEBOARD
+  MANAGE_PARTICIPANTS
+  VIRTUAL_BACKGROUND
+}
+
+// Super Admin - Single super admin account
+model SuperAdmin {
   id        String   @id @default(cuid())
   email     String   @unique
-  password  String
-  role      String   @default("ADMIN") // ADMIN or MODERATOR
+  password  String   // Hashed with bcrypt
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@map("users")
+  @@map("super_admins")
 }
 
+// Account - Unified account model for all users
+model Account {
+  id        String        @id @default(cuid())
+  email     String        @unique
+  password  String        // Hashed with bcrypt
+  role      AccountRole
+  status    AccountStatus @default(ACTIVE)
+  clientId  String?       // Only set if role is CLIENT
+  client    Client?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([clientId])
+  @@index([role, status])
+  @@map("accounts")
+}
+
+// Client - Tenant organization
+model Client {
+  id                String         @id @default(cuid())
+  name              String
+  email             String         @unique
+  accountId         String         @unique // Link to Account
+  account           Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  
+  // Limits (set by super admin)
+  maxRooms          Int            @default(10)
+  maxParticipants   Int            @default(50) // Maximum participants per room
+  enableObserverLinks Boolean      @default(true)
+  
+  // Subscription
+  subscription      Subscription?
+  
+  // Relations
+  rooms             Room[]
+  hostAccounts      HostAccount[]
+  guestAccounts     GuestAccount[]
+  
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@map("clients")
+}
+
+// Plan - Subscription plan template
+model Plan {
+  id              String        @id @default(cuid())
+  name            String
+  description     String?
+  isActive        Boolean       @default(true)
+  
+  // Relations
+  features        PlanFeature[]
+  subscriptions   Subscription[]
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("plans")
+}
+
+// PlanFeature - Junction table for plan features
+model PlanFeature {
+  id        String      @id @default(cuid())
+  planId    String
+  plan      Plan        @relation(fields: [planId], references: [id], onDelete: Cascade)
+  feature   FeatureType
+  enabled   Boolean     @default(true)
+  createdAt DateTime    @default(now())
+
+  @@unique([planId, feature])
+  @@index([planId])
+  @@map("plan_features")
+}
+
+// Subscription - Client's active subscription
+model Subscription {
+  id        String             @id @default(cuid())
+  clientId  String             @unique
+  client    Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  planId    String
+  plan      Plan               @relation(fields: [planId], references: [id])
+  status    SubscriptionStatus @default(INACTIVE)
+  createdAt DateTime           @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([status])
+  @@index([clientId])
+  @@map("subscriptions")
+}
+
+// Room - Meeting rooms (belongs to client)
 model Room {
   id                String              @id @default(cuid())
   name              String
   description       String?
+  clientId          String
+  client            Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  
+  // Room settings (inherited from plan features, but can be overridden per room)
   hostApproval      Boolean             @default(false)
   maxParticipants   Int                 @default(50)
   isActive          Boolean             @default(true)
@@ -32,54 +170,118 @@ model Room {
   requireWaitingRoom Boolean            @default(false)
   allowGuestUnmute  Boolean             @default(true)
   enablePrivateChat Boolean             @default(true)
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  enableScreenAnnotation Boolean        @default(false)
+  enableFileSharing Boolean             @default(false)
+  enablePdfViewer   Boolean             @default(false)
+  enableReactions   Boolean             @default(false)
+  enableRaiseHand   Boolean             @default(false)
+  enableE2EE        Boolean             @default(false)
+  enableCollaborativeWhiteboard Boolean @default(false)
+  enableNormalWhiteboard        Boolean @default(false)
+  enableManageParticipants      Boolean @default(false)
+  enableVirtualBackground       Boolean @default(false)
+  
+  // Links
+  hostLink          String              @unique
+  guestLink         String              @unique
+  observerLink      String?             @unique  // Secret link for silent observers
+  
+  // Active host tracking
+  activeHostIdentity String?            // Track active host identity
+  activeHostSessionId String?           // Track active host session ID
+  activeHostLastSeen DateTime?          // Last time active host was seen
+  
+  // Relations
   participants      Participant[]
   files             RoomFile[]
   waitingParticipants WaitingParticipant[]
-  hostLink          String              @unique
-  guestLink         String              @unique
+  hostAccounts      HostAccount[]
+  guestAccounts     GuestAccount[]
+  
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
 
+  @@index([clientId])
+  @@index([isActive])
   @@map("rooms")
 }
 
+// Participant - Room participants
 model Participant {
   id        String         @id @default(cuid())
   name      String
   type      String         // HOST or GUEST
   roomId    String
-  used      Boolean        @default(false) // Track if this participant name has been used
+  used      Boolean        @default(false)
   room      Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
+  
   @@unique([roomId, name])
+  @@index([roomId])
   @@map("participants")
 }
 
+// RoomFile - Files uploaded to rooms
 model RoomFile {
   id            String   @id @default(cuid())
   roomId        String
-  filename      String   // Stored filename on disk
-  originalName  String   // Original filename from upload
-  fileType      String   // MIME type
-  size          Int      // File size in bytes
-  uploadedBy    String   // Participant identity
+  filename      String
+  originalName  String
+  fileType      String
+  size          Int
+  uploadedBy    String
   uploadedAt    DateTime @default(now())
   room          Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
   
+  @@index([roomId])
   @@map("room_files")
 }
 
+// WaitingParticipant - Waiting room participants
 model WaitingParticipant {
   id              String   @id @default(cuid())
   roomId          String
   participantName String
-  participantType String   // HOST or GUEST
-  status          String   @default("waiting") // waiting, admitted, rejected
+  participantType String
+  status          String   @default("waiting")
   joinedAt        DateTime @default(now())
   room            Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
   
+  @@index([roomId, status])
   @@map("waiting_participants")
 }
 
+// HostAccount - Predefined host accounts for rooms
+model HostAccount {
+  id        String   @id @default(cuid())
+  name      String
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  roomId    String?
+  room      Room?    @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
+  @@index([clientId])
+  @@index([roomId])
+  @@map("host_accounts")
+}
+
+// GuestAccount - Predefined guest accounts for rooms
+model GuestAccount {
+  id        String   @id @default(cuid())
+  name      String
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  roomId    String?
+  room      Room?    @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([roomId])
+  @@map("guest_accounts")
+}

@@ -7,9 +7,16 @@ import { Chat } from './Chat';
 interface ChatButtonProps {
   isHost?: boolean;
   iconOnly?: boolean;
+  disabled?: boolean;
+  showProBadge?: boolean;
 }
 
-export function ChatButton({ isHost = false, iconOnly = false }: ChatButtonProps) {
+export function ChatButton({ 
+  isHost = false, 
+  iconOnly = false,
+  disabled = false,
+  showProBadge = false 
+}: ChatButtonProps) {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const chatRef = useRef<HTMLDivElement>(null);
@@ -20,6 +27,7 @@ export function ChatButton({ isHost = false, iconOnly = false }: ChatButtonProps
 
   // Handle chat toggle
   const toggleChat = () => {
+    if (disabled) return;
     setIsChatOpen(!isChatOpen);
   };
 
@@ -64,11 +72,12 @@ export function ChatButton({ isHost = false, iconOnly = false }: ChatButtonProps
   }, [isChatOpen]);
 
   return (
-    <div ref={chatRef} className="chat-button-container" style={{ position: 'relative' }}>
+    <div ref={chatRef} className="chat-button-container group" style={{ position: 'relative' }}>
       {/* Chat Button */}
       <button
         className="chat-button"
         onClick={toggleChat}
+        disabled={disabled}
         style={{
           padding: iconOnly ? '12px' : '12px 16px',
           backgroundColor: isChatOpen 
@@ -77,7 +86,8 @@ export function ChatButton({ isHost = false, iconOnly = false }: ChatButtonProps
           color: 'white',
           border: '1px solid rgba(255, 255, 255, 0.2)',
           borderRadius: '12px',
-          cursor: 'pointer',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: disabled ? 0.5 : 1,
           fontSize: iconOnly ? '20px' : '14px',
           fontWeight: '500',
           backdropFilter: 'blur(10px)',
@@ -128,13 +138,56 @@ export function ChatButton({ isHost = false, iconOnly = false }: ChatButtonProps
         )}
       </button>
 
+      {/* PRO Badge */}
+      {showProBadge && (
+        <span style={{
+          position: 'absolute',
+          top: '-8px',
+          right: '-8px',
+          padding: '2px 6px',
+          background: 'linear-gradient(to right, #a855f7, #ec4899)',
+          color: 'white',
+          fontSize: '10px',
+          fontWeight: 'bold',
+          borderRadius: '4px',
+          zIndex: 1
+        }}>
+          PRO
+        </span>
+      )}
+
+      {/* Tooltip on hover for disabled */}
+      {disabled && (
+        <div style={{
+          position: 'absolute',
+          bottom: 'calc(100% + 8px)',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          padding: '8px 12px',
+          backgroundColor: '#1f2937',
+          color: 'white',
+          fontSize: '12px',
+          borderRadius: '8px',
+          whiteSpace: 'nowrap',
+          zIndex: 50,
+          pointerEvents: 'none',
+          opacity: 0,
+          transition: 'opacity 0.2s'
+        }}
+        className="group-hover:opacity-100">
+          Upgrade required for this feature
+        </div>
+      )}
+
       {/* Chat Component */}
-      <Chat
-        isOpen={isChatOpen}
-        onClose={closeChat}
-        onUnreadCountChange={handleUnreadCountChange}
-        isHost={isHost}
-      />
+      {!disabled && (
+        <Chat
+          isOpen={isChatOpen}
+          onClose={closeChat}
+          onUnreadCountChange={handleUnreadCountChange}
+          isHost={isHost}
+        />
+      )}
     </div>
   );
 }
