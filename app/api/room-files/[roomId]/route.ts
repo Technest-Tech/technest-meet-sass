@@ -9,18 +9,24 @@ export async function GET(
 ) {
   try {
     const { roomId } = await params;
-    const roomName = roomId; // URL param is actually roomName
+    const roomLink = roomId; // URL param is actually roomLink (hostLink, guestLink, or observerLink)
 
-    if (!roomName) {
+    if (!roomLink) {
       return NextResponse.json(
-        { error: 'Missing roomName parameter' },
+        { error: 'Missing roomLink parameter' },
         { status: 400 }
       );
     }
 
-    // Verify room exists by name
+    // Verify room exists by link (hostLink, guestLink, or observerLink)
     const room = await prisma.room.findFirst({
-      where: { name: roomName },
+      where: {
+        OR: [
+          { hostLink: roomLink },
+          { guestLink: roomLink },
+          { observerLink: roomLink },
+        ],
+      },
     });
 
     if (!room) {

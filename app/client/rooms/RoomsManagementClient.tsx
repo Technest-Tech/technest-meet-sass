@@ -13,7 +13,6 @@ import FormInput from '@/lib/components/FormInput';
 import { SidebarProvider, useSidebar } from '@/lib/components/SidebarContext';
 import { logout } from '@/lib/auth/client-auth';
 import toast from 'react-hot-toast';
-import { generatePreviewRoomLinks } from '@/lib/database';
 
 interface Room {
   id: string;
@@ -343,37 +342,21 @@ function CreateRoomModal({
     requireWaitingRoom: false,
     allowGuestUnmute: true,
     enablePrivateChat: true,
+    password: '',
+    passwordRequired: false,
+    passwordFor: 'HOST_ONLY' as 'HOST_ONLY' | 'HOST_AND_GUEST',
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [clientName, setClientName] = useState<string>('');
-  const [previewLinks, setPreviewLinks] = useState<{ hostLink: string; guestLink: string } | null>(null);
   const [nameError, setNameError] = useState<string>('');
   const [isCheckingName, setIsCheckingName] = useState(false);
   const [enabledFeatures, setEnabledFeatures] = useState<string[]>([]);
 
-  // Fetch client name and subscription features when modal opens
+  // Fetch subscription features when modal opens
   useEffect(() => {
     if (isOpen) {
-      if (!clientName) {
-        fetchClientName();
-      }
       fetchSubscriptionFeatures();
-    } else {
-      // Reset when modal closes
-      setPreviewLinks(null);
     }
   }, [isOpen]);
-
-  // Generate preview links when client name and room name are available
-  useEffect(() => {
-    if (clientName && formData.name && isOpen) {
-      const links = generatePreviewRoomLinks(clientName, formData.name);
-      setPreviewLinks(links);
-    } else if (clientName && isOpen) {
-      setPreviewLinks(null);
-      setNameError('');
-    }
-  }, [clientName, formData.name, isOpen]);
 
   const checkRoomNameAvailability = useCallback(async (roomName: string) => {
     if (!roomName || roomName.trim().length === 0) {
@@ -409,7 +392,7 @@ function CreateRoomModal({
 
   // Debounced name availability check
   useEffect(() => {
-    if (!clientName || !formData.name || !isOpen) {
+    if (!formData.name || !isOpen) {
       setNameError('');
       return;
     }
@@ -419,22 +402,7 @@ function CreateRoomModal({
     }, 500); // Wait 500ms after user stops typing
 
     return () => clearTimeout(timeoutId);
-  }, [formData.name, clientName, isOpen, checkRoomNameAvailability]);
-
-  const fetchClientName = async () => {
-    try {
-      const response = await fetch('/api/client/limits', {
-        credentials: 'include',
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setClientName(data.name || 'academy');
-      }
-    } catch (error) {
-      console.error('Error fetching client name:', error);
-      setClientName('academy'); // Fallback
-    }
-  };
+  }, [formData.name, isOpen, checkRoomNameAvailability]);
 
   const fetchSubscriptionFeatures = async () => {
     try {
@@ -490,9 +458,11 @@ function CreateRoomModal({
         requireWaitingRoom: false,
         allowGuestUnmute: true,
         enablePrivateChat: true,
+        password: '',
+        passwordRequired: false,
+        passwordFor: 'HOST_ONLY',
       });
-      // Reset preview links and errors
-      setPreviewLinks(null);
+      // Reset errors
       setNameError('');
     } catch (error: any) {
       console.error('Error creating room:', error);
@@ -630,74 +600,59 @@ function CreateRoomModal({
           </label>
         </div>
 
-          {/* Preview Card for Room URLs */}
-          {isOpen && (
-            <div className="mt-4 p-4 bg-gradient-to-br from-primary-50 to-indigo-50 rounded-lg border border-primary-200">
-              <div className="flex items-center gap-2 mb-3">
-                <Link2 className="w-5 h-5 text-primary-600" />
-                <h3 className="text-sm font-semibold text-gray-800">معاينة روابط الغرفة</h3>
+          {/* Password Protection Section */}
+          <div className="space-y-3 pt-2 border-t border-gray-200">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.passwordRequired}
+                onChange={(e) => setFormData({ ...formData, passwordRequired: e.target.checked, password: e.target.checked ? formData.password : '' })}
+                className="w-5 h-5 text-primary-600 rounded focus:ring-primary-500"
+              />
+              <span className="text-sm font-medium text-gray-700">يتطلب كلمة مرور</span>
+            </label>
+            
+            {formData.passwordRequired && (
+              <div className="space-y-3 pr-6">
+                <FormInput
+                  label="كلمة المرور"
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  required={formData.passwordRequired}
+                  placeholder="أدخل كلمة المرور"
+                />
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">كلمة المرور مطلوبة لـ</label>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="passwordFor"
+                        value="HOST_ONLY"
+                        checked={formData.passwordFor === 'HOST_ONLY'}
+                        onChange={(e) => setFormData({ ...formData, passwordFor: 'HOST_ONLY' })}
+                        className="w-4 h-4 text-primary-600 focus:ring-primary-500"
+                      />
+                      <span className="text-sm text-gray-700">المضيف فقط</span>
+                    </label>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="passwordFor"
+                        value="HOST_AND_GUEST"
+                        checked={formData.passwordFor === 'HOST_AND_GUEST'}
+                        onChange={(e) => setFormData({ ...formData, passwordFor: 'HOST_AND_GUEST' })}
+                        className="w-4 h-4 text-primary-600 focus:ring-primary-500"
+                      />
+                      <span className="text-sm text-gray-700">المضيف والضيف</span>
+                    </label>
+                  </div>
+                </div>
               </div>
-              {previewLinks && previewLinks.hostLink && previewLinks.guestLink ? (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1.5">رابط المضيف</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={typeof window !== 'undefined' ? `${window.location.origin}/${previewLinks.hostLink}/h` : `/${previewLinks.hostLink}/h`}
-                        readOnly
-                        className="flex-1 px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-700 focus:outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const origin = typeof window !== 'undefined' ? window.location.origin : '';
-                          const url = `${origin}/${previewLinks.hostLink}/h`;
-                          navigator.clipboard.writeText(url);
-                          toast.success('تم نسخ رابط المضيف');
-                        }}
-                        className="p-2 text-primary-600 hover:bg-primary-100 rounded-lg transition-colors"
-                        title="نسخ"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1.5">رابط الضيف</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={typeof window !== 'undefined' ? `${window.location.origin}/${previewLinks.guestLink}/g` : `/${previewLinks.guestLink}/g`}
-                        readOnly
-                        className="flex-1 px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg text-gray-700 focus:outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const origin = typeof window !== 'undefined' ? window.location.origin : '';
-                          const url = `${origin}/${previewLinks.guestLink}/g`;
-                          navigator.clipboard.writeText(url);
-                          toast.success('تم نسخ رابط الضيف');
-                        }}
-                        className="p-2 text-primary-600 hover:bg-primary-100 rounded-lg transition-colors"
-                        title="نسخ"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                  <p className="mt-3 text-xs text-gray-500">
-                    ملاحظة: هذه معاينة للروابط. الروابط الفعلية ستكون مختلفة قليلاً عند إنشاء الغرفة.
-                  </p>
-                </div>
-              ) : (
-                <div className="py-4">
-                  <p className="text-sm text-gray-500 text-center">جاري تحميل معاينة الروابط...</p>
-                </div>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 mt-4 flex-shrink-0">
@@ -730,6 +685,9 @@ function UpdateRoomModal({
     requireWaitingRoom: false,
     allowGuestUnmute: true,
     enablePrivateChat: true,
+    password: '',
+    passwordRequired: false,
+    passwordFor: 'HOST_ONLY' as 'HOST_ONLY' | 'HOST_AND_GUEST',
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -756,6 +714,9 @@ function UpdateRoomModal({
           requireWaitingRoom: data.room.requireWaitingRoom || false,
           allowGuestUnmute: data.room.allowGuestUnmute !== undefined ? data.room.allowGuestUnmute : true,
           enablePrivateChat: data.room.enablePrivateChat !== undefined ? data.room.enablePrivateChat : true,
+          password: '',
+          passwordRequired: data.room.passwordRequired || false,
+          passwordFor: data.room.passwordFor || 'HOST_ONLY',
         });
       }
     } catch (error) {
@@ -789,13 +750,36 @@ function UpdateRoomModal({
     setIsSaving(true);
 
     try {
+      const requestBody: any = {
+        name: formData.name,
+        description: formData.description,
+        hostApproval: formData.hostApproval,
+        canRecord: formData.canRecord,
+        requireWaitingRoom: formData.requireWaitingRoom,
+        allowGuestUnmute: formData.allowGuestUnmute,
+        enablePrivateChat: formData.enablePrivateChat,
+      };
+
+      // Handle password fields
+      requestBody.passwordRequired = formData.passwordRequired;
+      if (formData.passwordRequired) {
+        // If password is provided, send it; if empty, backend will keep existing password
+        if (formData.password) {
+          requestBody.password = formData.password;
+        }
+        requestBody.passwordFor = formData.passwordFor;
+      } else {
+        // If passwordRequired is false, set passwordFor to null
+        requestBody.passwordFor = null;
+      }
+
       const response = await fetch(`/api/client/rooms/${room.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify(formData),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -933,6 +917,59 @@ function UpdateRoomModal({
                   )}
                 </span>
               </label>
+            </div>
+
+            {/* Password Protection Section */}
+            <div className="space-y-3 pt-2 border-t border-gray-200">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.passwordRequired}
+                  onChange={(e) => setFormData({ ...formData, passwordRequired: e.target.checked, password: e.target.checked ? formData.password : '' })}
+                  className="w-5 h-5 text-primary-600 rounded focus:ring-primary-500"
+                />
+                <span className="text-sm font-medium text-gray-700">يتطلب كلمة مرور</span>
+              </label>
+              
+              {formData.passwordRequired && (
+                <div className="space-y-3 pr-6">
+                  <FormInput
+                    label="كلمة المرور (اتركه فارغاً للاحتفاظ بالكلمة الحالية)"
+                    type="password"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    placeholder="أدخل كلمة مرور جديدة أو اتركه فارغاً"
+                  />
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">كلمة المرور مطلوبة لـ</label>
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="passwordFor"
+                          value="HOST_ONLY"
+                          checked={formData.passwordFor === 'HOST_ONLY'}
+                          onChange={(e) => setFormData({ ...formData, passwordFor: 'HOST_ONLY' })}
+                          className="w-4 h-4 text-primary-600 focus:ring-primary-500"
+                        />
+                        <span className="text-sm text-gray-700">المضيف فقط</span>
+                      </label>
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="passwordFor"
+                          value="HOST_AND_GUEST"
+                          checked={formData.passwordFor === 'HOST_AND_GUEST'}
+                          onChange={(e) => setFormData({ ...formData, passwordFor: 'HOST_AND_GUEST' })}
+                          className="w-4 h-4 text-primary-600 focus:ring-primary-500"
+                        />
+                        <span className="text-sm text-gray-700">المضيف والضيف</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

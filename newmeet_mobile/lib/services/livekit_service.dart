@@ -1,10 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:permission_handler/permission_handler.dart';
+import '../utils/logger.dart';
+import '../utils/debouncer.dart';
 import 'api_service.dart';
 import 'screen_capture_service.dart';
+import 'screen_recording_service.dart';
+import 'noise_cancellation_service.dart';
 
 class LiveKitService extends ChangeNotifier {
   lk.Room? _room;
@@ -16,6 +21,18 @@ class LiveKitService extends ChangeNotifier {
   bool _isScreenSharing = false;
   bool _isStartingScreenShare = false;
   bool _isWhiteboardOpen = false;
+  bool _speakerEnabled = true;
+  final NoiseCancellationService _noiseCancellation = NoiseCancellationService();
+  bool _isRecording = false;
+  bool _isRecordingPaused = false; // Track pause state
+  bool _isProcessingRecording = false;
+  bool _isSimpleRecording = false; // Track if using simple recording
+  String? _currentRoomName;
+  DateTime? _recordingStartTime;
+  Duration _pausedDuration = Duration.zero; // Track total paused time
+  DateTime? _pauseStartTime; // Track when pause started
+  String? _lastEgressId; // Store egress ID for download
+  final ScreenRecordingService _screenRecordingService = ScreenRecordingService();
   
   // Connection stability
   Timer? _keepaliveTimer;
@@ -29,6 +46,9 @@ class LiveKitService extends ChangeNotifier {
   
   // Data listener for whiteboard collaboration
   lk.EventsListener<lk.RoomEvent>? _dataListener;
+  
+  // Debouncer for notifyListeners to prevent excessive rebuilds
+  final Debouncer _notifyDebouncer = Debouncer(delay: const Duration(milliseconds: 100));
 
   // Getters
   lk.Room? get room => _room;
@@ -39,42 +59,222 @@ class LiveKitService extends ChangeNotifier {
   lk.LocalParticipant? get localParticipant => _localParticipant;
   bool get isScreenSharing => _isScreenSharing;
   bool get isStartingScreenShare => _isStartingScreenShare;
+  
+  // Check if any participant (local or remote) is screen sharing
+  bool get hasAnyScreenShare {
+    // Check local participant
+    if (_localParticipant != null) {
+      for (final publication in _localParticipant!.videoTrackPublications) {
+        final name = publication.name?.toLowerCase() ?? '';
+        final sid = publication.sid ?? '';
+        final isScreenShare = name.contains('screen') || 
+                              name.contains('screenshare') ||
+                              name.contains('screen-share') ||
+                              sid.contains('screen');
+        if (isScreenShare && publication.track != null) {
+          Logger.debug('LiveKit: Found local screen share - name: $name, sid: $sid', 'LiveKitService');
+          return true;
+        }
+      }
+    }
+    
+    // Check remote participants
+    for (final participant in _participants) {
+      final videoTracks = participant.videoTrackPublications;
+      final videoTrackCount = videoTracks.length;
+      
+      // If participant has multiple video tracks, one is likely screen share
+      // If they have 1 track and it's high resolution, it might be screen share
+      if (videoTrackCount > 1) {
+        // Multiple tracks - check each one
+        for (final publication in videoTracks) {
+          final name = publication.name?.toLowerCase() ?? '';
+          final sid = publication.sid ?? '';
+          final isSubscribed = publication.subscribed;
+          final hasTrack = publication.track != null;
+          
+          Logger.debug('LiveKit: Checking remote track - participant: ${participant.identity}, name: $name, sid: $sid, subscribed: $isSubscribed, hasTrack: $hasTrack', 'LiveKitService');
+          
+          // Check explicit indicators first
+          bool isScreenShare = name.contains('screen') || 
+                              name.contains('screenshare') ||
+                              name.contains('screen-share') ||
+                              sid.contains('screen');
+          
+          // If no explicit indicator and multiple tracks, empty name might be screen share
+          if (!isScreenShare && name.isEmpty && videoTrackCount > 1 && isSubscribed && hasTrack) {
+            Logger.debug('LiveKit: Using heuristic - empty name with multiple tracks = likely screen share', 'LiveKitService');
+            isScreenShare = true;
+          }
+          
+          if (isScreenShare && isSubscribed && hasTrack) {
+            Logger.debug('LiveKit: Found remote screen share (multiple tracks) - participant: ${participant.identity}, name: $name, sid: $sid', 'LiveKitService');
+            return true;
+          }
+        }
+      } else if (videoTrackCount == 1) {
+        // Single track - check explicit indicators first, then use heuristic if needed
+        final publication = videoTracks.first;
+        final name = publication.name?.toLowerCase() ?? '';
+        final sid = publication.sid ?? '';
+        final isSubscribed = publication.subscribed;
+        final hasTrack = publication.track != null;
+        final track = publication.track;
+        
+        Logger.debug('LiveKit: Checking remote track - participant: ${participant.identity}, name: $name, sid: $sid, subscribed: $isSubscribed, hasTrack: $hasTrack', 'LiveKitService');
+        
+        // Check explicit screen share indicators first
+        bool isScreenShare = name.contains('screen') || 
+                            name.contains('screenshare') ||
+                            name.contains('screen-share') ||
+                            sid.contains('screen');
+        
+        // If no explicit indicator, use heuristic: empty name + subscribed + track exists
+        // This handles web clients that don't set track names for screen share
+        if (!isScreenShare && name.isEmpty && isSubscribed && hasTrack && track != null) {
+          // Additional check: if camera is disabled, the single track is likely screen share
+          final isCameraEnabled = participant.isCameraEnabled();
+          if (!isCameraEnabled) {
+            Logger.debug('LiveKit: Using heuristic - empty name, camera off, single track = likely screen share', 'LiveKitService');
+            isScreenShare = true;
+          }
+        }
+        
+        if (isScreenShare && isSubscribed && hasTrack) {
+          Logger.debug('LiveKit: Found remote screen share (single track) - participant: ${participant.identity}, name: $name, sid: $sid', 'LiveKitService');
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  }
+  
+  // Get the participant who is screen sharing (local or remote)
+  dynamic? get screenSharingParticipant {
+    // Check local participant first
+    if (_localParticipant != null) {
+      for (final publication in _localParticipant!.videoTrackPublications) {
+        final name = publication.name?.toLowerCase() ?? '';
+        final sid = publication.sid ?? '';
+        final isScreenShare = name.contains('screen') || 
+                              name.contains('screenshare') ||
+                              name.contains('screen-share') ||
+                              sid.contains('screen');
+        if (isScreenShare && publication.track != null) {
+          Logger.debug('LiveKit: Screen sharing participant (local): ${_localParticipant!.identity}', 'LiveKitService');
+          return _localParticipant;
+        }
+      }
+    }
+    
+    // Check remote participants
+    for (final participant in _participants) {
+      final videoTracks = participant.videoTrackPublications;
+      final videoTrackCount = videoTracks.length;
+      
+      if (videoTrackCount > 1) {
+        // Multiple tracks - find the screen share one
+        for (final publication in videoTracks) {
+          final name = publication.name?.toLowerCase() ?? '';
+          final sid = publication.sid ?? '';
+          final isSubscribed = publication.subscribed;
+          // Check explicit indicators first
+          bool isScreenShare = name.contains('screen') || 
+                              name.contains('screenshare') ||
+                              name.contains('screen-share') ||
+                              sid.contains('screen');
+          
+          // If no explicit indicator and multiple tracks, empty name might be screen share
+          if (!isScreenShare && name.isEmpty && videoTrackCount > 1 && isSubscribed && publication.track != null) {
+            Logger.debug('LiveKit: Using heuristic - empty name with multiple tracks = likely screen share', 'LiveKitService');
+            isScreenShare = true;
+          }
+          
+          if (isScreenShare && isSubscribed && publication.track != null) {
+            Logger.debug('LiveKit: Screen sharing participant (remote, multiple tracks): ${participant.identity}', 'LiveKitService');
+            return participant;
+          }
+        }
+      } else if (videoTrackCount == 1) {
+        // Single track - check explicit indicators first, then use heuristic if needed
+        final publication = videoTracks.first;
+        final name = publication.name?.toLowerCase() ?? '';
+        final sid = publication.sid ?? '';
+        final isSubscribed = publication.subscribed;
+        final track = publication.track;
+        
+        // Check explicit screen share indicators first
+        bool isScreenShare = name.contains('screen') || 
+                            name.contains('screenshare') ||
+                            name.contains('screen-share') ||
+                            sid.contains('screen');
+        
+        // If no explicit indicator, use heuristic: empty name + subscribed + track exists
+        // This handles web clients that don't set track names for screen share
+        if (!isScreenShare && name.isEmpty && isSubscribed && track != null) {
+          // Additional check: if camera is disabled, the single track is likely screen share
+          final isCameraEnabled = participant.isCameraEnabled();
+          if (!isCameraEnabled) {
+            Logger.debug('LiveKit: Using heuristic - empty name, camera off, single track = likely screen share', 'LiveKitService');
+            isScreenShare = true;
+          }
+        }
+        
+        if (isScreenShare && isSubscribed && track != null) {
+          Logger.debug('LiveKit: Screen sharing participant (remote, single track): ${participant.identity}', 'LiveKitService');
+          return participant;
+        }
+      }
+    }
+    
+    return null;
+  }
   bool get isWhiteboardOpen => _isWhiteboardOpen;
   List<Map<String, dynamic>> get chatMessages => List.unmodifiable(_chatMessages);
+  bool get speakerEnabled => _speakerEnabled;
+  bool get isRecording => _isRecording;
+  bool get isRecordingPaused => _isRecordingPaused;
+  bool get isProcessingRecording => _isProcessingRecording;
+  DateTime? get recordingStartTime => _recordingStartTime;
+  
 
   // Connect to room
   Future<void> connectToRoom({
     required String roomName,
     required String participantName,
     required String participantType,
+    bool cameraEnabled = true,
+    bool microphoneEnabled = true,
+    bool speakerEnabled = true,
   }) async {
     try {
       _isConnecting = true;
       _error = null;
       notifyListeners();
 
-      print('🔗 Starting connection to room: $roomName');
+      Logger.debug('Starting connection to room: $roomName', 'LiveKitService');
 
       // Request permissions
-      print('📱 Requesting permissions...');
+      Logger.debug('Requesting permissions...', 'LiveKitService');
       await _requestPermissions();
-      print('✅ Permissions granted');
+      Logger.debug('Permissions granted', 'LiveKitService');
 
       // Get LiveKit token
-      print('🎫 Getting LiveKit token...');
+      Logger.debug('Getting LiveKit token...', 'LiveKitService');
       final tokenResponse = await ApiService.getLiveKitToken(
         roomName: roomName,
         participantName: participantName,
         participantType: participantType,
       );
-      print('✅ Token received: ${tokenResponse.livekitUrl}');
+      Logger.debug('Token received: ${tokenResponse.livekitUrl}', 'LiveKitService');
 
       // Create room
-      print('🏠 Creating room instance...');
+      Logger.debug('Creating room instance...', 'LiveKitService');
       _room = lk.Room();
 
       // Add event listeners
-      print('👂 Adding event listeners...');
+      Logger.debug('Adding event listeners...', 'LiveKitService');
       _room!.addListener(_onRoomChanged);
       
       // Add data received listener for whiteboard collaboration
@@ -82,11 +282,12 @@ class LiveKitService extends ChangeNotifier {
       _dataListener!.on<lk.DataReceivedEvent>(_onDataReceived);
 
           // Connect to room with enhanced stability options
-      print('🔌 Connecting to LiveKit server...');
-      print('🔌 LiveKit URL: ${tokenResponse.livekitUrl}');
-      print('🔌 Token length: ${tokenResponse.token.length}');
+      Logger.debug('Connecting to LiveKit server...', 'LiveKitService');
+      Logger.debug('LiveKit URL: ${tokenResponse.livekitUrl}', 'LiveKitService');
+      Logger.debug('Token length: ${tokenResponse.token.length}', 'LiveKitService');
       
       // Set connection options for better reliability and stability
+      // Enable background audio/video for PiP support
       final connectOptions = lk.ConnectOptions(
         autoSubscribe: true,
       );
@@ -97,7 +298,7 @@ class LiveKitService extends ChangeNotifier {
       
       while (retryCount < maxRetries) {
         try {
-          print('🔄 LiveKit: Connection attempt ${retryCount + 1}/$maxRetries');
+          Logger.debug('LiveKit: Connection attempt ${retryCount + 1}/$maxRetries', 'LiveKitService');
           
           // Add a small delay between retries
           if (retryCount > 0) {
@@ -110,15 +311,15 @@ class LiveKitService extends ChangeNotifier {
             connectOptions: connectOptions,
           );
           
-          print('✅ LiveKit: Connection successful on attempt ${retryCount + 1}');
+          Logger.debug('LiveKit: Connection successful on attempt ${retryCount + 1}', 'LiveKitService');
           break; // Success, exit retry loop
           
         } catch (e) {
           retryCount++;
-          print('❌ LiveKit: Connection attempt ${retryCount} failed: $e');
+          Logger.error(' LiveKit: Connection attempt ${retryCount} failed: $e', e, null, 'LiveKitService');
           
           if (retryCount >= maxRetries) {
-            print('❌ LiveKit: All connection attempts failed');
+            Logger.error('LiveKit: All connection attempts failed', null, null, 'LiveKitService');
             rethrow; // Re-throw the last error
           }
           
@@ -128,12 +329,14 @@ class LiveKitService extends ChangeNotifier {
           _room!.addListener(_onRoomChanged);
         }
       }
-      print('✅ Connected to room successfully');
+      Logger.debug('Connected to room successfully', 'LiveKitService');
 
       _isConnected = true;
       _isConnecting = false;
       _lastConnectionTime = DateTime.now();
       _disconnectionCount = 0;
+      _speakerEnabled = speakerEnabled;
+      _currentRoomName = roomName;
       
       // Store connection details for potential reconnection
       _lastLivekitUrl = tokenResponse.livekitUrl;
@@ -144,27 +347,18 @@ class LiveKitService extends ChangeNotifier {
       // Start connection monitoring
       _startConnectionMonitoring();
 
-      // Enable camera and microphone with delay
-      print('📹 Enabling camera and microphone...');
+      // Enable camera, microphone, and speaker based on requested preferences
+      Logger.debug('Applying device preferences (camera: $cameraEnabled, mic: $microphoneEnabled, speaker: $speakerEnabled)', 'LiveKitService');
       await Future.delayed(const Duration(milliseconds: 500));
-      if (_room!.localParticipant != null) {
-        try {
-          await _room!.localParticipant!.setCameraEnabled(true);
-          print('✅ Camera enabled');
-        } catch (e) {
-          print('⚠️ Camera enable failed: $e');
-        }
-        
-        try {
-          await _room!.localParticipant!.setMicrophoneEnabled(true);
-          print('✅ Microphone enabled');
-        } catch (e) {
-          print('⚠️ Microphone enable failed: $e');
-        }
-      }
+      await _applyInitialDeviceStates(
+        cameraEnabled: cameraEnabled,
+        microphoneEnabled: microphoneEnabled,
+        speakerEnabled: speakerEnabled,
+      );
+      notifyListeners();
 
     } catch (e) {
-      print('❌ Connection failed: $e');
+      Logger.error(' Connection failed: $e', e, null, 'LiveKitService');
       _error = e.toString();
       _isConnecting = false;
       _isConnected = false;
@@ -175,18 +369,18 @@ class LiveKitService extends ChangeNotifier {
   // Disconnect from room
   Future<void> disconnect() async {
     try {
-      print('🔌 LiveKit: Starting disconnect process');
+      Logger.debug('LiveKit: Starting disconnect process', 'LiveKitService');
       
       // Stop monitoring timers
       _stopConnectionMonitoring();
       
       if (_room != null) {
-        print('🔌 LiveKit: Disconnecting from room...');
+        Logger.debug('LiveKit: Disconnecting from room...', 'LiveKitService');
         await _room!.disconnect();
         _room = null;
-        print('✅ LiveKit: Room disconnected successfully');
+        Logger.debug('LiveKit: Room disconnected successfully', 'LiveKitService');
       } else {
-        print('⚠️ LiveKit: No room to disconnect from');
+        Logger.warning('LiveKit: No room to disconnect from', 'LiveKitService');
       }
       
       // Reset all state
@@ -197,6 +391,16 @@ class LiveKitService extends ChangeNotifier {
       _localParticipant = null;
       _isScreenSharing = false;
       _isWhiteboardOpen = false;
+      _speakerEnabled = true;
+      _isRecording = false;
+      _isRecordingPaused = false;
+      _isProcessingRecording = false;
+      _isSimpleRecording = false;
+      _recordingStartTime = null;
+      _pausedDuration = Duration.zero;
+      _pauseStartTime = null;
+      _lastEgressId = null;
+      _currentRoomName = null;
       _lastConnectionTime = null;
       _disconnectionCount = 0;
       _lastLivekitUrl = null;
@@ -204,10 +408,10 @@ class LiveKitService extends ChangeNotifier {
       _dataListener?.dispose();
       _dataListener = null;
       
-      print('🔌 LiveKit: State reset completed');
+      Logger.debug('LiveKit: State reset completed', 'LiveKitService');
       notifyListeners();
     } catch (e) {
-      print('❌ LiveKit: Disconnect error: $e');
+      Logger.error(' LiveKit: Disconnect error: $e', e, null, 'LiveKitService');
       _error = e.toString();
       notifyListeners();
     }
@@ -231,10 +435,129 @@ class LiveKitService extends ChangeNotifier {
     }
   }
 
+  /// Toggle noise cancellation
+  Future<void> toggleNoiseCancellation() async {
+    if (_room == null || _room!.localParticipant == null) return;
+    
+    try {
+      // Find the microphone audio track by checking all audio track publications
+      lk.LocalAudioTrack? micTrack;
+      for (final publication in _room!.localParticipant!.audioTrackPublications) {
+        final track = publication.track;
+        if (track is lk.LocalAudioTrack) {
+          // Check if this is a microphone track (not screen share audio)
+          final name = publication.name?.toLowerCase() ?? '';
+          final isMicrophone = !name.contains('screen') && 
+                               !name.contains('screenshare');
+          if (isMicrophone) {
+            micTrack = track;
+            break;
+          }
+        }
+      }
+      
+      if (micTrack != null) {
+        await _noiseCancellation.toggle(micTrack);
+        notifyListeners();
+      } else {
+        Logger.warning('LiveKit: No microphone track found for noise cancellation', 'LiveKitService');
+      }
+    } catch (e) {
+      Logger.error(' LiveKit: Failed to toggle noise cancellation: $e', e, null, 'LiveKitService');
+    }
+  }
+
+  /// Check if noise cancellation is enabled
+  bool get isNoiseCancellationEnabled => _noiseCancellation.isEnabled;
+
+  Future<void> setSpeakerphoneEnabled(bool enabled, {bool notify = true}) async {
+    _speakerEnabled = enabled;
+    if (_room != null) {
+      try {
+        await _room!.setSpeakerOn(enabled);
+        Logger.debug('LiveKit: Speakerphone set to ${enabled ? "on" : "off"}', 'LiveKitService');
+      } catch (e) {
+        Logger.warning('LiveKit: Unable to switch speaker state: $e', 'LiveKitService');
+      }
+    }
+    if (notify) {
+      notifyListeners();
+    }
+  }
+
+  // Toggle speaker
+  Future<void> toggleSpeaker() async {
+    await setSpeakerphoneEnabled(!_speakerEnabled);
+  }
+
+  // Enable background mode for PiP
+  Future<void> enableBackgroundMode() async {
+    if (_room != null) {
+      try {
+        // Ensure audio tracks continue in background
+        // LiveKit client handles this automatically, but we can ensure
+        // all remote tracks are subscribed and active
+        int audioTrackCount = 0;
+        int videoTrackCount = 0;
+        
+        for (final participant in _participants) {
+          for (final publication in participant.audioTrackPublications) {
+            if (publication.subscribed) {
+              // Track is already subscribed, will continue in background
+              audioTrackCount++;
+            }
+          }
+          for (final publication in participant.videoTrackPublications) {
+            if (publication.subscribed) {
+              // Track is already subscribed, will continue in background
+              videoTrackCount++;
+            }
+          }
+        }
+        
+        Logger.debug('LiveKit: ${audioTrackCount} audio track(s) will continue in background', 'LiveKitService');
+        Logger.debug('LiveKit: ${videoTrackCount} video track(s) will continue in background', 'LiveKitService');
+        Logger.debug('LiveKit: Background mode enabled - tracks will continue', 'LiveKitService');
+      } catch (e) {
+        Logger.warning('LiveKit: Error enabling background mode: $e', 'LiveKitService');
+      }
+    }
+  }
+
+  Future<void> _applyInitialDeviceStates({
+    required bool cameraEnabled,
+    required bool microphoneEnabled,
+    required bool speakerEnabled,
+  }) async {
+    if (_room?.localParticipant != null) {
+      try {
+        await _room!.localParticipant!.setCameraEnabled(cameraEnabled);
+        Logger.debug('LiveKit: Camera ${cameraEnabled ? "enabled" : "disabled"}', 'LiveKitService');
+      } catch (e) {
+        Logger.warning('LiveKit: Failed to set camera state: $e', 'LiveKitService');
+      }
+
+      try {
+        await _room!.localParticipant!.setMicrophoneEnabled(microphoneEnabled);
+        Logger.debug('LiveKit: Microphone ${microphoneEnabled ? "enabled" : "disabled"}', 'LiveKitService');
+      } catch (e) {
+        Logger.warning('LiveKit: Failed to set microphone state: $e', 'LiveKitService');
+      }
+    } else {
+      Logger.warning('LiveKit: Local participant not available for device state update', 'LiveKitService');
+    }
+
+    try {
+      await setSpeakerphoneEnabled(speakerEnabled, notify: false);
+    } catch (e) {
+      Logger.warning('LiveKit: Failed to set speaker state: $e', 'LiveKitService');
+    }
+  }
+
   // Start screen sharing
   Future<void> startScreenSharing() async {
     try {
-      print('📺 LiveKit: Starting screen share...');
+      Logger.debug('LiveKit: Starting screen share...', 'LiveKitService');
       _isStartingScreenShare = true;
       notifyListeners();
       
@@ -244,10 +567,10 @@ class LiveKitService extends ChangeNotifier {
       if (_room?.localParticipant != null) {
         await _room!.localParticipant!.setScreenShareEnabled(true);
         _isScreenSharing = true;
-        print('✅ LiveKit: Screen share started successfully');
+        Logger.debug('LiveKit: Screen share started successfully', 'LiveKitService');
       }
     } catch (e) {
-      print('❌ LiveKit: Screen share failed: $e');
+      Logger.error(' LiveKit: Screen share failed: $e', e, null, 'LiveKitService');
       _error = e.toString();
     } finally {
       _isStartingScreenShare = false;
@@ -258,19 +581,19 @@ class LiveKitService extends ChangeNotifier {
   // Stop screen sharing
   Future<void> stopScreenSharing() async {
     try {
-      print('📺 LiveKit: Stopping screen share...');
+      Logger.debug('LiveKit: Stopping screen share...', 'LiveKitService');
       
       if (_room?.localParticipant != null) {
         await _room!.localParticipant!.setScreenShareEnabled(false);
         _isScreenSharing = false;
-        print('✅ LiveKit: Screen share stopped successfully');
+        Logger.debug('LiveKit: Screen share stopped successfully', 'LiveKitService');
         notifyListeners();
       }
       
       // Stop the foreground service
       await ScreenCaptureService.stopService();
     } catch (e) {
-      print('❌ LiveKit: Stop screen share failed: $e');
+      Logger.error(' LiveKit: Stop screen share failed: $e', e, null, 'LiveKitService');
       _error = e.toString();
       notifyListeners();
     }
@@ -288,7 +611,7 @@ class LiveKitService extends ChangeNotifier {
       'action': action,
     };
     
-    print('📤 LiveKit: Sending whiteboard toggle command - $action');
+    Logger.debug('LiveKit: Sending whiteboard toggle command - $action', 'LiveKitService');
     sendWhiteboardData(data);
     
     notifyListeners();
@@ -296,22 +619,57 @@ class LiveKitService extends ChangeNotifier {
 
   // Send whiteboard data
   Future<void> sendWhiteboardData(Map<String, dynamic> data) async {
-    if (_room?.localParticipant != null) {
-      try {
-        // Convert to JSON string using dart:convert
-        final jsonString = jsonEncode(data);
-        final encodedData = jsonString.codeUnits;
-        await _room!.localParticipant!.publishData(
-          encodedData,
-          reliable: true,
-          topic: 'whiteboard',
-        );
-        print('📤 LiveKit: Whiteboard data sent - ${data['type']}');
-      } catch (e) {
-        print('❌ LiveKit: Failed to send whiteboard data: $e');
-        _error = e.toString();
-        notifyListeners();
+    if (_room == null) {
+      Logger.warning('LiveKit: Cannot send whiteboard data - no room', 'LiveKitService');
+      return;
+    }
+    
+    if (_room!.localParticipant == null) {
+      Logger.warning('LiveKit: Cannot send whiteboard data - no local participant', 'LiveKitService');
+      return;
+    }
+    
+    if (!_isConnected) {
+      Logger.warning('LiveKit: Cannot send whiteboard data - not connected', 'LiveKitService');
+      return;
+    }
+    
+    try {
+      // Remove sender field if present (web doesn't use it)
+      data.remove('sender');
+      
+      // Convert to JSON string using dart:convert
+      final jsonString = jsonEncode(data);
+      final encodedData = utf8.encode(jsonString);
+      
+      // Check data size limit (16KB) - same as web
+      if (encodedData.length > 16384) {
+        Logger.error('LiveKit: Data too large for whiteboard: ${encodedData.length} bytes', null, null, 'LiveKitService');
+        return;
       }
+      
+      // Send with timeout
+      await _room!.localParticipant!.publishData(
+        encodedData,
+        reliable: true,
+        topic: 'whiteboard',
+      ).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          Logger.error('LiveKit: Timeout sending whiteboard data', null, null, 'LiveKitService');
+          throw TimeoutException('Timeout sending whiteboard data');
+        },
+      );
+      
+      Logger.debug(' LiveKit: Whiteboard data sent - ${data['type']} (${encodedData.length} bytes)');
+    } on TimeoutException catch (e) {
+      Logger.error(' LiveKit: Timeout sending whiteboard data: $e', e, null, 'LiveKitService');
+      _error = 'Timeout: ${e.toString()}';
+      notifyListeners();
+    } catch (e) {
+      Logger.error(' LiveKit: Failed to send whiteboard data: $e', e, null, 'LiveKitService');
+      _error = e.toString();
+      notifyListeners();
     }
   }
 
@@ -334,25 +692,201 @@ class LiveKitService extends ChangeNotifier {
     _onChatDataReceived = callback;
   }
 
+  // Mute control data callback
+  void Function(Map<String, dynamic>)? _onMuteControlDataReceived;
+
+  // Set mute control data callback
+  void setMuteControlDataCallback(void Function(Map<String, dynamic>) callback) {
+    _onMuteControlDataReceived = callback;
+  }
+
+  // Reaction data callback
+  void Function(Map<String, dynamic>)? _onReactionDataReceived;
+
+  // Set reaction data callback
+  void setReactionDataCallback(void Function(Map<String, dynamic>) callback) {
+    _onReactionDataReceived = callback;
+  }
+
+  // Raise hand data callback
+  void Function(Map<String, dynamic>)? _onRaiseHandDataReceived;
+
+  // Set raise hand data callback
+  void setRaiseHandDataCallback(void Function(Map<String, dynamic>) callback) {
+    _onRaiseHandDataReceived = callback;
+  }
+
   // Send chat data
   Future<void> sendChatData(Map<String, dynamic> data) async {
     if (_room?.localParticipant != null) {
       try {
         // Store the message locally first
         _chatMessages.add(data);
-        print('📤 LiveKit: Stored local chat message, total messages: ${_chatMessages.length}');
+        Logger.debug('LiveKit: Stored local chat message, total messages: ${_chatMessages.length}', 'LiveKitService');
         
         // Convert to JSON string using dart:convert
         final jsonString = jsonEncode(data);
-        final encodedData = jsonString.codeUnits;
+        final encodedData = utf8.encode(jsonString);
         await _room!.localParticipant!.publishData(
           encodedData,
           reliable: true,
           topic: 'chat',
         );
-        print('📤 LiveKit: Chat data sent - ${data['type']}');
+        Logger.debug(' LiveKit: Chat data sent - ${data['type']}');
       } catch (e) {
-        print('❌ LiveKit: Failed to send chat data: $e');
+        Logger.error(' LiveKit: Failed to send chat data: $e', e, null, 'LiveKitService');
+        _error = e.toString();
+        notifyListeners();
+        rethrow;
+      }
+    }
+  }
+
+  // Send reaction data
+  Future<void> sendReactionData(String reactionType) async {
+    if (_room?.localParticipant != null) {
+      try {
+        final reactionData = {
+          'type': 'reaction',
+          'reactionType': reactionType,
+          'sender': _localParticipant!.identity,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'id': '${DateTime.now().millisecondsSinceEpoch}-${_localParticipant!.identity}',
+        };
+
+        final jsonString = jsonEncode(reactionData);
+        final encodedData = utf8.encode(jsonString);
+        await _room!.localParticipant!.publishData(
+          encodedData,
+          reliable: false, // Reactions don't need to be reliable
+          topic: 'reaction',
+        );
+        Logger.debug('LiveKit: Reaction data sent - $reactionType', 'LiveKitService');
+      } catch (e) {
+        Logger.error(' LiveKit: Failed to send reaction data: $e', e, null, 'LiveKitService');
+        _error = e.toString();
+        notifyListeners();
+        rethrow;
+      }
+    }
+  }
+
+  // Send raise hand data
+  Future<void> sendRaiseHandData(bool isRaised) async {
+    if (_room?.localParticipant != null) {
+      try {
+        final raiseHandData = {
+          'type': 'raise-hand',
+          'sender': _localParticipant!.identity,
+          'isRaised': isRaised,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'id': '${DateTime.now().millisecondsSinceEpoch}-${_localParticipant!.identity}',
+        };
+
+        final jsonString = jsonEncode(raiseHandData);
+        final encodedData = utf8.encode(jsonString);
+        await _room!.localParticipant!.publishData(
+          encodedData,
+          reliable: true,
+          topic: 'raise-hand',
+        );
+        Logger.debug('LiveKit: Raise hand data sent - isRaised: $isRaised', 'LiveKitService');
+      } catch (e) {
+        Logger.error(' LiveKit: Failed to send raise hand data: $e', e, null, 'LiveKitService');
+        _error = e.toString();
+        notifyListeners();
+        rethrow;
+      }
+    }
+  }
+
+  // Send video request data
+  Future<void> sendVideoRequest({
+    required String targetParticipant,
+    required bool turnOn,
+  }) async {
+    if (_room?.localParticipant != null) {
+      try {
+        final videoRequestData = {
+          'type': turnOn ? 'video_request_on' : 'video_request_off',
+          'targetParticipant': targetParticipant,
+          'requestType': turnOn ? 'camera_on' : 'camera_off',
+          'sender': _localParticipant!.identity,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'id': 'request-${DateTime.now().millisecondsSinceEpoch}',
+        };
+
+        final jsonString = jsonEncode(videoRequestData);
+        final encodedData = utf8.encode(jsonString);
+        await _room!.localParticipant!.publishData(
+          encodedData,
+          reliable: true,
+          topic: 'video-request',
+        );
+        Logger.debug('LiveKit: Video request sent - target: $targetParticipant, turnOn: $turnOn', 'LiveKitService');
+      } catch (e) {
+        Logger.error(' LiveKit: Failed to send video request: $e', e, null, 'LiveKitService');
+        _error = e.toString();
+        notifyListeners();
+        rethrow;
+      }
+    }
+  }
+
+  // Send mute control command via data channel
+  Future<void> sendMuteControlCommand({
+    required String targetParticipant,
+    required bool mute,
+    bool allowUnmute = true,
+  }) async {
+    if (_room?.localParticipant != null) {
+      try {
+        final muteControlData = {
+          'type': mute ? 'mute_command' : 'unmute_command',
+          'targetParticipant': targetParticipant,
+          'sender': _localParticipant!.identity,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'allowUnmute': allowUnmute,
+        };
+
+        final jsonString = jsonEncode(muteControlData);
+        final encodedData = utf8.encode(jsonString);
+        await _room!.localParticipant!.publishData(
+          encodedData,
+          reliable: true,
+          topic: 'mute-control',
+        );
+        Logger.debug('LiveKit: Mute control command sent - target: $targetParticipant, mute: $mute', 'LiveKitService');
+      } catch (e) {
+        Logger.error(' LiveKit: Failed to send mute control command: $e', e, null, 'LiveKitService');
+        _error = e.toString();
+        notifyListeners();
+        rethrow;
+      }
+    }
+  }
+
+  // Send mute all command via data channel
+  Future<void> sendMuteAllCommand({bool allowUnmute = true}) async {
+    if (_room?.localParticipant != null) {
+      try {
+        final muteControlData = {
+          'type': 'mute_all_command',
+          'sender': _localParticipant!.identity,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'allowUnmute': allowUnmute,
+        };
+
+        final jsonString = jsonEncode(muteControlData);
+        final encodedData = utf8.encode(jsonString);
+        await _room!.localParticipant!.publishData(
+          encodedData,
+          reliable: true,
+          topic: 'mute-control',
+        );
+        Logger.debug('LiveKit: Mute all command sent', 'LiveKitService');
+      } catch (e) {
+        Logger.error(' LiveKit: Failed to send mute all command: $e', e, null, 'LiveKitService');
         _error = e.toString();
         notifyListeners();
         rethrow;
@@ -362,7 +896,7 @@ class LiveKitService extends ChangeNotifier {
 
   // Request permissions
   Future<void> _requestPermissions() async {
-    print('📱 LiveKit: Starting permission request process');
+    Logger.debug('LiveKit: Starting permission request process', 'LiveKitService');
     
     final permissions = [
       Permission.camera,
@@ -371,118 +905,156 @@ class LiveKitService extends ChangeNotifier {
 
     for (final permission in permissions) {
       final permissionName = permission.toString().split('.').last;
-      print('📱 LiveKit: Checking permission: $permissionName');
+      Logger.debug('LiveKit: Checking permission: $permissionName', 'LiveKitService');
       
       final status = await permission.status;
-      print('📱 LiveKit: Permission $permissionName status: $status');
+      Logger.debug('LiveKit: Permission $permissionName status: $status', 'LiveKitService');
       
       if (status.isDenied) {
-        print('📱 LiveKit: Permission $permissionName is denied, requesting...');
+        Logger.debug('LiveKit: Permission $permissionName is denied, requesting...', 'LiveKitService');
         final requestResult = await permission.request();
-        print('📱 LiveKit: Permission $permissionName request result: $requestResult');
+        Logger.debug('LiveKit: Permission $permissionName request result: $requestResult', 'LiveKitService');
         
         if (!requestResult.isGranted) {
-          print('❌ LiveKit: Permission $permissionName denied by user');
+          Logger.error('LiveKit: Permission $permissionName denied by user', null, null, 'LiveKitService');
           throw Exception('Permission denied: $permissionName. Please enable camera and microphone permissions in your device settings.');
         }
       } else if (status.isPermanentlyDenied) {
-        print('❌ LiveKit: Permission $permissionName is permanently denied');
+        Logger.error('LiveKit: Permission $permissionName is permanently denied', null, null, 'LiveKitService');
         throw Exception('Permission permanently denied: $permissionName. Please enable camera and microphone permissions in your device settings.');
       } else if (!status.isGranted) {
-        print('❌ LiveKit: Permission $permissionName is not granted');
+        Logger.error('LiveKit: Permission $permissionName is not granted', null, null, 'LiveKitService');
         throw Exception('Permission not granted: $permissionName. Please enable camera and microphone permissions in your device settings.');
       } else {
-        print('✅ LiveKit: Permission $permissionName is already granted');
+        Logger.debug('LiveKit: Permission $permissionName is already granted', 'LiveKitService');
       }
     }
     
-    print('✅ LiveKit: All permissions granted successfully');
+    Logger.debug('LiveKit: All permissions granted successfully', 'LiveKitService');
   }
 
-  // Room event handler
+  // Room event handler - optimized to reduce excessive logging and rebuilds
   void _onRoomChanged() {
-    print('🔄 LiveKit: Room state changed');
     if (_room != null) {
       _participants = _room!.remoteParticipants.values.toList();
       _localParticipant = _room!.localParticipant;
       
       // Check connection state
       final connectionState = _room!.connectionState;
-      print('🔄 LiveKit: Connection state: $connectionState');
-      print('🔄 LiveKit: Participants updated - Remote: ${_participants.length}, Local: ${_localParticipant != null ? "present" : "null"}');
+      
+      // Check for screen share and update state
+      final hasScreenShare = hasAnyScreenShare;
+      bool needsImmediateNotify = false;
+      
+      if (hasScreenShare != _isScreenSharing) {
+        _isScreenSharing = hasScreenShare;
+        needsImmediateNotify = true; // Screen share changes need immediate update
+      } else if (!hasScreenShare && _isScreenSharing) {
+        _isScreenSharing = false;
+        needsImmediateNotify = true;
+      }
       
       // Update connection status based on room state
+      final wasConnected = _isConnected;
       if (connectionState == lk.ConnectionState.connected) {
         _isConnected = true;
         _isConnecting = false;
         _error = null;
-        print('✅ LiveKit: Successfully connected to room');
       } else if (connectionState == lk.ConnectionState.connecting) {
         _isConnecting = true;
         _isConnected = false;
-        print('🔄 LiveKit: Connecting to room...');
       } else if (connectionState == lk.ConnectionState.disconnected) {
         _isConnected = false;
         _isConnecting = false;
         if (_error == null) {
           _error = 'Connection lost';
         }
-        print('❌ LiveKit: Disconnected from room');
+        needsImmediateNotify = true; // Connection state changes need immediate update
       }
       
-      notifyListeners();
-    } else {
-      print('⚠️ LiveKit: Room is null in _onRoomChanged');
+      // Use debounced notify for regular updates, immediate for critical changes
+      if (needsImmediateNotify || wasConnected != _isConnected) {
+        notifyListeners();
+      } else {
+        _notifyDebouncer.call(() {
+          if (_room != null) {
+            notifyListeners();
+          }
+        });
+      }
     }
   }
 
-  // Data received handler for whiteboard collaboration
+  // Data received handler for whiteboard collaboration - optimized to reduce logging
   void _onDataReceived(lk.DataReceivedEvent event) {
     try {
-      print('📥 LiveKit: Data received from ${event.participant?.identity}');
-      print('📥 LiveKit: Event topic: ${event.topic}');
-      print('📥 LiveKit: Data length: ${event.data.length}');
-      
-      // Convert List<int> to String
-      final dataString = String.fromCharCodes(event.data);
-      print('📥 LiveKit: Data string: $dataString');
-      print('📥 LiveKit: Data string length: ${dataString.length}');
-      print('📥 LiveKit: Topic: ${event.topic}');
+      // Convert List<int> to String using UTF-8 decoding
+      final dataString = utf8.decode(event.data);
       
       // Parse the data - it should be a JSON-like string
       final data = _parseData(dataString);
       
       if (data != null) {
-        print('📥 LiveKit: Parsed data: $data');
-        
         // Handle different data types based on topic or data type
         if (event.topic == 'whiteboard' || (event.topic == null && data['type'] == 'whiteboard_toggle')) {
-          // Whiteboard data
+          // Whiteboard data - filter own messages (like web version)
+          final senderIdentity = event.participant?.identity;
+          final localIdentity = _localParticipant?.identity;
+          
+          if (senderIdentity == localIdentity) {
+            return; // Ignore own messages
+          }
+          
+          // Handle whiteboard_toggle message to open/close whiteboard
+          if (data['type'] == 'whiteboard_toggle') {
+            final isHost = data['isHost'] as bool? ?? false;
+            final action = data['action'] as String?;
+            
+            if (isHost && action != null) {
+              _isWhiteboardOpen = action == 'open';
+              notifyListeners();
+              
+              // Also forward to whiteboard callback if set
+              if (_onWhiteboardDataReceived != null) {
+                _onWhiteboardDataReceived!(data);
+              }
+              return;
+            }
+          }
+          
           if (_onWhiteboardDataReceived != null) {
-            print('📥 LiveKit: Forwarding whiteboard data to callback');
             _onWhiteboardDataReceived!(data);
-          } else {
-            print('⚠️ LiveKit: No whiteboard callback set');
           }
         } else if (event.topic == 'chat' || data['type'] == 'chat_message') {
           // Chat data - store persistently
           _chatMessages.add(data);
-          print('📥 LiveKit: Stored chat message, total messages: ${_chatMessages.length}');
           
           if (_onChatDataReceived != null) {
-            print('📥 LiveKit: Forwarding chat data to callback');
             _onChatDataReceived!(data);
-          } else {
-            print('⚠️ LiveKit: No chat callback set');
           }
-        } else {
-          print('📥 LiveKit: Unknown data type: ${data['type']} with topic: ${event.topic}');
+        } else if (event.topic == 'reaction' || data['type'] == 'reaction') {
+          // Reaction data
+          if (_onReactionDataReceived != null) {
+            _onReactionDataReceived!(data);
+          }
+        } else if (event.topic == 'raise-hand' || data['type'] == 'raise-hand') {
+          // Raise hand data
+          if (_onRaiseHandDataReceived != null) {
+            _onRaiseHandDataReceived!(data);
+          }
+        } else if (event.topic == 'mute-control' || 
+                   data['type'] == 'mute_command' || 
+                   data['type'] == 'unmute_command' || 
+                   data['type'] == 'mute_all_command') {
+          // Mute control data
+          if (_onMuteControlDataReceived != null) {
+            _onMuteControlDataReceived!(data);
+          }
         }
-      } else {
-        print('❌ LiveKit: Failed to parse data');
       }
     } catch (e) {
-      print('❌ LiveKit: Error processing received data: $e');
+      // Only log actual errors, not every data packet
+      Logger.error('Error processing received data: $e', e, null, 'LiveKitService');
     }
   }
 
@@ -494,12 +1066,10 @@ class LiveKitService extends ChangeNotifier {
       if (data is Map<String, dynamic>) {
         return data;
       }
-      
-      print('⚠️ LiveKit: Data is not a Map: $dataString');
       return null;
     } catch (e) {
-      print('❌ LiveKit: Error parsing data as JSON: $e');
-      print('❌ LiveKit: Raw data: $dataString');
+      // Only log parsing errors in debug mode
+      Logger.warning('Error parsing data as JSON: $e', 'LiveKitService');
       return null;
     }
   }
@@ -507,7 +1077,7 @@ class LiveKitService extends ChangeNotifier {
 
   // Start connection monitoring
   void _startConnectionMonitoring() {
-    print('🔍 LiveKit: Starting connection monitoring');
+    Logger.debug('LiveKit: Starting connection monitoring', 'LiveKitService');
     
     // Stop any existing timers
     _stopConnectionMonitoring();
@@ -525,7 +1095,7 @@ class LiveKitService extends ChangeNotifier {
   
   // Stop connection monitoring
   void _stopConnectionMonitoring() {
-    print('🔍 LiveKit: Stopping connection monitoring');
+    Logger.debug('LiveKit: Stopping connection monitoring', 'LiveKitService');
     _keepaliveTimer?.cancel();
     _keepaliveTimer = null;
     _connectionMonitorTimer?.cancel();
@@ -538,16 +1108,16 @@ class LiveKitService extends ChangeNotifier {
       try {
         // Simple keepalive by checking connection state
         final connectionState = _room!.connectionState;
-        print('💓 LiveKit: Keepalive check - Connection state: $connectionState');
+        Logger.debug('LiveKit: Keepalive check - Connection state: $connectionState', 'LiveKitService');
         
         // If connection is stable, just log it
         if (connectionState == lk.ConnectionState.connected) {
-          print('💓 LiveKit: Connection is stable');
+          Logger.debug('LiveKit: Connection is stable', 'LiveKitService');
         } else {
-          print('⚠️ LiveKit: Connection state changed during keepalive: $connectionState');
+          Logger.warning('LiveKit: Connection state changed during keepalive: $connectionState', 'LiveKitService');
         }
       } catch (e) {
-        print('⚠️ LiveKit: Keepalive failed: $e');
+        Logger.warning('LiveKit: Keepalive failed: $e', 'LiveKitService');
       }
     }
   }
@@ -564,18 +1134,18 @@ class LiveKitService extends ChangeNotifier {
         _disconnectionCount = 0;
       } else if (connectionState == lk.ConnectionState.disconnected) {
         _disconnectionCount++;
-        print('⚠️ LiveKit: Connection health check - disconnected (count: $_disconnectionCount)');
+        Logger.warning('LiveKit: Connection health check - disconnected (count: $_disconnectionCount)', 'LiveKitService');
         
         // If we've been disconnected for too long, try to reconnect
         if (_lastConnectionTime != null) {
           final timeSinceLastConnection = now.difference(_lastConnectionTime!);
           if (timeSinceLastConnection.inSeconds > 30) { // Reduced from 60 to 30 seconds
-            print('🔄 LiveKit: Attempting reconnection due to long disconnection (${timeSinceLastConnection.inSeconds}s)');
+            Logger.debug('LiveKit: Attempting reconnection due to long disconnection (${timeSinceLastConnection.inSeconds}s)', 'LiveKitService');
             _attemptReconnection();
           }
         } else {
           // If we don't have a last connection time, try to reconnect immediately
-          print('🔄 LiveKit: No last connection time, attempting immediate reconnection');
+          Logger.debug('LiveKit: No last connection time, attempting immediate reconnection', 'LiveKitService');
           _attemptReconnection();
         }
       }
@@ -585,17 +1155,17 @@ class LiveKitService extends ChangeNotifier {
   // Attempt reconnection
   Future<void> _attemptReconnection() async {
     if (_isConnecting) {
-      print('⚠️ LiveKit: Already attempting reconnection, skipping');
+      Logger.warning('LiveKit: Already attempting reconnection, skipping', 'LiveKitService');
       return;
     }
     
     if (_lastLivekitUrl == null || _lastToken == null) {
-      print('⚠️ LiveKit: No connection details available for reconnection');
+      Logger.warning('LiveKit: No connection details available for reconnection', 'LiveKitService');
       return;
     }
     
     try {
-      print('🔄 LiveKit: Starting reconnection attempt');
+      Logger.debug('LiveKit: Starting reconnection attempt', 'LiveKitService');
       _isConnecting = true;
       notifyListeners();
       
@@ -608,18 +1178,156 @@ class LiveKitService extends ChangeNotifier {
           _lastLivekitUrl!,
           _lastToken!,
         );
-        print('✅ LiveKit: Reconnection successful');
+        Logger.debug('LiveKit: Reconnection successful', 'LiveKitService');
       }
     } catch (e) {
-      print('❌ LiveKit: Reconnection failed: $e');
+      Logger.error(' LiveKit: Reconnection failed: $e', e, null, 'LiveKitService');
       _error = 'Reconnection failed: $e';
       notifyListeners();
     }
   }
 
+  // Start recording - client-side screen recording
+  Future<void> startRecording() async {
+    if (_isProcessingRecording) {
+      Logger.warning('LiveKit: Recording request already in progress', 'LiveKitService');
+      return;
+    }
+    
+    try {
+      _isProcessingRecording = true;
+      notifyListeners();
+      
+      Logger.debug('LiveKit: Starting client-side screen recording', 'LiveKitService');
+      
+      // Start client-side screen recording
+      final recordingPath = await _screenRecordingService.startRecording();
+      
+      _isRecording = true;
+      _isRecordingPaused = false;
+      _recordingStartTime = DateTime.now();
+      _pausedDuration = Duration.zero;
+      _pauseStartTime = null;
+      _lastEgressId = recordingPath;
+      _isSimpleRecording = true; // Client-side recording
+      
+      Logger.debug('LiveKit: Screen recording started successfully: $recordingPath', 'LiveKitService');
+      notifyListeners();
+    } catch (e) {
+      Logger.error(' LiveKit: Failed to start recording: $e', e, null, 'LiveKitService');
+      final errorMessage = e.toString();
+      
+      // Provide user-friendly error message
+      if (errorMessage.contains('Internal service panic') || 
+          errorMessage.contains('egress') ||
+          errorMessage.contains('not configured')) {
+        _error = 'Recording is not available. The LiveKit server egress service may not be configured. Please contact your administrator.';
+      } else {
+        _error = errorMessage;
+      }
+      
+      notifyListeners();
+      rethrow;
+    } finally {
+      _isProcessingRecording = false;
+      notifyListeners();
+    }
+  }
+
+  // Set server-side recording state (for API-based recording)
+  void setServerRecordingState(bool isRecording, {DateTime? startTime}) {
+    _isRecording = isRecording;
+    _recordingStartTime = startTime;
+    if (!isRecording) {
+      _isRecordingPaused = false;
+      _recordingStartTime = null;
+    }
+    notifyListeners();
+    Logger.debug('LiveKit: Server recording state updated - isRecording: $isRecording', 'LiveKitService');
+  }
+
+  // Stop recording - client-side screen recording
+  Future<Map<String, dynamic>?> stopRecording() async {
+    if (_isProcessingRecording) {
+      Logger.warning('LiveKit: Recording request already in progress', 'LiveKitService');
+      return null;
+    }
+    
+    try {
+      _isProcessingRecording = true;
+      notifyListeners();
+      
+      Logger.debug('LiveKit: Stopping client-side screen recording', 'LiveKitService');
+      
+      // Stop client-side screen recording
+      final recordingPath = await _screenRecordingService.stopRecording();
+      
+      _isRecording = false;
+      _isRecordingPaused = false;
+      _isSimpleRecording = false;
+      final recordingStartTime = _recordingStartTime;
+      _recordingStartTime = null;
+      _pausedDuration = Duration.zero;
+      _pauseStartTime = null;
+      
+      if (recordingPath != null) {
+        // Extract filename from path
+        final file = File(recordingPath);
+        final filename = file.path.split('/').last;
+        
+        Logger.debug('LiveKit: Screen recording stopped successfully: $recordingPath', 'LiveKitService');
+        
+        // Return the local file path for direct access
+        notifyListeners();
+        return {
+          'filePath': recordingPath,
+          'filename': filename,
+          'isLocalFile': true,
+        };
+      } else {
+        Logger.warning('LiveKit: No recording file available', 'LiveKitService');
+      }
+      
+      notifyListeners();
+      return null;
+    } catch (e) {
+      Logger.error(' LiveKit: Failed to stop recording: $e', e, null, 'LiveKitService');
+      _error = e.toString();
+      notifyListeners();
+      rethrow;
+    } finally {
+      _isProcessingRecording = false;
+      notifyListeners();
+    }
+  }
+
+  // Pause/Resume recording
+  void toggleRecordingPause() {
+    if (!_isRecording) return;
+    
+    if (_isRecordingPaused) {
+      // Resume recording
+      if (_pauseStartTime != null) {
+        _pausedDuration += DateTime.now().difference(_pauseStartTime!);
+        _pauseStartTime = null;
+      }
+      _isRecordingPaused = false;
+      _screenRecordingService.resumeRecording();
+      Logger.debug('LiveKit: Recording resumed', 'LiveKitService');
+    } else {
+      // Pause recording
+      _pauseStartTime = DateTime.now();
+      _isRecordingPaused = true;
+      _screenRecordingService.pauseRecording();
+      Logger.debug('LiveKit: Recording paused', 'LiveKitService');
+    }
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     _stopConnectionMonitoring();
+    _notifyDebouncer.dispose();
     _room?.removeListener(_onRoomChanged);
     _dataListener?.dispose();
     disconnect();

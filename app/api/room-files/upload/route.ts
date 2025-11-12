@@ -27,10 +27,10 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const file = formData.get('file') as File;
-    const roomName = formData.get('roomName') as string;
+    const roomLink = formData.get('roomName') as string; // Actually roomLink (hostLink, guestLink, or observerLink)
     const uploadedBy = formData.get('uploadedBy') as string;
 
-    if (!file || !roomName || !uploadedBy) {
+    if (!file || !roomLink || !uploadedBy) {
       return NextResponse.json(
         { error: 'Missing required fields: file, roomName, or uploadedBy' },
         { status: 400 }
@@ -53,9 +53,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Verify room exists by name
+    // Verify room exists by link (hostLink, guestLink, or observerLink)
     const room = await prisma.room.findFirst({
-      where: { name: roomName },
+      where: {
+        OR: [
+          { hostLink: roomLink },
+          { guestLink: roomLink },
+          { observerLink: roomLink },
+        ],
+      },
     });
 
     if (!room) {

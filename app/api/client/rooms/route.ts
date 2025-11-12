@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireClient } from '@/lib/auth/server-auth';
 import { prisma } from '@/lib/database';
 import { z } from 'zod';
+import { checkTrialExpiration, isSubscriptionActive } from '@/lib/utils/trial-check';
 import { generateRoomLink } from '@/lib/database';
 import { randomBytes } from 'crypto';
+import bcrypt from 'bcryptjs';
 
 async function generateUniqueObserverLink(): Promise<string> {
   const maxAttempts = 10;
@@ -36,6 +38,9 @@ const createRoomSchema = z.object({
   requireWaitingRoom: z.boolean().optional(),
   allowGuestUnmute: z.boolean().optional(),
   enablePrivateChat: z.boolean().optional(),
+  password: z.string().optional(),
+  passwordRequired: z.boolean().optional(),
+  passwordFor: z.enum(['HOST_ONLY', 'HOST_AND_GUEST']).optional(),
 });
 
 // GET - List client's rooms
@@ -120,7 +125,18 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    if (!subscription || subscription.status !== 'ACTIVE') {
+    if (!subscription) {
+      return NextResponse.json(
+        { error: 'الاشتراك غير موجود. يرجى التواصل مع المسؤول' },
+        { status: 403 }
+      );
+    }
+
+    // Check and update trial expiration if needed
+    const checkedSubscription = await checkTrialExpiration(subscription);
+
+    // Check if subscription is active (ACTIVE or valid TRIAL)
+    if (!isSubscriptionActive(checkedSubscription)) {
       return NextResponse.json(
         { error: 'الاشتراك غير نشط. يرجى التواصل مع المسؤول' },
         { status: 403 }
@@ -164,20 +180,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Get enabled features from plan
-    const enabledFeatures = subscription.plan?.features
+    const enabledFeatures = checkedSubscription.plan?.features
       .filter((f) => f.enabled)
       .map((f) => f.feature) || [];
 
-    // Generate room link based on client name + room name
+    // Generate room link using 7 random words
     // Both host and guest use the same base link, distinguished by /h or /g in the route
     let roomLink: string;
     let attempts = 0;
     const maxAttempts = 10;
 
     do {
-      // Generate link with room name, add suffix if needed for uniqueness
-      const baseLink = generateRoomLink(client.name, validated.data.name);
-      roomLink = attempts === 0 ? baseLink : `${baseLink}-${attempts}`;
+      // Generate link with 7 random words
+      roomLink = generateRoomLink();
 
       const existingRoom = await prisma.room.findFirst({
         where: {
@@ -200,9 +215,15 @@ export async function POST(request: NextRequest) {
 
     if (attempts >= maxAttempts) {
       return NextResponse.json(
-        { error: 'اسم الغرفة مستخدم بالفعل. يرجى اختيار اسم آخر' },
+        { error: 'فشل في إنشاء رابط فريد للغرفة. يرجى المحاولة مرة أخرى' },
         { status: 400 }
       );
+    }
+
+    // Hash password if provided
+    let hashedPassword: string | null = null;
+    if (validated.data.passwordRequired && validated.data.password) {
+      hashedPassword = await bcrypt.hash(validated.data.password, 10);
     }
 
     // Create room with feature settings based on plan
@@ -231,6 +252,10 @@ export async function POST(request: NextRequest) {
         enableNormalWhiteboard: enabledFeatures.includes('NORMAL_WHITEBOARD'),
         enableManageParticipants: enabledFeatures.includes('MANAGE_PARTICIPANTS'),
         enableVirtualBackground: enabledFeatures.includes('VIRTUAL_BACKGROUND'),
+        enableNoiseCancellation: enabledFeatures.includes('NOISE_CANCELLATION'),
+        password: hashedPassword,
+        passwordRequired: validated.data.passwordRequired ?? false,
+        passwordFor: validated.data.passwordFor ?? null,
       },
     });
 

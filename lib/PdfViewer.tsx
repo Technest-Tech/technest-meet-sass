@@ -179,7 +179,8 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
     
     setIsLoading(true);
     try {
-      const url = `/uploads/${roomName}/${file.filename}`;
+      // Use the API route to serve the file, which correctly resolves room name from fileId
+      const url = `/api/room-files/view/${file.id}`;
       const loadingTask = pdfjsLib.getDocument(url);
       const pdf = await loadingTask.promise;
       

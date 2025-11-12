@@ -142,7 +142,7 @@ export function CameraSettings({ roomFeatures }: { roomFeatures?: { enableVirtua
   }, [cameraTrack, backgroundType, virtualBackgroundImagePath]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+    <div dir="ltr" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
       {camTrackRef && (
         <VideoTrack
           style={{

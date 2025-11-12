@@ -15,7 +15,13 @@ export async function POST(request: NextRequest) {
     // Get LiveKit API key and secret from environment variables
     const apiKey = process.env.LIVEKIT_API_KEY || 'devkey';
     const apiSecret = process.env.LIVEKIT_API_SECRET || 'secret';
-    const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || 'ws://localhost:7880';
+    // For local development, use local IP instead of localhost for mobile devices
+    // Check if we're in development mode (using devkey or NODE_ENV)
+    const isDevelopment = (process.env.NODE_ENV === 'development' || process.env.NODE_ENV !== 'production') && apiKey === 'devkey';
+    const defaultLivekitUrl = isDevelopment 
+      ? 'ws://192.168.1.13:7880' 
+      : 'ws://localhost:7880';
+    const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || defaultLivekitUrl;
 
     console.log('🔑 LiveKit Config:', { apiKey, apiSecret: apiSecret ? '***' : 'undefined', livekitUrl });
     console.log('👤 Participant:', { roomName, participantName, participantType });

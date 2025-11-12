@@ -3,12 +3,12 @@ import '@livekit/components-styles';
 import '@livekit/components-styles/prefabs';
 import type { Metadata, Viewport } from 'next';
 import { Toaster } from 'react-hot-toast';
-import { Cairo } from 'next/font/google';
+import { Almarai } from 'next/font/google';
 
-const cairo = Cairo({
+const almarai = Almarai({
   subsets: ['arabic', 'latin'],
-  weight: ['400', '500', '600', '700', '800', '900'],
-  variable: '--font-cairo',
+  weight: ['300', '400', '700', '800'],
+  variable: '--font-almarai',
   display: 'swap',
 });
 
@@ -39,15 +39,14 @@ export const metadata: Metadata = {
   icons: {
     icon: {
       rel: 'icon',
-      url: '/favicon.ico',
+      url: '/academiq-meet-logo.png',
     },
     apple: [
       {
         rel: 'apple-touch-icon',
-        url: '/images/newmeet-apple-touch.png',
+        url: '/academiq-meet-logo.png',
         sizes: '180x180',
       },
-      { rel: 'mask-icon', url: '/images/newmeet-safari-pinned-tab.svg', color: '#667eea' },
     ],
   },
 };
@@ -58,8 +57,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ar" dir="rtl" className={cairo.variable}>
-      <body data-lk-theme="default" className={cairo.className}>
+    <html lang="ar" dir="rtl" className={almarai.variable}>
+      <body data-lk-theme="default" className={almarai.className}>
         <Toaster 
           position="top-left"
           toastOptions={{

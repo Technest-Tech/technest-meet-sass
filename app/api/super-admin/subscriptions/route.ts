@@ -6,7 +6,9 @@ import { z } from 'zod';
 const createSubscriptionSchema = z.object({
   clientId: z.string().min(1, 'معرف العميل مطلوب'),
   planId: z.string().min(1, 'معرف الخطة مطلوب'),
-  status: z.enum(['ACTIVE', 'INACTIVE', 'EXPIRED']).default('INACTIVE'),
+  status: z.enum(['ACTIVE', 'INACTIVE', 'EXPIRED', 'TRIAL', 'TRIAL_EXPIRED']).default('INACTIVE'),
+  isTrial: z.boolean().optional(),
+  trialDays: z.number().int().min(1).max(365).optional(),
 });
 
 // GET - List all subscriptions
@@ -57,7 +59,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { clientId, planId, status } = validated.data;
+    const { clientId, planId, status, isTrial, trialDays } = validated.data;
 
     // Check if client exists
     const client = await prisma.client.findUnique({
@@ -95,17 +97,54 @@ export async function POST(request: NextRequest) {
       .filter((f) => f.enabled)
       .map((f) => f.feature) || [];
 
+    // Prepare trial data if isTrial is true
+    const trialDaysValue = trialDays || 3;
+    const now = new Date();
+    const trialEndDate = isTrial 
+      ? new Date(now.getTime() + trialDaysValue * 24 * 60 * 60 * 1000)
+      : null;
+    
+    // Determine status: if isTrial is true, set status to TRIAL
+    const finalStatus = isTrial ? 'TRIAL' : status;
+
+    // Check if subscription exists to determine if we should set trialStartDate
+    const existingSubscription = await prisma.subscription.findUnique({
+      where: { clientId },
+    });
+
+    // Prepare update data
+    const updateData: any = {
+      planId,
+      status: finalStatus,
+      isTrial: isTrial ?? false,
+    };
+
+    if (isTrial) {
+      // Set trial dates only if creating new trial or if it doesn't exist
+      if (!existingSubscription?.trialStartDate) {
+        updateData.trialStartDate = now;
+      }
+      updateData.trialEndDate = trialEndDate;
+      updateData.trialDays = trialDaysValue;
+    } else {
+      // Clear trial fields if converting from trial to paid
+      updateData.trialStartDate = null;
+      updateData.trialEndDate = null;
+      updateData.trialDays = null;
+    }
+
     // Create or update subscription
     const subscription = await prisma.subscription.upsert({
       where: { clientId },
-      update: {
-        planId,
-        status,
-      },
+      update: updateData,
       create: {
         clientId,
         planId,
-        status,
+        status: finalStatus,
+        isTrial: isTrial ?? false,
+        trialStartDate: isTrial ? now : null,
+        trialEndDate: isTrial ? trialEndDate : null,
+        trialDays: isTrial ? trialDaysValue : null,
       },
       include: {
         client: {

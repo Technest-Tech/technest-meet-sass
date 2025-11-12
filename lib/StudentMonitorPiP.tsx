@@ -33,6 +33,7 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
   const [mounted, setMounted] = useState(false);
   const [lockedDimensions, setLockedDimensions] = useState<{ width: number; height: number } | null>(null);
   const [pipWindow, setPipWindow] = useState<Window | null>(null);
+  const [windowSize, setWindowSize] = useState({ width: 0, height: 0 });
   
   // Persist manual enable state in sessionStorage
   const STORAGE_KEY = 'student-monitor-manually-enabled';
@@ -42,6 +43,21 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
   useEffect(() => {
     setMounted(true);
     return () => setMounted(false);
+  }, []);
+
+  // Handle window resize to recalculate layout
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const updateWindowSize = () => {
+      setWindowSize({ width: window.innerWidth, height: window.innerHeight });
+    };
+    
+    // Set initial size
+    updateWindowSize();
+    
+    window.addEventListener('resize', updateWindowSize);
+    return () => window.removeEventListener('resize', updateWindowSize);
   }, []);
   
   // Load persisted state on mount
@@ -223,6 +239,24 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
           height: 400,
         });
         
+        // Set up PiP window styling - dark background to match container
+        pip.document.documentElement.style.margin = '0';
+        pip.document.documentElement.style.padding = '0';
+        pip.document.documentElement.style.width = '100%';
+        pip.document.documentElement.style.height = '100%';
+        pip.document.documentElement.style.background = '#0f172a';
+        pip.document.documentElement.style.overflow = 'hidden';
+        
+        pip.document.body.style.margin = '0';
+        pip.document.body.style.padding = '0';
+        pip.document.body.style.width = '100%';
+        pip.document.body.style.height = '100%';
+        pip.document.body.style.background = '#0f172a';
+        pip.document.body.style.overflow = 'hidden';
+        pip.document.body.style.display = 'flex';
+        pip.document.body.style.alignItems = 'center';
+        pip.document.body.style.justifyContent = 'center';
+        
         // Copy all stylesheets to the PiP window
         [...document.styleSheets].forEach((styleSheet) => {
           try {
@@ -243,10 +277,12 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
         const handlePipClose = () => {
           console.log('PiP window closed, returning to main window');
           setPipWindow(null);
+          // Don't hide the monitor when PiP closes - keep it visible in main window
         };
         
         pip.addEventListener('pagehide', handlePipClose);
         pip.addEventListener('unload', handlePipClose);
+        pip.addEventListener('beforeunload', handlePipClose);
         
         setPipWindow(pip);
       } else {
@@ -269,6 +305,7 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
       pipWindow.close();
     }
     setPipWindow(null);
+    // Keep the monitor visible in the main window - don't hide it
   }, [pipWindow]);
 
   // Cleanup PiP window on unmount
@@ -350,13 +387,148 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
     return null;
   }
 
-  // Calculate grid columns based on student count
-  const getGridColumns = () => {
-    if (students.length <= 2) return 1;
-    if (students.length <= 4) return 2;
-    if (students.length <= 9) return 3;
-    return 4;
+  // Calculate optimal layout based on student count
+  const calculateLayout = (count: number) => {
+    const headerHeight = 60; // Approximate header height
+    const padding = 16; // Container padding
+    const gap = 12; // Grid gap
+    const minCardWidth = 200;
+    const minCardHeight = 150;
+    const maxCardWidth = 600;
+    const maxCardHeight = 400;
+    
+    // Calculate available viewport space (with some margin)
+    // Use windowSize state if available, otherwise fall back to window dimensions
+    const viewportWidth = windowSize.width > 0 ? windowSize.width : (typeof window !== 'undefined' ? window.innerWidth : 1920);
+    const viewportHeight = windowSize.height > 0 ? windowSize.height : (typeof window !== 'undefined' ? window.innerHeight : 1080);
+    const maxWidth = Math.min(viewportWidth * 0.9, 1200);
+    const maxHeight = Math.min(viewportHeight * 0.85, 800);
+    
+    let columns = 1;
+    let rows = 1;
+    let containerWidth = minCardWidth + padding * 2;
+    let containerHeight = minCardHeight + headerHeight + padding * 2;
+    
+    if (count === 0) {
+      return {
+        columns: 1,
+        rows: 1,
+        gridTemplateColumns: '1fr',
+        gridTemplateRows: '1fr',
+        containerWidth: 400,
+        containerHeight: 300,
+        cardAspectRatio: '16/9'
+      };
+    }
+    
+    if (count === 1) {
+      // Single student: use ~95% of available space
+      const cardWidth = Math.min(maxWidth - padding * 2, maxCardWidth);
+      const cardHeight = Math.min(maxHeight - headerHeight - padding * 2, maxCardHeight);
+      return {
+        columns: 1,
+        rows: 1,
+        gridTemplateColumns: '1fr',
+        gridTemplateRows: '1fr',
+        containerWidth: cardWidth + padding * 2,
+        containerHeight: cardHeight + headerHeight + padding * 2,
+        cardAspectRatio: '16/9'
+      };
+    }
+    
+    if (count === 2) {
+      // 2 students: split evenly (2 columns, 1 row)
+      const cardWidth = Math.min((maxWidth - padding * 2 - gap) / 2, maxCardWidth);
+      const cardHeight = Math.min(maxHeight - headerHeight - padding * 2, maxCardHeight);
+      return {
+        columns: 2,
+        rows: 1,
+        gridTemplateColumns: '1fr 1fr',
+        gridTemplateRows: '1fr',
+        containerWidth: cardWidth * 2 + gap + padding * 2,
+        containerHeight: cardHeight + headerHeight + padding * 2,
+        cardAspectRatio: '16/9'
+      };
+    }
+    
+    if (count === 3) {
+      // 3 students: 2 on top, 1 on bottom (or 1 on left, 2 stacked on right)
+      // Use layout: 1 column on left, 2 rows on right
+      const cardWidth = Math.min((maxWidth - padding * 2 - gap * 2) / 3, maxCardWidth);
+      const cardHeight = Math.min((maxHeight - headerHeight - padding * 2 - gap) / 2, maxCardHeight);
+      return {
+        columns: 2,
+        rows: 2,
+        gridTemplateColumns: '1fr 1fr',
+        gridTemplateRows: '1fr 1fr',
+        containerWidth: cardWidth * 2 + gap + padding * 2,
+        containerHeight: cardHeight * 2 + gap + headerHeight + padding * 2,
+        cardAspectRatio: '16/9',
+        specialLayout: 'three' // Special handling for 3 students
+      };
+    }
+    
+    if (count === 4) {
+      // 4 students: 2x2 grid
+      const cardWidth = Math.min((maxWidth - padding * 2 - gap) / 2, maxCardWidth);
+      const cardHeight = Math.min((maxHeight - headerHeight - padding * 2 - gap) / 2, maxCardHeight);
+      return {
+        columns: 2,
+        rows: 2,
+        gridTemplateColumns: '1fr 1fr',
+        gridTemplateRows: '1fr 1fr',
+        containerWidth: cardWidth * 2 + gap + padding * 2,
+        containerHeight: cardHeight * 2 + gap + headerHeight + padding * 2,
+        cardAspectRatio: '16/9'
+      };
+    }
+    
+    if (count <= 6) {
+      // 5-6 students: 3 columns, 2 rows
+      const cardWidth = Math.min((maxWidth - padding * 2 - gap * 2) / 3, maxCardWidth);
+      const cardHeight = Math.min((maxHeight - headerHeight - padding * 2 - gap) / 2, maxCardHeight);
+      return {
+        columns: 3,
+        rows: 2,
+        gridTemplateColumns: 'repeat(3, 1fr)',
+        gridTemplateRows: 'repeat(2, 1fr)',
+        containerWidth: cardWidth * 3 + gap * 2 + padding * 2,
+        containerHeight: cardHeight * 2 + gap + headerHeight + padding * 2,
+        cardAspectRatio: '16/9'
+      };
+    }
+    
+    if (count <= 9) {
+      // 7-9 students: 3x3 grid
+      const cardWidth = Math.min((maxWidth - padding * 2 - gap * 2) / 3, maxCardWidth);
+      const cardHeight = Math.min((maxHeight - headerHeight - padding * 2 - gap * 2) / 3, maxCardHeight);
+      return {
+        columns: 3,
+        rows: 3,
+        gridTemplateColumns: 'repeat(3, 1fr)',
+        gridTemplateRows: 'repeat(3, 1fr)',
+        containerWidth: cardWidth * 3 + gap * 2 + padding * 2,
+        containerHeight: cardHeight * 3 + gap * 2 + headerHeight + padding * 2,
+        cardAspectRatio: '16/9'
+      };
+    }
+    
+    // 10+ students: 4 columns with scrolling
+    const cardWidth = Math.min((maxWidth - padding * 2 - gap * 3) / 4, maxCardWidth);
+    const cardHeight = Math.min((maxHeight - headerHeight - padding * 2 - gap * 2) / 3, maxCardHeight);
+    return {
+      columns: 4,
+      rows: 3,
+      gridTemplateColumns: 'repeat(4, 1fr)',
+      gridTemplateRows: 'repeat(auto-fit, minmax(150px, 1fr))',
+      containerWidth: cardWidth * 4 + gap * 3 + padding * 2,
+      containerHeight: Math.min(cardHeight * 3 + gap * 2 + headerHeight + padding * 2, maxHeight),
+      cardAspectRatio: '16/9',
+      scrollable: true
+    };
   };
+  
+  const layout = calculateLayout(students.length);
 
   if (isMinimized) {
     const minimizedContainer = (
@@ -440,10 +612,13 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
       style={{
         // Use transform like PictureInPicture - base position set in CSS
         transform: `translate(${position.x}px, ${position.y}px)`,
-        // Lock dimensions during drag to prevent resizing
-        ...(lockedDimensions && {
+        // Apply calculated dimensions or locked dimensions during drag
+        ...(lockedDimensions ? {
           width: `${lockedDimensions.width}px`,
           height: `${lockedDimensions.height}px`
+        } : {
+          width: `${layout.containerWidth}px`,
+          height: `${layout.containerHeight}px`
         })
       }}
     >
@@ -500,11 +675,15 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
               }}
               onClick={(e) => {
                 e.stopPropagation();
-                manualEnableRef.current = false;
-                setIsManuallyEnabled(false);
-                sessionStorage.removeItem(STORAGE_KEY);
+                // If PiP window is open, close it and return to main window
+                if (pipWindow && !pipWindow.closed) {
+                  closeDocumentPiP();
+                } else {
+                  // Otherwise, just minimize instead of closing completely
+                  setIsMinimized(true);
+                }
               }}
-              title="Close"
+              title="Minimize"
               style={{ fontSize: '14px' }}
             >
               ✕
@@ -532,16 +711,38 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
         <div
           className={styles.studentsGrid}
           style={{
-            gridTemplateColumns: `repeat(${getGridColumns()}, 1fr)`
+            gridTemplateColumns: layout.gridTemplateColumns,
+            gridTemplateRows: layout.gridTemplateRows,
+            maxHeight: layout.scrollable ? `${layout.containerHeight - 60 - 32}px` : 'none',
+            overflowY: layout.scrollable ? 'auto' : 'visible'
           }}
         >
-          {students.map((student) => {
+          {students.map((student, index) => {
             const cameraTrack = student.getTrackPublication(Track.Source.Camera);
             const audioTrack = student.getTrackPublication(Track.Source.Microphone);
             const isMuted = !audioTrack?.isEnabled || audioTrack?.isMuted;
+            
+            // Special handling for 3 students layout
+            const gridStyle: React.CSSProperties = {};
+            if (layout.specialLayout === 'three' && index === 0) {
+              // First student spans 2 rows on the left
+              gridStyle.gridRow = 'span 2';
+            } else if (layout.specialLayout === 'three' && index === 1) {
+              // Second student in top right
+              gridStyle.gridColumn = '2';
+              gridStyle.gridRow = '1';
+            } else if (layout.specialLayout === 'three' && index === 2) {
+              // Third student in bottom right
+              gridStyle.gridColumn = '2';
+              gridStyle.gridRow = '2';
+            }
 
             return (
-              <div key={student.sid} className={styles.studentCard}>
+              <div 
+                key={student.sid} 
+                className={styles.studentCard}
+                style={gridStyle}
+              >
                 {cameraTrack?.track ? (
                   <div className={styles.videoContainer}>
                     <VideoTrack
@@ -580,14 +781,17 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
           })}
         </div>
       ) : (
-        <div style={{
-          padding: '40px 20px',
-          textAlign: 'center',
-          color: 'rgba(255, 255, 255, 0.6)',
-          fontSize: '14px'
-        }}>
-          <div style={{ fontSize: '32px', marginBottom: '12px' }}>👥</div>
-          <div>No students with cameras active</div>
+        <div className={styles.emptyState}>
+          <div className={styles.emptyStateIcon}>
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M17 21V19C17 17.9391 16.5786 16.9217 15.8284 16.1716C15.0783 15.4214 14.0609 15 13 15H5C3.93913 15 2.92172 15.4214 2.17157 16.1716C1.42143 16.9217 1 17.9391 1 19V21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M9 11C11.2091 11 13 9.20914 13 7C13 4.79086 11.2091 3 9 3C6.79086 3 5 4.79086 5 7C5 9.20914 6.79086 11 9 11Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M23 21V19C22.9993 18.1137 22.7044 17.2528 22.1614 16.5523C21.6184 15.8519 20.8581 15.3516 20 15.13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M16 3.13C16.8604 3.35031 17.623 3.85071 18.1676 4.55232C18.7122 5.25392 19.0078 6.11683 19.0078 7.005C19.0078 7.89318 18.7122 8.75608 18.1676 9.45769C17.623 10.1593 16.8604 10.6597 16 10.88" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <div className={styles.emptyStateTitle}>No students with cameras active</div>
+          <div className={styles.emptyStateSubtitle}>Student videos will appear here when they enable their cameras</div>
         </div>
       )}
     </div>

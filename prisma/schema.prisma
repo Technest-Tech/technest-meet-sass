@@ -29,6 +29,8 @@ enum SubscriptionStatus {
   ACTIVE
   INACTIVE
   EXPIRED
+  TRIAL
+  TRIAL_EXPIRED
 }
 
 enum FeatureType {
@@ -50,6 +52,12 @@ enum FeatureType {
   NORMAL_WHITEBOARD
   MANAGE_PARTICIPANTS
   VIRTUAL_BACKGROUND
+  NOISE_CANCELLATION
+}
+
+enum PasswordFor {
+  HOST_ONLY
+  HOST_AND_GUEST
 }
 
 // Super Admin - Single super admin account
@@ -146,11 +154,19 @@ model Subscription {
   planId    String
   plan      Plan               @relation(fields: [planId], references: [id])
   status    SubscriptionStatus @default(INACTIVE)
+  
+  // Trial fields
+  isTrial         Boolean            @default(false)
+  trialStartDate  DateTime?
+  trialEndDate    DateTime?
+  trialDays       Int?               @default(3) // Default 3 days
+  
   createdAt DateTime           @default(now())
   updatedAt   DateTime         @updatedAt
 
   @@index([status])
   @@index([clientId])
+  @@index([isTrial, trialEndDate]) // For querying active trials
   @@map("subscriptions")
 }
 
@@ -180,6 +196,7 @@ model Room {
   enableNormalWhiteboard        Boolean @default(false)
   enableManageParticipants      Boolean @default(false)
   enableVirtualBackground       Boolean @default(false)
+  enableNoiseCancellation       Boolean @default(false)
   
   // Links
   hostLink          String              @unique
@@ -190,6 +207,11 @@ model Room {
   activeHostIdentity String?            // Track active host identity
   activeHostSessionId String?           // Track active host session ID
   activeHostLastSeen DateTime?          // Last time active host was seen
+  
+  // Password protection
+  password            String?            // Hashed password
+  passwordRequired    Boolean            @default(false)
+  passwordFor         PasswordFor?
   
   // Relations
   participants      Participant[]

@@ -290,11 +290,33 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
     return null;
   };
 
+  // Get clean participant names for display
+  const getCleanName = (identity: string): string => {
+    return identity.replace(/_(host|guest)_\d+$/, '');
+  };
+
+  // Get filtered participants (excluding observers and local participant)
+  const availableParticipants = filterObservers(participants).filter(
+    p => p.identity !== localParticipant?.identity
+  );
+
+  // Initialize selected recipient when recipient type changes to 'specific'
+  useEffect(() => {
+    if (isHost && recipientType === 'specific' && !selectedRecipient) {
+      const filtered = filterObservers(participants).filter(
+        p => p.identity !== localParticipant?.identity
+      );
+      if (filtered.length > 0) {
+        setSelectedRecipient(filtered[0].identity);
+      }
+    }
+  }, [isHost, recipientType, selectedRecipient, participants, localParticipant]);
+
   if (!isOpen || !mounted) return null;
 
   const chatContent = (
     <div className={styles.chatOverlay}>
-      <div className={styles.chatPanel}>
+      <div className={styles.chatPanel} dir="ltr">
         {/* Chat Header */}
         <div className={styles.chatHeader}>
           <h3 className={styles.chatTitle}>
@@ -334,33 +356,60 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
               <div 
                 key={message.id} 
                 className={`${styles.message} ${message.isLocal ? styles.localMessage : styles.remoteMessage}`}
-                  style={{
-                    backgroundColor: message.isPrivate ? 
-                      (message.isLocal ? '#fef3c7' : '#fef3c7') : 
-                      undefined,
-                    border: message.isPrivate ? '1px solid #fbbf24' : undefined
-                  }}
+                style={{
+                  position: 'relative'
+                }}
               >
+                {message.isPrivate && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '-8px',
+                    left: message.isLocal ? 'auto' : '12px',
+                    right: message.isLocal ? '12px' : 'auto',
+                    backgroundColor: '#fbbf24',
+                    color: '#1f2937',
+                    padding: '2px 8px',
+                    borderRadius: '10px',
+                    fontSize: '10px',
+                    fontWeight: '600',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    zIndex: 1,
+                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)'
+                  }}>
+                    <Lock size={10} />
+                    Private
+                  </div>
+                )}
                 <div className={styles.messageHeader}>
                   <span className={styles.senderName}>
-                      {message.isPrivate && <Lock size={12} style={{ marginRight: '4px', display: 'inline' }} />}
-                    {message.isLocal ? 'You' : message.sender}
-                      {recipientLabel && (
-                        <span style={{ 
-                          fontSize: '11px', 
-                          color: '#6b7280',
-                          marginLeft: '4px',
-                          fontWeight: 'normal'
-                        }}>
-                          {recipientLabel}
-                        </span>
-                      )}
+                    {message.isLocal ? 'You' : getCleanName(message.sender)}
+                    {recipientLabel && (
+                      <span style={{ 
+                        fontSize: '11px', 
+                        color: 'rgba(255, 255, 255, 0.6)',
+                        marginLeft: '6px',
+                        fontWeight: 'normal'
+                      }}>
+                        {recipientLabel}
+                      </span>
+                    )}
                   </span>
                   <span className={styles.timestamp}>
                     {formatTime(message.timestamp)}
                   </span>
                 </div>
-                <div className={styles.messageContent}>
+                <div 
+                  className={styles.messageContent}
+                  style={{
+                    background: message.isPrivate 
+                      ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)'
+                      : undefined,
+                    color: message.isPrivate ? '#1f2937' : undefined,
+                    border: message.isPrivate ? '1px solid #fbbf24' : undefined
+                  }}
+                >
                   {message.message}
                 </div>
               </div>
@@ -370,83 +419,265 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Recipient Selector */}
+        {/* Enhanced Recipient Selector */}
         <div style={{
-          padding: '8px 16px',
-          backgroundColor: '#f9fafb',
-          borderTop: '1px solid #e5e7eb',
-          borderBottom: '1px solid #e5e7eb'
+          padding: '12px 16px',
+          backgroundColor: 'rgba(0, 0, 0, 0.2)',
+          borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-            <Users size={14} color="#6b7280" />
-            <span style={{ color: '#6b7280' }}>Send to:</span>
-            <select
-              value={recipientType}
-              onChange={(e) => {
-                const value = e.target.value as 'all' | 'host' | 'specific';
-                setRecipientType(value);
-                if (value === 'specific' && participants.length > 0) {
-                  setSelectedRecipient(participants[0].identity);
-                }
-              }}
-              style={{
-                padding: '4px 8px',
-                borderRadius: '4px',
-                border: '1px solid #d1d5db',
+          <div style={{ 
+            display: 'flex', 
+            flexDirection: 'column',
+            gap: '10px'
+          }}>
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px',
+              marginBottom: '4px'
+            }}>
+              <Users size={16} color="rgba(255, 255, 255, 0.8)" />
+              <span style={{ 
+                color: 'rgba(255, 255, 255, 0.8)', 
                 fontSize: '13px',
-                backgroundColor: 'white',
-                cursor: 'pointer'
-              }}
-            >
-              <option value="all">Everyone</option>
-              {!isHost && <option value="host">Host (Private)</option>}
-              {isHost && filterObservers(participants).map(p => (
-                <option key={p.identity} value="specific">{p.identity} (Private)</option>
-              ))}
-            </select>
-            {isHost && recipientType === 'specific' && (
-              <select
-                value={selectedRecipient}
-                onChange={(e) => setSelectedRecipient(e.target.value)}
+                fontWeight: '500'
+              }}>
+                Send message to:
+              </span>
+            </div>
+            
+            {/* Recipient Type Buttons */}
+            <div style={{ 
+              display: 'flex', 
+              gap: '8px',
+              flexWrap: 'wrap'
+            }}>
+              <button
+                onClick={() => setRecipientType('all')}
                 style={{
-                  padding: '4px 8px',
-                  borderRadius: '4px',
-                  border: '1px solid #d1d5db',
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  border: recipientType === 'all' 
+                    ? '2px solid #4fc3f7' 
+                    : '1px solid rgba(255, 255, 255, 0.2)',
+                  backgroundColor: recipientType === 'all'
+                    ? 'rgba(79, 195, 247, 0.2)'
+                    : 'rgba(255, 255, 255, 0.05)',
+                  color: 'white',
                   fontSize: '13px',
-                  backgroundColor: 'white',
+                  fontWeight: recipientType === 'all' ? '600' : '500',
                   cursor: 'pointer',
-                  flex: 1
+                  transition: 'all 0.2s ease',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+                onMouseEnter={(e) => {
+                  if (recipientType !== 'all') {
+                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (recipientType !== 'all') {
+                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                  }
                 }}
               >
-                {filterObservers(participants).filter(p => p.identity !== localParticipant?.identity).map(p => (
-                  <option key={p.identity} value={p.identity}>{p.identity}</option>
-                ))}
-              </select>
+                <span>🌐</span>
+                Everyone
+              </button>
+              
+              {!isHost && (
+                <button
+                  onClick={() => setRecipientType('host')}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    border: recipientType === 'host' 
+                      ? '2px solid #fbbf24' 
+                      : '1px solid rgba(255, 255, 255, 0.2)',
+                    backgroundColor: recipientType === 'host'
+                      ? 'rgba(251, 191, 36, 0.2)'
+                      : 'rgba(255, 255, 255, 0.05)',
+                    color: 'white',
+                    fontSize: '13px',
+                    fontWeight: recipientType === 'host' ? '600' : '500',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (recipientType !== 'host') {
+                      e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (recipientType !== 'host') {
+                      e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                    }
+                  }}
+                >
+                  <Lock size={14} />
+                  Host (Private)
+                </button>
+              )}
+            </div>
+            
+            {/* Participant Selector for Host */}
+            {isHost && availableParticipants.length > 0 && (
+              <div style={{ 
+                display: 'flex', 
+                flexDirection: 'column',
+                gap: '8px'
+              }}>
+                <div style={{ 
+                  fontSize: '12px', 
+                  color: 'rgba(255, 255, 255, 0.6)',
+                  marginTop: '4px'
+                }}>
+                  Select participant for private message:
+                </div>
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px',
+                  maxHeight: '120px',
+                  overflowY: 'auto',
+                  padding: '4px'
+                }}>
+                  {availableParticipants.map(p => {
+                    const isSelected = recipientType === 'specific' && selectedRecipient === p.identity;
+                    return (
+                      <button
+                        key={p.identity}
+                        onClick={() => {
+                          setRecipientType('specific');
+                          setSelectedRecipient(p.identity);
+                        }}
+                        style={{
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          border: isSelected 
+                            ? '2px solid #fbbf24' 
+                            : '1px solid rgba(255, 255, 255, 0.1)',
+                          backgroundColor: isSelected
+                            ? 'rgba(251, 191, 36, 0.2)'
+                            : 'rgba(255, 255, 255, 0.05)',
+                          color: 'white',
+                          fontSize: '13px',
+                          fontWeight: isSelected ? '600' : '400',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          textAlign: 'left',
+                          justifyContent: 'flex-start'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+                            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                          }
+                        }}
+                      >
+                        <Lock size={12} />
+                        <span>{getCleanName(p.identity)}</span>
+                        {isSelected && <span style={{ marginLeft: 'auto', fontSize: '10px' }}>✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             )}
           </div>
         </div>
 
         {/* Message Input */}
         <div className={styles.inputContainer}>
-          <input
-            ref={inputRef}
-            type="text"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder={isConnected ? "Type a message..." : "Connecting..."}
-            disabled={!isConnected}
-            className={styles.messageInput}
-            maxLength={500}
-          />
-          <button
-            onClick={sendMessage}
-            disabled={!newMessage.trim() || !isConnected}
-            className={styles.sendButton}
-            title="Send Message"
-          >
-            📤
-          </button>
+          <div style={{ 
+            display: 'flex', 
+            gap: '10px',
+            alignItems: 'center',
+            width: '100%'
+          }}>
+            <input
+              ref={inputRef}
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder={
+                isConnected 
+                  ? (recipientType === 'all' 
+                      ? "Type a message to everyone..." 
+                      : recipientType === 'host'
+                      ? "Type a private message to host..."
+                      : `Type a private message to ${selectedRecipient ? getCleanName(selectedRecipient) : 'participant'}...`)
+                  : "Connecting..."
+              }
+              disabled={!isConnected}
+              className={styles.messageInput}
+              maxLength={500}
+              style={{ flex: 1 }}
+            />
+            {recipientType !== 'all' && (
+              <div style={{
+                padding: '6px 10px',
+                backgroundColor: 'rgba(251, 191, 36, 0.2)',
+                border: '1px solid #fbbf24',
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                fontSize: '11px',
+                color: '#fbbf24',
+                fontWeight: '600',
+                whiteSpace: 'nowrap'
+              }}>
+                <Lock size={12} />
+                Private
+              </div>
+            )}
+            <button
+              onClick={sendMessage}
+              disabled={!newMessage.trim() || !isConnected}
+              className={styles.sendButton}
+              title={recipientType === 'all' ? "Send Message" : "Send Private Message"}
+              style={{
+                minWidth: '50px',
+                width: '50px',
+                height: '45px',
+                borderRadius: '50%',
+                padding: 0
+              }}
+            >
+              📤
+            </button>
+          </div>
+          {newMessage.length > 0 && (
+            <div style={{
+              fontSize: '11px',
+              color: 'rgba(255, 255, 255, 0.5)',
+              textAlign: 'right',
+              marginTop: '4px'
+            }}>
+              {newMessage.length}/500
+            </div>
+          )}
         </div>
       </div>
     </div>

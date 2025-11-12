@@ -275,7 +275,7 @@ export function FileSharing({
 
   const content = (
     <div className={styles.fileSharingOverlay}>
-      <div className={styles.fileSharingPanel}>
+      <div className={styles.fileSharingPanel} dir="ltr">
         {/* Header */}
         <div className={styles.header}>
           <h3 className={styles.title}>📁 Files & Materials</h3>

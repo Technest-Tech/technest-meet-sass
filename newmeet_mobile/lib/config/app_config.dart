@@ -1,12 +1,12 @@
 class AppConfig {
   // Environment configuration
-  static const Environment _environment = Environment.production;
+  static const Environment _environment = Environment.development;
   
   // Base URLs for different environments
   static const Map<Environment, String> _baseUrls = {
-    Environment.development: 'http://localhost:3000',
+    Environment.development: 'http://192.168.1.13:3000',
     Environment.staging: 'https://staging.almajd.link',
-    Environment.production: 'https://almajdmeet.org',
+    Environment.production: 'https://acadmyq.com',
   };
   
   // Get current base URL

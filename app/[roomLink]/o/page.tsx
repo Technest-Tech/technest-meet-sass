@@ -2,20 +2,21 @@ import { PageClientImpl } from '@/app/rooms/[roomName]/PageClientImpl';
 import { VideoCodec } from 'livekit-client';
 
 interface ObserverPageProps {
-  params: {
+  params: Promise<{
     roomLink: string;
-  };
-  searchParams: {
+  }>;
+  searchParams: Promise<{
     codec?: string;
     hq?: string;
     e2ee?: string;
-  };
+  }>;
 }
 
 export default async function ObserverPage({ params, searchParams }: ObserverPageProps) {
-  const { roomLink } = params;
-  const codec = (searchParams.codec as VideoCodec) || 'vp8';
-  const hq = searchParams.hq === 'true';
+  const { roomLink } = await params;
+  const resolvedSearchParams = await searchParams;
+  const codec = (resolvedSearchParams.codec as VideoCodec) || 'vp8';
+  const hq = resolvedSearchParams.hq === 'true';
 
   // Observer always joins with a generic name
   const observerName = 'Observer';
@@ -76,6 +77,7 @@ export default async function ObserverPage({ params, searchParams }: ObserverPag
 
 // Generate metadata for the page
 export async function generateMetadata({ params }: ObserverPageProps) {
+  const { roomLink } = await params;
   return {
     title: 'Observer Mode - Meeting',
     description: 'Silent observer mode for meeting monitoring',

@@ -1,6 +1,26 @@
+/// Collaborative whiteboard widget
+/// Full-featured whiteboard with layers, collaboration, undo/redo, and all drawing tools
+
+import 'dart:async';
+import '../utils/logger.dart';
+import 'dart:convert';
+import '../utils/logger.dart';
+import 'dart:ui' as ui;
+import '../utils/logger.dart';
 import 'package:flutter/material.dart';
+import '../utils/logger.dart';
 import 'package:provider/provider.dart';
+import '../utils/logger.dart';
+import '../models/whiteboard_models.dart';
+import '../utils/logger.dart';
 import '../services/livekit_service.dart';
+import '../utils/logger.dart';
+import '../theme/app_colors.dart';
+import '../utils/logger.dart';
+import '../utils/whiteboard_utils.dart';
+import '../utils/logger.dart';
+import 'whiteboard/whiteboard_toolbar.dart';
+import '../utils/logger.dart';
 
 class WhiteboardWidget extends StatefulWidget {
   final VoidCallback onClose;
@@ -17,582 +37,968 @@ class WhiteboardWidget extends StatefulWidget {
 }
 
 class _WhiteboardWidgetState extends State<WhiteboardWidget> {
-  List<DrawingStroke> _strokes = [];
-  List<DrawingStroke> _localStrokes = [];
-  DrawingStroke? _currentStroke;
-  bool _isDrawing = false;
-  Color _currentColor = Colors.black;
-  double _currentWidth = 4.0;
-  String _currentTool = 'pen';
+  // Canvas and rendering
+  final GlobalKey _canvasKey = GlobalKey();
+  ui.PictureRecorder? _pictureRecorder;
+  CustomPaint? _customPaint;
+
+  // Participant state
   String? _participantId;
   bool _isConnected = false;
   
-  // Colors palette
-  final List<Color> _colors = [
-    Colors.black,
-    Colors.red,
+  // Tool state
+  ToolType _currentTool = ToolType.pen;
+  String _currentColor = '#000000';
+  double _currentWidth = 3.0;
+  double _currentOpacity = 1.0;
+  bool _fillShapes = false;
+
+  // Text tool state
+  double _fontSize = 16.0;
+  String _fontFamily = 'Arial';
+  bool _isTextInputActive = false;
+  Point? _textInputPosition;
+  final TextEditingController _textController = TextEditingController();
+  final FocusNode _textFocusNode = FocusNode();
+
+  // Drawing state
+  bool _isDrawing = false;
+  DrawAction? _currentAction;
+  List<DrawAction> _actions = [];
+
+  // History state (undo/redo) - synchronized across all participants
+  List<List<DrawAction>> _history = [[]];
+  int _historyStep = 0;
+
+  // Layer state - synchronized across all participants
+  List<Layer> _layers = [
+    Layer(
+      id: 'layer-1',
+      name: 'Layer 1',
+      visible: true,
+      locked: false,
+      opacity: 1.0,
+      zIndex: 0,
+    ),
   ];
-  
-  // Brush sizes
-  final List<double> _brushSizes = [2, 4, 8, 12];
+  String _activeLayerId = 'layer-1';
+
+  // Canvas state
+  Size _canvasSize = const Size(800, 600);
+  double _zoom = 1.0;
+  Point _pan = Point(x: 0, y: 0);
+  bool _isPanning = false;
+  Point? _panStart;
+
+  // Background state
+  String _backgroundColor = '#ffffff';
+  bool _showGrid = false;
+  double _gridSize = 20.0;
+
+  // UI state
+  bool _isUploadingImage = false;
+
+  // Throttle/debounce
+  DateTime _lastUpdateTime = DateTime.now();
+  static const int _updateThrottleMs = 50; // 50ms throttle for mobile
+  Timer? _throttleTimer;
+
+  // Image cache
+  final Map<String, ui.Image> _imageCache = {};
 
   @override
   void initState() {
     super.initState();
     _setupLiveKitListener();
+    _textFocusNode.addListener(_onTextFocusChange);
   }
 
   void _setupLiveKitListener() {
-    // Set up the LiveKit data callback
     final liveKitService = Provider.of<LiveKitService>(context, listen: false);
     liveKitService.setWhiteboardDataCallback(_onWhiteboardDataReceived);
     
-    // Get participant info
     if (liveKitService.localParticipant != null) {
       _participantId = liveKitService.localParticipant!.identity;
       _isConnected = liveKitService.isConnected;
+      print('📝 Whiteboard: Participant ID set to $_participantId, connected: $_isConnected');
+    } else {
+      Logger.warning(' Whiteboard: No local participant available', 'whiteboard_widget');
+    }
+  }
+
+  void _onTextFocusChange() {
+    if (!_textFocusNode.hasFocus && _isTextInputActive) {
+      _handleTextSubmit();
     }
   }
 
   void _onWhiteboardDataReceived(Map<String, dynamic> data) {
-    print('📥 Whiteboard: Received data - ${data['type']}');
-    print('📥 Whiteboard: Full data: $data');
-    print('📥 Whiteboard: Data keys: ${data.keys.toList()}');
+    if (!mounted) return;
+
+    final dataType = data['type'] as String?;
     
-    if (mounted) {
+    // Note: Own messages are already filtered in LiveKitService
+    // by comparing participant identity from the event
+
       setState(() {
-        final dataType = data['type'] as String?;
-        print('📥 Whiteboard: Processing data type: $dataType');
-        
-        if (dataType == 'stroke') {
-          // Add completed stroke from other participant
-          final strokeData = data['stroke'] as Map<String, dynamic>?;
-          print('📥 Whiteboard: Stroke data: $strokeData');
-          if (strokeData != null) {
-            final stroke = _parseStrokeFromData(strokeData);
-            if (stroke != null) {
-              print('📥 Whiteboard: Adding stroke with ${stroke.points.length} points');
-              _strokes.add(stroke);
-            } else {
-              print('❌ Whiteboard: Failed to parse stroke data');
+      switch (dataType) {
+        case 'action_complete':
+          final actionData = data['action'] as Map<String, dynamic>?;
+          if (actionData != null) {
+            try {
+              final action = DrawAction.fromJson(actionData);
+              _actions = [..._actions, action];
+              _updateHistory();
+            } catch (e) {
+              Logger.error(' Error parsing action_complete: $e', e, null, 'whiteboard_widget');
             }
           }
-        } else if (dataType == 'stroke_update') {
-          // Real-time stroke update from other participant
-          final strokeData = data['stroke'] as Map<String, dynamic>?;
-          print('📥 Whiteboard: Stroke update data: $strokeData');
-          if (strokeData != null) {
-            final stroke = _parseStrokeFromData(strokeData);
-            if (stroke != null) {
-              // Update existing stroke or add new one
-              final existingIndex = _strokes.indexWhere((s) => s.id == stroke.id);
-              if (existingIndex >= 0) {
-                print('📥 Whiteboard: Updating existing stroke at index $existingIndex');
-                _strokes[existingIndex] = stroke;
-              } else {
-                print('📥 Whiteboard: Adding new stroke with ${stroke.points.length} points');
-                _strokes.add(stroke);
-              }
-            } else {
-              print('❌ Whiteboard: Failed to parse stroke update data');
+          break;
+
+        case 'action_update':
+          final actionData = data['action'] as Map<String, dynamic>?;
+          if (actionData != null) {
+            try {
+              _currentAction = DrawAction.fromJson(actionData);
+            } catch (e) {
+              Logger.error(' Error parsing action_update: $e', e, null, 'whiteboard_widget');
             }
           }
-        } else if (dataType == 'clear') {
-          // Clear whiteboard from other participant
-          print('📥 Whiteboard: Clearing whiteboard');
-          _strokes.clear();
-          _localStrokes.clear();
-        } else if (dataType == 'whiteboard_toggle') {
-          // Handle whiteboard toggle from host
-          final action = data['action'] as String?;
-          final isHost = data['isHost'] as bool? ?? false;
-          
-          if (isHost && action != null) {
-            print('📥 Whiteboard: Received toggle command - $action');
-            // The whiteboard state is managed by the LiveKit service
-            // This is just for logging/debugging
+          break;
+
+        case 'clear':
+          _actions = [];
+          _history = [[]];
+          _historyStep = 0;
+          _currentAction = null;
+          break;
+
+        case 'undo':
+          final historyStep = data['historyStep'] as int?;
+          final actionsData = data['actions'] as List<dynamic>?;
+          if (historyStep != null && actionsData != null) {
+            _historyStep = historyStep;
+            _actions = actionsData
+                .map((a) => DrawAction.fromJson(a as Map<String, dynamic>))
+                .toList();
+            _currentAction = null;
           }
-        } else {
-          print('⚠️ Whiteboard: Unknown data type: $dataType');
-        }
+          break;
+
+        case 'redo':
+          final historyStep = data['historyStep'] as int?;
+          final actionsData = data['actions'] as List<dynamic>?;
+          if (historyStep != null && actionsData != null) {
+            _historyStep = historyStep;
+            _actions = actionsData
+                .map((a) => DrawAction.fromJson(a as Map<String, dynamic>))
+                .toList();
+            _currentAction = null;
+          }
+          break;
+
+        case 'layer_add':
+          final layerData = data['layer'] as Map<String, dynamic>?;
+          if (layerData != null) {
+            try {
+              final layer = Layer.fromJson(layerData);
+              _layers = [..._layers, layer];
+            } catch (e) {
+              Logger.error(' Error parsing layer_add: $e', e, null, 'whiteboard_widget');
+            }
+          }
+          break;
+
+        case 'layer_delete':
+          final layerId = data['layerId'] as String?;
+          final newActiveLayerId = data['newActiveLayerId'] as String?;
+          if (layerId != null) {
+            _layers = _layers.where((l) => l.id != layerId).toList();
+            if (layerId == _activeLayerId && newActiveLayerId != null) {
+              _activeLayerId = newActiveLayerId;
+            }
+          }
+          break;
+
+        case 'layer_update':
+          final layerData = data['layer'] as Map<String, dynamic>?;
+          if (layerData != null) {
+            try {
+              final updatedLayer = Layer.fromJson(layerData);
+              _layers = _layers.map((l) {
+                return l.id == updatedLayer.id ? updatedLayer : l;
+              }).toList();
+            } catch (e) {
+              Logger.error(' Error parsing layer_update: $e', e, null, 'whiteboard_widget');
+            }
+          }
+          break;
+
+        case 'layer_reorder':
+          final layersData = data['layers'] as List<dynamic>?;
+          if (layersData != null) {
+            try {
+              _layers = layersData
+                  .map((l) => Layer.fromJson(l as Map<String, dynamic>))
+                  .toList();
+            } catch (e) {
+              Logger.error(' Error parsing layer_reorder: $e', e, null, 'whiteboard_widget');
+            }
+          }
+          break;
+
+        case 'background_update':
+          final bgColor = data['backgroundColor'] as String?;
+          final showGrid = data['showGrid'] as bool?;
+          final gridSize = data['gridSize'] as num?;
+          if (bgColor != null) _backgroundColor = bgColor;
+          if (showGrid != null) _showGrid = showGrid;
+          if (gridSize != null) _gridSize = gridSize.toDouble();
+          break;
+
+        case 'history_sync':
+          final historyData = data['history'] as List<dynamic>?;
+          final historyStep = data['historyStep'] as int?;
+          final actionsData = data['actions'] as List<dynamic>?;
+          if (historyData != null && historyStep != null && actionsData != null) {
+            _history = historyData.map((h) {
+              return (h as List<dynamic>)
+                  .map((a) => DrawAction.fromJson(a as Map<String, dynamic>))
+                  .toList();
+            }).toList();
+            _historyStep = historyStep;
+            _actions = actionsData
+                .map((a) => DrawAction.fromJson(a as Map<String, dynamic>))
+                .toList();
+          }
+          break;
+      }
+    });
+  }
+
+  void _sendDataToParticipants(Map<String, dynamic> data) {
+    // Note: Don't add sender field - web version filters by participant identity from event
+    // Check data size before sending
+    final jsonString = jsonEncode(data);
+    final size = utf8.encode(jsonString).length;
+    
+    if (size > 16384) {
+      Logger.warning(' Whiteboard: Data too large to send: $size bytes', 'whiteboard_widget');
+      return;
+    }
+    
+    Logger.debug(' Whiteboard: Sending data - type: ${data['type']}, size: $size bytes');
+    widget.onSendData(data);
+  }
+
+  Point _getCanvasPoint(Offset localPosition) {
+    final scaleX = _canvasSize.width / _canvasSize.width;
+    final scaleY = _canvasSize.height / _canvasSize.height;
+    final x = (localPosition.dx * scaleX - _pan.x) / _zoom;
+    final y = (localPosition.dy * scaleY - _pan.y) / _zoom;
+    return Point(x: x, y: y);
+  }
+
+  void _handlePanStart(DragStartDetails details) {
+    final point = _getCanvasPoint(details.localPosition);
+
+    // Check if we're in pan mode
+    final isPanMode = _currentTool == ToolType.pointer;
+    if (isPanMode) {
+      setState(() {
+        _isPanning = true;
+        _panStart = point;
       });
-    } else {
-      print('⚠️ Whiteboard: Widget not mounted, ignoring data');
+      return;
     }
-  }
 
-  DrawingStroke? _parseStrokeFromData(Map<String, dynamic> strokeData) {
-    try {
-      print('📥 Whiteboard: Parsing stroke data: $strokeData');
-      
-      final points = <Offset>[];
-      final pointsData = strokeData['points'];
-      print('📥 Whiteboard: Points data type: ${pointsData.runtimeType}');
-      
-      if (pointsData != null && pointsData is List) {
-        print('📥 Whiteboard: Processing ${pointsData.length} points');
-        for (int i = 0; i < pointsData.length; i++) {
-          final pointData = pointsData[i];
-          print('📥 Whiteboard: Point $i: $pointData (type: ${pointData.runtimeType})');
-          
-          if (pointData is Map<String, dynamic> && pointData['x'] != null && pointData['y'] != null) {
-            final x = (pointData['x'] as num).toDouble();
-            final y = (pointData['y'] as num).toDouble();
-            points.add(Offset(x, y));
-            print('📥 Whiteboard: Added point: ($x, $y)');
-          } else {
-            print('⚠️ Whiteboard: Invalid point data: $pointData');
-          }
-        }
-      } else {
-        print('⚠️ Whiteboard: No valid points data found');
-      }
+    // Text tool - show input
+    if (_currentTool == ToolType.text) {
+      setState(() {
+        _isTextInputActive = true;
+        _textInputPosition = point;
+        _textController.clear();
+      });
+      return;
+    }
 
-      final strokeId = (strokeData['id'] as String?) ?? DateTime.now().millisecondsSinceEpoch.toString();
-      final color = _parseColor(strokeData['color']);
-      final width = (strokeData['width'] as num?)?.toDouble() ?? 4.0;
-      final tool = (strokeData['tool'] as String?) ?? 'pen';
-      
-      print('📥 Whiteboard: Creating stroke - ID: $strokeId, Color: $color, Width: $width, Tool: $tool, Points: ${points.length}');
+    // Check if layer is locked
+    final activeLayer = _layers.firstWhere(
+      (l) => l.id == _activeLayerId,
+      orElse: () => _layers[0],
+    );
+    if (activeLayer.locked) return;
 
-      return DrawingStroke(
-        id: strokeId,
-        points: points,
-        color: color,
-        width: width,
-        tool: tool,
+    setState(() {
+      _isDrawing = true;
+
+      // Create new action based on tool
+      final isShape = [
+        ToolType.rectangle,
+        ToolType.circle,
+        ToolType.ellipse,
+        ToolType.line,
+        ToolType.arrow,
+        ToolType.triangle,
+        ToolType.star,
+      ].contains(_currentTool);
+
+      // For eraser, use white color to match web version
+      final actionColor = _currentTool == ToolType.eraser ? '#ffffff' : _currentColor;
+      
+      _currentAction = DrawAction(
+        id: generateId(),
+        type: isShape ? ActionType.shape : ActionType.stroke,
+        tool: _currentTool,
+        color: actionColor,
+        width: _currentWidth,
+        opacity: _currentOpacity,
+        layerId: _activeLayerId,
+        fill: _fillShapes,
+        shapeType: isShape ? _getShapeType(_currentTool) : null,
+        startPoint: isShape ? point : null,
+        endPoint: isShape ? point : null,
+        points: isShape ? null : [point],
       );
-    } catch (e) {
-      print('❌ Whiteboard: Error parsing stroke data: $e');
-      print('❌ Whiteboard: Stack trace: ${StackTrace.current}');
-      return null;
+    });
+  }
+
+  void _handlePanUpdate(DragUpdateDetails details) {
+    if (_isPanning && _panStart != null) {
+      final currentScreen = details.localPosition;
+      final startScreenX = _panStart!.x * _zoom + _pan.x;
+      final startScreenY = _panStart!.y * _zoom + _pan.y;
+
+      setState(() {
+        _pan = Point(
+          x: _pan.x + (currentScreen.dx - startScreenX),
+          y: _pan.y + (currentScreen.dy - startScreenY),
+        );
+        _panStart = Point(
+          x: (currentScreen.dx - _pan.x) / _zoom,
+          y: (currentScreen.dy - _pan.y) / _zoom,
+        );
+      });
+      return;
+    }
+
+    if (!_isDrawing || _currentAction == null) return;
+
+    final point = _getCanvasPoint(details.localPosition);
+
+    setState(() {
+      if (_currentAction!.type == ActionType.stroke) {
+        final points = List<Point>.from(_currentAction!.points ?? []);
+        points.add(point);
+        _currentAction = _currentAction!.copyWith(points: points);
+      } else if (_currentAction!.type == ActionType.shape) {
+        _currentAction = _currentAction!.copyWith(endPoint: point);
+      }
+    });
+
+    // Send real-time update (throttled)
+    final now = DateTime.now();
+    if (now.difference(_lastUpdateTime).inMilliseconds >= _updateThrottleMs) {
+      _sendDataToParticipants({
+        'type': 'action_update',
+        'action': _currentAction!.toJson(),
+      });
+      _lastUpdateTime = now;
     }
   }
 
-  Color _parseColor(dynamic colorData) {
-    if (colorData is String) {
-      // Handle hex color strings
-      if (colorData.startsWith('#')) {
-        return Color(int.parse(colorData.substring(1), radix: 16) + 0xFF000000);
-      }
-      // Handle color names
-      switch (colorData.toLowerCase()) {
-        case 'black': return Colors.black;
-        case 'red': return Colors.red;
-        case 'green': return Colors.green;
-        case 'blue': return Colors.blue;
-        case 'yellow': return Colors.yellow;
-        case 'orange': return Colors.orange;
-        case 'purple': return Colors.purple;
-        case 'pink': return Colors.pink;
-        case 'cyan': return Colors.cyan;
-        case 'brown': return Colors.brown;
-        default: return Colors.black;
-      }
-    } else if (colorData is int) {
-      return Color(colorData);
+  void _handlePanEnd(DragEndDetails details) {
+    if (_isPanning) {
+      setState(() {
+        _isPanning = false;
+        _panStart = null;
+      });
+      return;
     }
-    return Colors.black;
+
+    if (!_isDrawing || _currentAction == null) return;
+
+    setState(() {
+      _isDrawing = false;
+      _actions = [..._actions, _currentAction!];
+      _updateHistory();
+
+      // Send completed action
+      _sendDataToParticipants({
+        'type': 'action_complete',
+        'action': _currentAction!.toJson(),
+      });
+
+      _currentAction = null;
+    });
+  }
+
+  void _updateHistory() {
+    final newHistory = _history.sublist(0, _historyStep + 1);
+    newHistory.add(List<DrawAction>.from(_actions));
+    _history = newHistory;
+    _historyStep = _history.length - 1;
+  }
+
+  void _handleTextSubmit() {
+    if (_textController.text.trim().isEmpty) {
+      setState(() {
+        _isTextInputActive = false;
+      });
+      return;
+    }
+
+    if (_textInputPosition == null) return;
+
+    final newAction = DrawAction(
+      id: generateId(),
+      type: ActionType.text,
+      tool: ToolType.text,
+      color: _currentColor,
+      width: _currentWidth,
+      opacity: _currentOpacity,
+      layerId: _activeLayerId,
+      text: _textController.text,
+      fontSize: _fontSize,
+      fontFamily: _fontFamily,
+      startPoint: _textInputPosition,
+    );
+
+    setState(() {
+      _actions = [..._actions, newAction];
+      _updateHistory();
+      _isTextInputActive = false;
+      _textController.clear();
+    });
+
+    _sendDataToParticipants({
+      'type': 'action_complete',
+      'action': newAction.toJson(),
+    });
+  }
+
+  void _handleUndo() {
+    if (_historyStep > 0) {
+      final newStep = _historyStep - 1;
+      final newActions = _history[newStep];
+
+      setState(() {
+        _historyStep = newStep;
+        _actions = List<DrawAction>.from(newActions);
+        _currentAction = null;
+      });
+
+      _sendDataToParticipants({
+        'type': 'undo',
+        'historyStep': newStep,
+        'actions': newActions.map((a) => a.toJson()).toList(),
+      });
+    }
+  }
+
+  void _handleRedo() {
+    if (_historyStep < _history.length - 1) {
+      final newStep = _historyStep + 1;
+      final newActions = _history[newStep];
+
+      setState(() {
+        _historyStep = newStep;
+        _actions = List<DrawAction>.from(newActions);
+        _currentAction = null;
+      });
+
+      _sendDataToParticipants({
+        'type': 'redo',
+        'historyStep': newStep,
+        'actions': newActions.map((a) => a.toJson()).toList(),
+      });
+    }
+  }
+
+  void _handleClear() {
+    setState(() {
+      _actions = [];
+      _history = [[]];
+      _historyStep = 0;
+      _currentAction = null;
+    });
+
+    _sendDataToParticipants({'type': 'clear'});
+  }
+
+  void _handleLayersChange(List<Layer> newLayers) {
+    setState(() {
+      _layers = newLayers;
+    });
+
+    _sendDataToParticipants({
+      'type': 'layer_reorder',
+      'layers': newLayers.map((l) => l.toJson()).toList(),
+    });
+  }
+
+  void _handleActiveLayerChange(String layerId) {
+    setState(() {
+      _activeLayerId = layerId;
+    });
+  }
+
+
+  ShapeType? _getShapeType(ToolType tool) {
+    switch (tool) {
+      case ToolType.rectangle:
+        return ShapeType.rectangle;
+      case ToolType.circle:
+        return ShapeType.circle;
+      case ToolType.ellipse:
+        return ShapeType.ellipse;
+      case ToolType.line:
+        return ShapeType.line;
+      case ToolType.arrow:
+        return ShapeType.arrow;
+      case ToolType.triangle:
+        return ShapeType.triangle;
+      case ToolType.star:
+        return ShapeType.star;
+      default:
+        return null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    _textFocusNode.dispose();
+    _throttleTimer?.cancel();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final screenSize = MediaQuery.of(context).size;
-    final safeArea = MediaQuery.of(context).padding;
-    
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        _canvasSize = Size(constraints.maxWidth, constraints.maxHeight - 100);
+
     return Container(
-      color: Colors.white,
+      color: AppColors.surfaceElevated.withOpacity(0.98),
       child: Column(
         children: [
-          // Compact Header with Tools
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade50,
-              border: Border(
-                bottom: BorderSide(color: Colors.grey.shade300),
+              // Toolbar
+              WhiteboardToolbar(
+                currentTool: _currentTool,
+                onToolChange: (tool) => setState(() => _currentTool = tool),
+                currentColor: _currentColor,
+                onColorChange: (color) => setState(() => _currentColor = color),
+                currentWidth: _currentWidth,
+                onWidthChange: (width) => setState(() => _currentWidth = width),
+                currentOpacity: _currentOpacity,
+                onOpacityChange: (opacity) =>
+                    setState(() => _currentOpacity = opacity),
+                fillShapes: _fillShapes,
+                onFillShapesChange: (fill) =>
+                    setState(() => _fillShapes = fill),
+                fontSize: _fontSize,
+                onFontSizeChange: (size) => setState(() => _fontSize = size),
+                fontFamily: _fontFamily,
+                onFontFamilyChange: (family) =>
+                    setState(() => _fontFamily = family),
+                backgroundColor: _backgroundColor,
+                onBackgroundColorChange: (color) =>
+                    setState(() => _backgroundColor = color),
+                showGrid: _showGrid,
+                onShowGridChange: (show) => setState(() => _showGrid = show),
+                gridSize: _gridSize,
+                onGridSizeChange: (size) => setState(() => _gridSize = size),
+                zoom: _zoom,
+                onZoomChange: (zoom) => setState(() => _zoom = zoom),
+                canUndo: _historyStep > 0,
+                canRedo: _historyStep < _history.length - 1,
+                onUndo: _handleUndo,
+                onRedo: _handleRedo,
+                onClear: _handleClear,
+                onClose: widget.onClose,
               ),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Top row - Close button and connection status
-                Row(
+
+              // Canvas Container
+              Expanded(
+                child: Stack(
                   children: [
-                    // Enhanced Close Button
-                    GestureDetector(
-                      onTap: widget.onClose,
-                      child: Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade100,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.red.shade300, width: 1),
-                        ),
-                        child: Icon(
-                          Icons.close_rounded,
-                          color: Colors.red.shade700,
-                          size: 20,
-                        ),
-                      ),
-                    ),
-                    
-                    const Spacer(),
-                    
-                    // Connection Status
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: _isConnected ? Colors.green.shade100 : Colors.red.shade100,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 6,
-                            height: 6,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: _isConnected ? Colors.green : Colors.red,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            _isConnected ? 'Connected' : 'Disconnected',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: _isConnected ? Colors.green.shade700 : Colors.red.shade700,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    
-                    const SizedBox(width: 8),
-                    
-                    // Clear Button
-                    IconButton(
-                      onPressed: _clearWhiteboard,
-                      icon: const Icon(Icons.clear, size: 20),
-                      tooltip: 'Clear',
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                    ),
-                  ],
-                ),
-                
-                const SizedBox(height: 8),
-                
-                // Bottom row - Tool selection and color palette
-                Row(
-                  children: [
-                    // Tool Selection
                     Row(
                       children: [
-                        _buildCompactToolButton('pen', Icons.edit),
-                        const SizedBox(width: 8),
-                        _buildCompactToolButton('eraser', Icons.auto_fix_high),
-                      ],
-                    ),
-                    
-                    const SizedBox(width: 8),
-                    
-                    // Color Palette
                     Expanded(
-                      child: Row(
-                        children: _colors.map((color) {
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 1),
-                            child: GestureDetector(
-                              onTap: () {
-                                setState(() {
-                                  _currentColor = color;
-                                });
-                              },
-                              child: Container(
-                                width: 24,
-                                height: 24,
-                                decoration: BoxDecoration(
-                                  color: color,
-                                  shape: BoxShape.circle,
-                                  border: _currentColor == color
-                                      ? Border.all(color: Colors.black, width: 2)
-                                      : Border.all(color: Colors.grey.shade400, width: 1),
-                                ),
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                    
-                    const SizedBox(width: 12),
-                    
-                    // Brush Size
-                    Row(
-                      children: _brushSizes.map((size) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 1),
                           child: GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                _currentWidth = size;
-                              });
-                            },
-                            child: Container(
-                              width: 28,
-                              height: 28,
-                              decoration: BoxDecoration(
-                                color: _currentWidth == size
-                                    ? Colors.blue.shade100
-                                    : Colors.grey.shade200,
-                                shape: BoxShape.circle,
-                                border: _currentWidth == size
-                                    ? Border.all(color: Colors.blue, width: 2)
-                                    : null,
-                              ),
-                              child: Center(
-                                child: Container(
-                                  width: size.clamp(2.0, 16.0),
-                                  height: size.clamp(2.0, 16.0),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black,
-                                    shape: BoxShape.circle,
-                                  ),
+                            onPanStart: _handlePanStart,
+                            onPanUpdate: _handlePanUpdate,
+                            onPanEnd: _handlePanEnd,
+                            child: RepaintBoundary(
+                              child: CustomPaint(
+                                key: _canvasKey,
+                                size: _canvasSize,
+                                painter: WhiteboardPainter(
+                                  actions: _actions,
+                                  currentAction: _currentAction,
+                                  layers: _layers,
+                                  backgroundColor: _backgroundColor,
+                                  showGrid: _showGrid,
+                                  gridSize: _gridSize,
+                                  zoom: _zoom,
+                                  pan: _pan,
+                                  imageCache: _imageCache,
                                 ),
                               ),
                             ),
                           ),
-                        );
-                      }).toList(),
+                        ),
+                      ],
+                    ),
+
+                    // Text Input Overlay
+                    if (_isTextInputActive && _textInputPosition != null)
+                      _TextInputOverlay(
+                        position: _textInputPosition!,
+                        zoom: _zoom,
+                        pan: _pan,
+                        controller: _textController,
+                        focusNode: _textFocusNode,
+                        fontSize: _fontSize,
+                        fontFamily: _fontFamily,
+                        color: _currentColor,
+                        onSubmit: _handleTextSubmit,
                     ),
                   ],
                 ),
-              ],
-            ),
-          ),
-          
-          // Drawing Canvas - Fixed size to fit screen
-          Expanded(
-            child: Container(
-              width: double.infinity,
-              height: double.infinity,
-              child: GestureDetector(
-                onPanStart: _onPanStart,
-                onPanUpdate: _onPanUpdate,
-                onPanEnd: _onPanEnd,
-                child: CustomPaint(
-                  painter: WhiteboardPainter(_strokes + _localStrokes + (_currentStroke != null ? [_currentStroke!] : [])),
-                  size: Size.infinite,
-                ),
               ),
-            ),
+
+            ],
           ),
-          
-        ],
-      ),
-    );
-  }
-
-  Widget _buildToolButton(String tool, IconData icon, String label) {
-    final isSelected = _currentTool == tool;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _currentTool = tool;
-        });
+        );
       },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.blue : Colors.grey.shade300,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? Colors.white : Colors.black,
-              size: 20,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? Colors.white : Colors.black,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCompactToolButton(String tool, IconData icon) {
-    final isSelected = _currentTool == tool;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _currentTool = tool;
-        });
-      },
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.blue : Colors.grey.shade200,
-          shape: BoxShape.circle,
-          border: isSelected ? Border.all(color: Colors.blue, width: 2) : null,
-        ),
-        child: Icon(
-          icon,
-          color: isSelected ? Colors.white : Colors.black,
-          size: 20,
-        ),
-      ),
-    );
-  }
-
-  void _onPanStart(DragStartDetails details) {
-    setState(() {
-      _isDrawing = true;
-      final strokeId = '${DateTime.now().millisecondsSinceEpoch}-${_participantId ?? 'unknown'}';
-      _currentStroke = DrawingStroke(
-        id: strokeId,
-        points: [details.localPosition],
-        color: _currentTool == 'eraser' ? Colors.white : _currentColor, // Match web behavior
-        width: _currentWidth,
-        tool: _currentTool,
-      );
-    });
-  }
-
-  void _onPanUpdate(DragUpdateDetails details) {
-    if (_isDrawing && _currentStroke != null) {
-      setState(() {
-        _currentStroke!.points.add(details.localPosition);
-      });
-      
-      // Send real-time stroke update to other participants
-      _sendStrokeUpdate(_currentStroke!);
-    }
-  }
-
-  void _onPanEnd(DragEndDetails details) {
-    if (_isDrawing && _currentStroke != null) {
-      setState(() {
-        _localStrokes.add(_currentStroke!);
-        _isDrawing = false;
-        _currentStroke = null;
-      });
-      
-      // Send completed stroke data to other participants
-      _sendStrokeData(_localStrokes.last);
-    }
-  }
-
-  void _sendStrokeData(DrawingStroke stroke) {
-    final data = {
-      'type': 'stroke',
-      'stroke': {
-        'id': stroke.id,
-        'points': stroke.points.map((p) => {'x': p.dx, 'y': p.dy}).toList(),
-        'color': _colorToHex(stroke.color),
-        'width': stroke.width,
-        'tool': stroke.tool,
-      },
-    };
-    widget.onSendData(data);
-  }
-
-  void _sendStrokeUpdate(DrawingStroke stroke) {
-    final data = {
-      'type': 'stroke_update',
-      'stroke': {
-        'id': stroke.id,
-        'points': stroke.points.map((p) => {'x': p.dx, 'y': p.dy}).toList(),
-        'color': _colorToHex(stroke.color),
-        'width': stroke.width,
-        'tool': stroke.tool,
-      },
-    };
-    widget.onSendData(data);
-  }
-
-  String _colorToHex(Color color) {
-    return '#${color.value.toRadixString(16).substring(2).toUpperCase()}';
-  }
-
-  void _clearWhiteboard() {
-    setState(() {
-      _strokes.clear();
-      _localStrokes.clear();
-    });
-    
-    // Send clear command to other participants
-    final data = {'type': 'clear'};
-    widget.onSendData(data);
-  }
-
-  void _downloadWhiteboard() {
-    // TODO: Implement whiteboard download functionality
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Download functionality coming soon!')),
     );
   }
 }
 
-class DrawingStroke {
-  final String id;
-  final List<Offset> points;
-  final Color color;
-  final double width;
-  final String tool;
+// Text Input Overlay Widget (separate to handle positioning)
+class _TextInputOverlay extends StatelessWidget {
+  final Point position;
+  final double zoom;
+  final Point pan;
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final double fontSize;
+  final String fontFamily;
+  final String color;
+  final VoidCallback onSubmit;
 
-  DrawingStroke({
-    required this.id,
-    required this.points,
+  const _TextInputOverlay({
+    required this.position,
+    required this.zoom,
+    required this.pan,
+    required this.controller,
+    required this.focusNode,
+    required this.fontSize,
+    required this.fontFamily,
     required this.color,
-    required this.width,
-    required this.tool,
+    required this.onSubmit,
   });
+
+  @override
+  Widget build(BuildContext context) {
+    // Clamp position to prevent layout errors
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final left = (position.x * zoom + pan.x).clamp(0.0, screenWidth - 200);
+    final top = (position.y * zoom + pan.y).clamp(0.0, screenHeight - 100);
+    
+    return Positioned(
+      left: left,
+      top: top,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          minWidth: 200,
+          maxWidth: 400,
+          maxHeight: (screenHeight - top - 20).clamp(50.0, 200.0),
+        ),
+      child: Container(
+          padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+            color: AppColors.surfaceElevated,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: AppColors.outline),
+          ),
+          child: TextField(
+            controller: controller,
+            focusNode: focusNode,
+            autofocus: true,
+            style: TextStyle(
+              fontSize: fontSize,
+              fontFamily: fontFamily,
+              color: hexToColor(color),
+            ),
+            decoration: const InputDecoration(
+              hintText: 'Type text...',
+              border: InputBorder.none,
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            ),
+            onSubmitted: (_) => onSubmit(),
+            maxLines: null,
+            textInputAction: TextInputAction.done,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
+/// Custom painter for whiteboard canvas
 class WhiteboardPainter extends CustomPainter {
-  final List<DrawingStroke> strokes;
+  final List<DrawAction> actions;
+  final DrawAction? currentAction;
+  final List<Layer> layers;
+  final String backgroundColor;
+  final bool showGrid;
+  final double gridSize;
+  final double zoom;
+  final Point pan;
+  final Map<String, ui.Image> imageCache;
 
-  WhiteboardPainter(this.strokes);
+  WhiteboardPainter({
+    required this.actions,
+    this.currentAction,
+    required this.layers,
+    required this.backgroundColor,
+    required this.showGrid,
+    required this.gridSize,
+    required this.zoom,
+    required this.pan,
+    required this.imageCache,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    for (final stroke in strokes) {
-      if (stroke.points.isEmpty) continue;
+    // Clear canvas
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..color = hexToColor(backgroundColor),
+    );
 
-      final paint = Paint()
-        ..color = stroke.tool == 'eraser' ? Colors.white : stroke.color
-        ..strokeWidth = stroke.width
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..style = PaintingStyle.stroke;
+    // Draw grid if enabled
+    if (showGrid) {
+      drawGrid(canvas, size.width, size.height, gridSize, Colors.grey);
+    }
 
-      final path = Path();
-      path.moveTo(stroke.points.first.dx, stroke.points.first.dy);
-      
-      for (int i = 1; i < stroke.points.length; i++) {
-        path.lineTo(stroke.points[i].dx, stroke.points[i].dy);
+    // Apply zoom and pan
+    canvas.save();
+    canvas.translate(pan.x, pan.y);
+    canvas.scale(zoom, zoom);
+
+    // Sort actions by layer z-index
+    final sortedActions = List<DrawAction>.from(actions);
+    sortedActions.sort((a, b) {
+      final layerA = layers.firstWhere(
+        (l) => l.id == a.layerId,
+        orElse: () => layers[0],
+      );
+      final layerB = layers.firstWhere(
+        (l) => l.id == b.layerId,
+        orElse: () => layers[0],
+      );
+      return layerA.zIndex.compareTo(layerB.zIndex);
+    });
+
+    // Draw all actions
+    for (final action in sortedActions) {
+      final layer = layers.firstWhere(
+        (l) => l.id == action.layerId,
+        orElse: () => layers[0],
+      );
+      if (!layer.visible) continue;
+
+      _drawAction(canvas, action, layer.opacity);
+    }
+
+    // Draw current action if drawing
+    if (currentAction != null) {
+      final layer = layers.firstWhere(
+        (l) => l.id == currentAction!.layerId,
+        orElse: () => layers[0],
+      );
+      if (layer.visible) {
+        _drawAction(canvas, currentAction!, layer.opacity);
       }
-      
-      canvas.drawPath(path, paint);
+    }
+
+    canvas.restore();
+  }
+
+  void _drawAction(Canvas canvas, DrawAction action, double layerOpacity) {
+    // Handle eraser specially - it should erase, not draw
+    if (action.tool == ToolType.eraser && action.type == ActionType.stroke) {
+      if (action.points != null && action.points!.isNotEmpty) {
+        // Use dstOut blend mode with white color (matches web destination-out)
+        // This erases pixels instead of drawing
+        final paint = Paint()
+          ..color = Colors.white
+          ..blendMode = BlendMode.dstOut
+          ..strokeWidth = action.width
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round;
+
+        final path = Path();
+        if (action.points!.length > 0) {
+          path.moveTo(action.points![0].x, action.points![0].y);
+          for (int i = 1; i < action.points!.length; i++) {
+            final p0 = action.points![i - 1];
+            final p1 = action.points![i];
+            final midPoint = Offset(
+              (p0.x + p1.x) / 2,
+              (p0.y + p1.y) / 2,
+            );
+            path.quadraticBezierTo(p0.x, p0.y, midPoint.dx, midPoint.dy);
+          }
+          path.lineTo(action.points!.last.x, action.points!.last.y);
+        }
+        canvas.drawPath(path, paint);
+      }
+      return;
+    }
+
+    final color = hexToColor(action.color);
+    final opacity = action.opacity * layerOpacity;
+
+    switch (action.type) {
+      case ActionType.stroke:
+        if (action.points != null && action.points!.isNotEmpty) {
+          // For eraser, ensure we use white color (even if action.color is different)
+          final strokeColor = action.tool == ToolType.eraser 
+              ? Colors.white 
+              : color;
+          drawStroke(
+            canvas,
+            action.points!,
+            strokeColor,
+            action.width,
+            opacity,
+            action.tool,
+          );
+        }
+        break;
+
+      case ActionType.shape:
+        if (action.startPoint != null && action.endPoint != null) {
+          switch (action.shapeType) {
+            case ShapeType.rectangle:
+              drawRectangle(
+                canvas,
+                action.startPoint!,
+                action.endPoint!,
+                color,
+                action.width,
+                opacity,
+                action.fill ?? false,
+              );
+              break;
+            case ShapeType.circle:
+              drawCircle(
+                canvas,
+                action.startPoint!,
+                action.endPoint!,
+                color,
+                action.width,
+                opacity,
+                action.fill ?? false,
+              );
+              break;
+            case ShapeType.ellipse:
+              drawEllipse(
+                canvas,
+                action.startPoint!,
+                action.endPoint!,
+                color,
+                action.width,
+                opacity,
+                action.fill ?? false,
+              );
+              break;
+            case ShapeType.line:
+              drawLine(
+                canvas,
+                action.startPoint!,
+                action.endPoint!,
+                color,
+                action.width,
+                opacity,
+              );
+              break;
+            case ShapeType.arrow:
+              drawArrow(
+                canvas,
+                action.startPoint!,
+                action.endPoint!,
+                color,
+                action.width,
+                opacity,
+              );
+              break;
+            case ShapeType.triangle:
+              drawTriangle(
+                canvas,
+                action.startPoint!,
+                action.endPoint!,
+                color,
+                action.width,
+                opacity,
+                action.fill ?? false,
+              );
+              break;
+            case ShapeType.star:
+              drawStar(
+                canvas,
+                action.startPoint!,
+                action.endPoint!,
+                color,
+                action.width,
+                opacity,
+                action.fill ?? false,
+              );
+              break;
+            case null:
+              break;
+          }
+        }
+        break;
+
+      case ActionType.text:
+        if (action.text != null && action.startPoint != null) {
+          drawText(
+            canvas,
+            action.text!,
+            action.startPoint!,
+            color,
+            action.fontSize ?? 16.0,
+            action.fontFamily ?? 'Arial',
+            opacity,
+          );
+        }
+        break;
+
+      case ActionType.image:
+        // Image rendering would go here
+        // Requires async loading and caching
+        break;
     }
   }
 
   @override
   bool shouldRepaint(WhiteboardPainter oldDelegate) {
-    return oldDelegate.strokes != strokes;
+    return oldDelegate.actions != actions ||
+        oldDelegate.currentAction != currentAction ||
+        oldDelegate.layers != layers ||
+        oldDelegate.backgroundColor != backgroundColor ||
+        oldDelegate.showGrid != showGrid ||
+        oldDelegate.gridSize != gridSize ||
+        oldDelegate.zoom != zoom ||
+        oldDelegate.pan != pan;
   }
 }

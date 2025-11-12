@@ -178,6 +178,20 @@ function AccountsManagementContent({ userEmail }: { userEmail: string }) {
     );
   };
 
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return 'غير متوفر';
+    const date = new Date(dateString);
+    // Use Gregorian calendar by manually formatting
+    const months = [
+      'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+      'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
+    ];
+    const day = date.getDate();
+    const month = months[date.getMonth()];
+    const year = date.getFullYear();
+    return `${day} ${month} ${year}`;
+  };
+
   const columns = [
     {
       key: 'email',
@@ -207,13 +221,9 @@ function AccountsManagementContent({ userEmail }: { userEmail: string }) {
       key: 'createdAt',
       header: 'تاريخ الإنشاء',
       render: (account: Account) => {
-        const date = new Date(account.createdAt);
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
         return (
           <span className="text-sm text-gray-600">
-            {year}-{month}-{day}
+            {formatDate(account.createdAt)}
           </span>
         );
       },

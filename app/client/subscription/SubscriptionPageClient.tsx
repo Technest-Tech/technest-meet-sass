@@ -11,9 +11,14 @@ import { logout } from '@/lib/auth/client-auth';
 import toast from 'react-hot-toast';
 
 interface Subscription {
-  status: 'ACTIVE' | 'INACTIVE' | 'EXPIRED';
+  status: 'ACTIVE' | 'INACTIVE' | 'EXPIRED' | 'TRIAL' | 'TRIAL_EXPIRED';
   createdAt?: string;
   updatedAt?: string;
+  isTrial?: boolean;
+  trialStartDate?: string;
+  trialEndDate?: string;
+  trialDays?: number;
+  trialDaysRemaining?: number | null;
   plan: {
     name: string;
     description?: string;
@@ -107,7 +112,10 @@ function SubscriptionPageContent({
     switch (status) {
       case 'ACTIVE':
         return 'bg-green-100 text-green-700 border-green-200';
+      case 'TRIAL':
+        return 'bg-blue-100 text-blue-700 border-blue-200';
       case 'EXPIRED':
+      case 'TRIAL_EXPIRED':
         return 'bg-red-100 text-red-700 border-red-200';
       default:
         return 'bg-yellow-100 text-yellow-700 border-yellow-200';
@@ -118,8 +126,12 @@ function SubscriptionPageContent({
     switch (status) {
       case 'ACTIVE':
         return 'نشط';
+      case 'TRIAL':
+        return 'تجريبي';
       case 'EXPIRED':
         return 'منتهي';
+      case 'TRIAL_EXPIRED':
+        return 'انتهت الفترة التجريبية';
       default:
         return 'غير نشط';
     }
@@ -128,11 +140,15 @@ function SubscriptionPageContent({
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'غير متوفر';
     const date = new Date(dateString);
-    return date.toLocaleDateString('ar-SA', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
+    // Use Gregorian calendar by using 'ar-EG' locale or manually format
+    const months = [
+      'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+      'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
+    ];
+    const day = date.getDate();
+    const month = months[date.getMonth()];
+    const year = date.getFullYear();
+    return `${day} ${month} ${year}`;
   };
 
   const calculateRenewalDate = (createdAt?: string) => {
@@ -181,8 +197,78 @@ function SubscriptionPageContent({
                   </span>
                 </div>
                 
+                {/* Trial Information */}
+                {subscription.isTrial && subscription.trialEndDate && (
+                  <div className={`mt-4 p-4 border rounded-xl ${
+                    subscription.trialDaysRemaining !== null && subscription.trialDaysRemaining <= 1
+                      ? 'bg-red-50 border-red-200'
+                      : subscription.trialDaysRemaining !== null && subscription.trialDaysRemaining <= 2
+                      ? 'bg-yellow-50 border-yellow-200'
+                      : 'bg-blue-50 border-blue-200'
+                  }`}>
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className={`w-5 h-5 mt-0.5 flex-shrink-0 ${
+                        subscription.trialDaysRemaining !== null && subscription.trialDaysRemaining <= 1
+                          ? 'text-red-600'
+                          : subscription.trialDaysRemaining !== null && subscription.trialDaysRemaining <= 2
+                          ? 'text-yellow-600'
+                          : 'text-blue-600'
+                      }`} />
+                      <div className="flex-1">
+                        <p className={`text-sm font-medium mb-2 ${
+                          subscription.trialDaysRemaining !== null && subscription.trialDaysRemaining <= 1
+                            ? 'text-red-800'
+                            : subscription.trialDaysRemaining !== null && subscription.trialDaysRemaining <= 2
+                            ? 'text-yellow-800'
+                            : 'text-blue-800'
+                        }`}>
+                          {(() => {
+                            // Check if trial is actually still active based on date
+                            if (!subscription.trialEndDate) {
+                              return 'انتهت الفترة التجريبية';
+                            }
+                            
+                            const now = new Date();
+                            const endDate = new Date(subscription.trialEndDate);
+                            const isTrialActive = now <= endDate;
+                            
+                            if (isTrialActive) {
+                              // Calculate days remaining on frontend as well for accuracy
+                              const diffTime = endDate.getTime() - now.getTime();
+                              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                              const daysRemaining = Math.max(0, diffDays);
+                              
+                              if (daysRemaining > 0) {
+                                return `فترة تجريبية نشطة - متبقي ${daysRemaining} ${daysRemaining === 1 ? 'يوم' : 'أيام'}`;
+                              } else {
+                                return 'انتهت الفترة التجريبية';
+                              }
+                            } else {
+                              return 'انتهت الفترة التجريبية';
+                            }
+                          })()}
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                          <div>
+                            <p className="text-gray-600 mb-1">تاريخ بداية التجربة</p>
+                            <p className="font-semibold text-gray-900">
+                              {formatDate(subscription.trialStartDate)}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-gray-600 mb-1">تاريخ انتهاء التجربة</p>
+                            <p className="font-semibold text-gray-900">
+                              {formatDate(subscription.trialEndDate)}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Subscription Dates */}
-                {(subscription.createdAt || subscription.updatedAt) && (
+                {(subscription.createdAt || subscription.updatedAt) && !subscription.isTrial && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 p-4 bg-gray-50 border border-gray-200 rounded-xl">
                     <div>
                       <p className="text-xs text-gray-500 mb-1">تاريخ الاشتراك</p>
@@ -199,7 +285,7 @@ function SubscriptionPageContent({
                   </div>
                 )}
 
-                {subscription.status !== 'ACTIVE' && (
+                {subscription.status !== 'ACTIVE' && subscription.status !== 'TRIAL' && (
                   <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-xl">
                     <div className="flex items-start gap-3">
                       <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" />

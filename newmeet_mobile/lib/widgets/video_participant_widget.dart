@@ -1,210 +1,372 @@
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
+import '../theme/app_colors.dart';
 
-class VideoParticipantWidget extends StatelessWidget {
+/// Optimized video participant widget with caching and performance optimizations
+class VideoParticipantWidget extends StatefulWidget {
   final dynamic participant;
   final bool isLocal;
+  final bool hasRaisedHand;
 
   const VideoParticipantWidget({
     super.key,
     required this.participant,
     this.isLocal = false,
+    this.hasRaisedHand = false,
   });
 
   @override
+  State<VideoParticipantWidget> createState() => _VideoParticipantWidgetState();
+}
+
+class _VideoParticipantWidgetState extends State<VideoParticipantWidget>
+    with AutomaticKeepAliveClientMixin {
+  // Cache track resolution to avoid redundant computations
+  lk.VideoTrack? _cachedVideoTrack;
+  bool _cachedHasScreenShare = false;
+  bool _cachedHasVideo = false;
+  int _lastTrackCount = 0;
+  bool _lastCameraEnabled = false;
+  
+  @override
+  bool get wantKeepAlive => true; // Keep video widgets alive to prevent re-rendering
+
+  @override
+  void initState() {
+    super.initState();
+    _updateCachedValues();
+    _lastTrackCount = _getTrackCount();
+    _lastCameraEnabled = _isCameraEnabled();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.grey.shade900,
-        borderRadius: BorderRadius.circular(8),
-        border: isLocal ? Border.all(color: Colors.blue, width: 2) : null,
-      ),
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
+    
+    // Check if track count or camera state changed (both indicate updates needed)
+    final currentTrackCount = _getTrackCount();
+    final currentCameraEnabled = _isCameraEnabled();
+    
+    if (currentTrackCount != _lastTrackCount || currentCameraEnabled != _lastCameraEnabled) {
+      _updateCachedValues();
+      _lastTrackCount = currentTrackCount;
+      _lastCameraEnabled = currentCameraEnabled;
+    }
+    
+    return RepaintBoundary(
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Stack(
-          children: [
-            // Video Track
-            _buildVideoTrack(),
-            
-            // Participant Info Overlay
-            Positioned(
-              bottom: 8,
-              left: 8,
-              right: 8,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.black54,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Row(
-                  children: [
-                    // Microphone Status
-                    Icon(
-                      _isMicrophoneEnabled() ? Icons.mic : Icons.mic_off,
-                      color: _isMicrophoneEnabled() ? Colors.green : Colors.red,
-                      size: 16,
-                    ),
-                    const SizedBox(width: 4),
-                    
-                    // Participant Name
-                    Expanded(
-                      child: Text(
-                        _getParticipantName(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
+        borderRadius: BorderRadius.circular(28),
+        child: Container(
+          color: AppColors.surfaceMuted,
+          child: Stack(
+            children: [
+              Positioned.fill(child: _buildPrimaryContent()),
+              if (widget.hasRaisedHand)
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color(0xFFFBBF24),
+                          Color(0xFFF59E0B),
+                        ],
+                      ),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFFFBBF24).withOpacity(0.5),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
                         ),
-                        overflow: TextOverflow.ellipsis,
+                      ],
+                    ),
+                    child: const Text(
+                      '✋',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                    
-                    // Screen Share Indicator
-                    if (_isScreenSharing())
-                      const Icon(
-                        Icons.screen_share,
-                        color: Colors.blue,
-                        size: 16,
-                      ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-            
-            // Local Participant Indicator
-            if (isLocal)
               Positioned(
-                top: 8,
-                right: 8,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.blue,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Text(
-                    'You',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
+                bottom: 16,
+                left: 16,
+                right: 16,
+                child: _buildParticipantOverlay(context),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+  
+  int _getTrackCount() {
+    if (widget.participant is lk.LocalParticipant) {
+      return (widget.participant as lk.LocalParticipant).videoTrackPublications.length;
+    } else if (widget.participant is lk.RemoteParticipant) {
+      return (widget.participant as lk.RemoteParticipant).videoTrackPublications.length;
+    }
+    return 0;
+  }
+  
+  void _updateCachedValues() {
+    _cachedVideoTrack = _resolveVideoTrack();
+    _cachedHasScreenShare = _hasScreenShare();
+    _cachedHasVideo = _cachedVideoTrack != null && 
+                      (_cachedHasScreenShare || _isCameraEnabled());
+  }
+
+  Widget _buildPrimaryContent() {
+    // Use cached values to avoid redundant computations
+    if (_cachedHasVideo && _cachedVideoTrack != null) {
+      return DecoratedBox(
+        decoration: const BoxDecoration(color: Colors.black),
+        child: lk.VideoTrackRenderer(_cachedVideoTrack!),
+      );
+    }
+
+    return Center(
+      child: Container(
+        width: 220,
+        height: 220,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: const RadialGradient(
+            colors: [
+              Color(0xFF3A2E2A),
+              Color(0xFF1D1612),
+            ],
+            radius: 0.9,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.35),
+              blurRadius: 24,
+              offset: const Offset(0, 14),
+            ),
           ],
+        ),
+        child: Center(
+          child: Text(
+            _getParticipantInitial(),
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 64,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1.5,
+            ),
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildVideoTrack() {
-    // Try to get video track from participant
-    lk.VideoTrack? videoTrack;
+  lk.VideoTrack? _resolveVideoTrack() {
+    lk.VideoTrack? screenShareTrack;
+    lk.VideoTrack? cameraTrack;
     
-    if (participant is lk.LocalParticipant) {
-      final localParticipant = participant as lk.LocalParticipant;
-      // Get the first available video track
+    if (widget.participant is lk.LocalParticipant) {
+      final localParticipant = widget.participant as lk.LocalParticipant;
       for (final publication in localParticipant.videoTrackPublications) {
-        if (publication.track != null) {
-          videoTrack = publication.track as lk.VideoTrack;
-          break;
+        final track = publication.track;
+        // Only consider tracks that are not muted (camera off = muted)
+        if (track != null && track is lk.VideoTrack && !publication.muted) {
+          final name = publication.name?.toLowerCase() ?? '';
+          final sid = publication.sid ?? '';
+          final isScreenShare = name.contains('screen') || 
+                                name.contains('screenshare') ||
+                                name.contains('screen-share') ||
+                                sid.contains('screen');
+          if (isScreenShare) {
+            screenShareTrack = track;
+          } else {
+            cameraTrack = track;
+          }
         }
       }
-    } else if (participant is lk.RemoteParticipant) {
-      final remoteParticipant = participant as lk.RemoteParticipant;
-      // Get the first available video track
-      for (final publication in remoteParticipant.videoTrackPublications) {
-        if (publication.track != null) {
-          videoTrack = publication.track as lk.VideoTrack;
-          break;
+    } else if (widget.participant is lk.RemoteParticipant) {
+      final remoteParticipant = widget.participant as lk.RemoteParticipant;
+      final videoTracks = remoteParticipant.videoTrackPublications;
+      final videoTrackCount = videoTracks.length;
+      
+      for (final publication in videoTracks) {
+        final track = publication.track;
+        final isSubscribed = publication.subscribed;
+        // Only consider tracks that are subscribed, not muted, and have a track
+        if (track != null && isSubscribed && track is lk.VideoTrack && !publication.muted) {
+          final name = publication.name?.toLowerCase() ?? '';
+          final sid = publication.sid ?? '';
+          
+          // Check explicit indicators first
+          bool isScreenShare = name.contains('screen') || 
+                              name.contains('screenshare') ||
+                              name.contains('screen-share') ||
+                              sid.contains('screen');
+          
+          // If no explicit indicator, use heuristic for empty names
+          if (!isScreenShare && name.isEmpty && isSubscribed) {
+            final isCameraEnabled = remoteParticipant.isCameraEnabled();
+            // For multiple tracks: empty name is likely screen share
+            // For single track: only if camera is disabled
+            if (videoTrackCount > 1) {
+              isScreenShare = true;
+            } else if (!isCameraEnabled) {
+              isScreenShare = true;
+            }
+          }
+          
+          if (isScreenShare) {
+            screenShareTrack = track;
+          } else {
+            cameraTrack = track;
+          }
         }
       }
     }
-
-    // If we have a video track and camera is enabled, render it
-    if (videoTrack != null && _isCameraEnabled()) {
-      return lk.VideoTrackRenderer(videoTrack);
+    
+    // Prioritize screen share over camera
+    return screenShareTrack ?? cameraTrack;
+  }
+  
+  bool _hasScreenShare() {
+    if (widget.participant is lk.LocalParticipant) {
+      final localParticipant = widget.participant as lk.LocalParticipant;
+      for (final publication in localParticipant.videoTrackPublications) {
+        final name = publication.name?.toLowerCase() ?? '';
+        final sid = publication.sid ?? '';
+        final isScreenShare = name.contains('screen') || 
+                              name.contains('screenshare') ||
+                              name.contains('screen-share') ||
+                              sid.contains('screen');
+        if (isScreenShare && publication.track != null) {
+          return true;
+        }
+      }
+    } else if (widget.participant is lk.RemoteParticipant) {
+      final remoteParticipant = widget.participant as lk.RemoteParticipant;
+      final videoTracks = remoteParticipant.videoTrackPublications;
+      final videoTrackCount = videoTracks.length;
+      
+      for (final publication in videoTracks) {
+        final name = publication.name?.toLowerCase() ?? '';
+        final sid = publication.sid ?? '';
+        final isSubscribed = publication.subscribed;
+        final track = publication.track;
+        
+        // Check explicit indicators first
+        bool isScreenShare = name.contains('screen') || 
+                            name.contains('screenshare') ||
+                            name.contains('screen-share') ||
+                            sid.contains('screen');
+        
+        // If no explicit indicator, use heuristic for empty names
+        if (!isScreenShare && name.isEmpty && isSubscribed && track != null) {
+          final isCameraEnabled = remoteParticipant.isCameraEnabled();
+          // For multiple tracks: empty name is likely screen share
+          // For single track: only if camera is disabled
+          if (videoTrackCount > 1) {
+            isScreenShare = true;
+          } else if (!isCameraEnabled) {
+            isScreenShare = true;
+          }
+        }
+        
+        if (isScreenShare && isSubscribed && track != null) {
+          return true;
+        }
+      }
     }
-
-    // Fallback to placeholder when no video track or camera is off
-    return Container(
-      color: Colors.grey.shade800,
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Camera status indicator
-            Icon(
-              _isCameraEnabled() ? Icons.videocam : Icons.videocam_off,
-              size: 48,
-              color: _isCameraEnabled() ? Colors.green : Colors.grey.shade400,
-            ),
-            const SizedBox(height: 8),
-            
-            // Microphone status indicator
-            Icon(
-              _isMicrophoneEnabled() ? Icons.mic : Icons.mic_off,
-              size: 32,
-              color: _isMicrophoneEnabled() ? Colors.green : Colors.red,
-            ),
-            const SizedBox(height: 8),
-            
-            // Participant name
-            Text(
-              _getParticipantName(),
-              style: TextStyle(
-                color: Colors.grey.shade400,
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            
-            // Camera status text
-            if (!_isCameraEnabled())
-              Text(
-                'Camera Off',
-                style: TextStyle(
-                  color: Colors.grey.shade500,
-                  fontSize: 12,
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
+    return false;
   }
 
   bool _isCameraEnabled() {
-    if (participant is lk.LocalParticipant) {
-      return (participant as lk.LocalParticipant).isCameraEnabled();
-    } else if (participant is lk.RemoteParticipant) {
-      return (participant as lk.RemoteParticipant).isCameraEnabled();
+    if (widget.participant is lk.LocalParticipant) {
+      return (widget.participant as lk.LocalParticipant).isCameraEnabled();
+    } else if (widget.participant is lk.RemoteParticipant) {
+      return (widget.participant as lk.RemoteParticipant).isCameraEnabled();
+    }
+    return false;
+  }
+
+  bool _isMicrophoneEnabled() {
+    if (widget.participant is lk.LocalParticipant) {
+      return (widget.participant as lk.LocalParticipant).isMicrophoneEnabled();
+    } else if (widget.participant is lk.RemoteParticipant) {
+      return (widget.participant as lk.RemoteParticipant).isMicrophoneEnabled();
     }
     return false;
   }
 
   String _getParticipantName() {
-    if (participant is lk.LocalParticipant) {
-      return (participant as lk.LocalParticipant).name ?? 'You';
-    } else if (participant is lk.RemoteParticipant) {
-      return (participant as lk.RemoteParticipant).name ?? 'Participant';
+    if (widget.participant is lk.LocalParticipant) {
+      return (widget.participant as lk.LocalParticipant).name ?? 'You';
+    } else if (widget.participant is lk.RemoteParticipant) {
+      return (widget.participant as lk.RemoteParticipant).name ?? 'Participant';
     }
     return 'Unknown';
   }
 
-  bool _isMicrophoneEnabled() {
-    if (participant is lk.LocalParticipant) {
-      return (participant as lk.LocalParticipant).isMicrophoneEnabled();
-    } else if (participant is lk.RemoteParticipant) {
-      return (participant as lk.RemoteParticipant).isMicrophoneEnabled();
-    }
-    return false;
+  String _getParticipantInitial() {
+    final name = _getParticipantName().trim();
+    if (name.isEmpty) return 'U';
+    return name.substring(0, 1).toUpperCase();
   }
 
-  bool _isScreenSharing() {
-    // For now, return false until we implement proper screen sharing detection
-    return false;
+  Widget _buildParticipantOverlay(BuildContext context) {
+    final micEnabled = _isMicrophoneEnabled();
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.overlayDark,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            micEnabled ? Icons.mic : Icons.mic_off,
+            size: 18,
+            color: micEnabled ? AppColors.success : AppColors.danger,
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              _getParticipantName(),
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (widget.isLocal) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.18),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                'You',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 }
