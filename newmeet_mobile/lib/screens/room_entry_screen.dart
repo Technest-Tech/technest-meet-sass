@@ -1,14 +1,36 @@
 import 'package:flutter/material.dart';
+import '../utils/logger.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../utils/logger.dart';
+import 'package:provider/provider.dart';
+import '../utils/logger.dart';
 import '../services/api_service.dart';
+import '../utils/logger.dart';
+import '../models/room.dart';
+import '../utils/logger.dart';
+import 'pre_join_screen.dart';
+import '../utils/logger.dart';
+import 'client_login_screen.dart';
+import '../utils/logger.dart';
+import 'client_dashboard_screen.dart';
+import '../utils/logger.dart';
+import 'support_screen.dart';
+import '../utils/logger.dart';
+import '../providers/auth_provider.dart';
+import '../utils/logger.dart';
 import '../theme/app_colors.dart';
-import '../theme/app_theme.dart';
-import '../ui/components/avatars/user_avatar.dart';
-import '../ui/components/buttons/app_button.dart';
-import '../ui/components/buttons/app_icon_button.dart';
-import '../ui/components/containers/app_card.dart';
-import '../ui/layout/app_scaffold.dart';
-import 'video_conference_screen.dart';
+import '../utils/logger.dart';
+
+class _EntryColors {
+  static const background = Color(0xFFE8F1FF);
+  static const surface = Colors.white;
+  static const primary = Color(0xFF1C7ED6);
+  static const textPrimary = Color(0xFF0F1A3A);
+  static const textSecondary = Color(0xFF5A6A8A);
+  static const border = Color(0xFFC5D6F2);
+  static const active = Color(0xFF0A4E9B);
+  static const accent = Color(0xFF52A5FF);
+}
 
 class RoomEntryScreen extends StatefulWidget {
   const RoomEntryScreen({super.key});
@@ -22,29 +44,71 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
   final _formKey = GlobalKey<FormState>();
   final _roomNameController = TextEditingController();
   final _participantNameController = TextEditingController();
-  String _participantType = 'host';
   bool _isLoading = false;
   String? _error;
-  bool _isVideoEnabled = false;
-  bool _isMicEnabled = true;
-  bool _isSpeakerEnabled = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _roomNameController.addListener(_handleInputChange);
+    _participantNameController.addListener(_handleInputChange);
+  }
 
   @override
   void dispose() {
+    _roomNameController.removeListener(_handleInputChange);
+    _participantNameController.removeListener(_handleInputChange);
     _roomNameController.dispose();
     _participantNameController.dispose();
     super.dispose();
   }
 
+  /// Extract room name from link or return as-is
+  String _extractRoomName(String input) {
+    final trimmed = input.trim();
+    
+    // Check if it's a URL
+    if (trimmed.contains('://') || trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      try {
+        final uri = Uri.parse(trimmed);
+        var path = uri.path;
+        
+        // Remove leading slash if present
+        if (path.startsWith('/')) {
+          path = path.substring(1);
+        }
+        
+        // Remove trailing /h or /g
+        if (path.endsWith('/h') || path.endsWith('/g')) {
+          path = path.substring(0, path.length - 2);
+        }
+        
+        // Remove trailing slash if present
+        if (path.endsWith('/')) {
+          path = path.substring(0, path.length - 1);
+        }
+        
+        Logger.debug(' RoomEntry: Extracted room name from link: $path', 'room_entry_screen');
+        return path;
+      } catch (e) {
+        Logger.warning(' RoomEntry: Failed to parse URL, using as-is: $e', 'room_entry_screen');
+        return trimmed;
+      }
+    }
+    
+    // Not a URL, return as-is
+    return trimmed;
+  }
+
   Future<void> _joinRoom() async {
-    print('🚀 RoomEntry: Starting room join process');
+    Logger.info(' RoomEntry: Starting room join process', 'room_entry_screen');
     
     if (!_formKey.currentState!.validate()) {
-      print('❌ RoomEntry: Form validation failed');
+      Logger.error(' RoomEntry: Form validation failed', null, null, 'room_entry_screen');
       return;
     }
 
-    print('✅ RoomEntry: Form validation passed');
+    Logger.debug(' RoomEntry: Form validation passed', 'room_entry_screen');
     
     setState(() {
       _isLoading = true;
@@ -52,25 +116,30 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
     });
 
     try {
-      final roomName = _roomNameController.text.trim();
-      final participantName = _participantNameController.text.trim().isEmpty 
-          ? (_participantType == 'host' ? 'Host' : 'Guest')
+      // Extract room name from link or use as-is
+      final inputText = _roomNameController.text.trim();
+      final roomName = _extractRoomName(inputText);
+      
+      // Always join as host
+      const participantType = 'host';
+      final participantName = _participantNameController.text.trim().isEmpty
+          ? 'Host'
           : _participantNameController.text.trim();
 
-      print('📝 RoomEntry: Room details - Name: $roomName, Participant: $participantName, Type: $_participantType');
+      print('📝 RoomEntry: Room details - Name: $roomName, Participant: $participantName, Type: $participantType');
 
       // Request permissions first
       print('📱 RoomEntry: Requesting permissions...');
       await _requestPermissions();
-      print('✅ RoomEntry: Permissions granted');
+      Logger.debug(' RoomEntry: Permissions granted', 'room_entry_screen');
 
       // Validate room exists
-      print('🔍 RoomEntry: Validating room existence...');
-      final validation = await ApiService.validateRoom(roomName, _participantType);
-      print('🔍 RoomEntry: Room validation result - Exists: ${validation.exists}');
+      Logger.debug(' RoomEntry: Validating room existence...', 'room_entry_screen');
+      final validation = await ApiService.validateRoom(roomName, participantType);
+      Logger.debug(' RoomEntry: Room validation result - Exists: ${validation.exists}', 'room_entry_screen');
       
       if (!validation.exists) {
-        print('❌ RoomEntry: Room not found');
+        Logger.error(' RoomEntry: Room not found', null, null, 'room_entry_screen');
         setState(() {
           _error = 'Room not found. Please check the room name or create it through the admin dashboard.';
           _isLoading = false;
@@ -79,7 +148,7 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
       }
 
       if (validation.room != null && !validation.room!.isActive) {
-        print('❌ RoomEntry: Room is inactive');
+        Logger.error(' RoomEntry: Room is inactive', null, null, 'room_entry_screen');
         setState(() {
           _error = 'This room is currently inactive. Please contact the administrator.';
           _isLoading = false;
@@ -87,7 +156,15 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
         return;
       }
 
-      print('✅ RoomEntry: Room validation passed');
+      Logger.debug(' RoomEntry: Room validation passed', 'room_entry_screen');
+
+      // Extract features from validation
+      final features = validation.features;
+      print('🎯 RoomEntry: Room features - Chat: ${features?.enablePrivateChat}, Reactions: ${features?.enableReactions}, RaiseHand: ${features?.enableRaiseHand}, NoiseCancellation: ${features?.enableNoiseCancellation}');
+      print('🎯 RoomEntry: Full room features JSON: ${features?.toJson()}');
+      
+      // Debug password fields
+      Logger.debug(' RoomEntry: Password fields - passwordRequired: ${validation.room?.passwordRequired}, passwordFor: ${validation.room?.passwordFor}, participantType: $participantType', 'room_entry_screen');
 
       // Navigate to video conference
       print('🎬 RoomEntry: Navigating to video conference screen');
@@ -95,14 +172,18 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
         final result = await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => VideoConferenceScreen(
+            builder: (context) => PreJoinScreen(
               roomName: roomName,
               participantName: participantName,
-              participantType: _participantType,
+              participantType: participantType,
+              roomFeatures: features,
+              passwordRequired: validation.room?.passwordRequired,
+              passwordFor: validation.room?.passwordFor,
+              roomLink: roomName,
             ),
           ),
         );
-        print('✅ RoomEntry: Navigation completed, result: $result');
+        Logger.debug(' RoomEntry: Navigation completed, result: $result', 'room_entry_screen');
         
         // Reset loading state when returning from video conference
         if (mounted) {
@@ -112,11 +193,11 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
           });
         }
       } else {
-        print('⚠️ RoomEntry: Widget not mounted, skipping navigation');
+        Logger.warning(' RoomEntry: Widget not mounted, skipping navigation', 'room_entry_screen');
       }
 
     } catch (e) {
-      print('❌ RoomEntry: Error joining room: $e');
+      Logger.error(' RoomEntry: Error joining room: $e', e, null, 'room_entry_screen');
       setState(() {
         _error = 'Error joining room: $e';
         _isLoading = false;
@@ -145,290 +226,381 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
         print('📱 RoomEntry: Permission $permissionName request result: $requestResult');
         
         if (!requestResult.isGranted) {
-          print('❌ RoomEntry: Permission $permissionName denied by user');
+          Logger.error(' RoomEntry: Permission $permissionName denied by user', null, null, 'room_entry_screen');
           throw Exception('Permission denied: $permissionName. Please enable camera and microphone permissions in your device settings.');
         }
       } else if (status.isPermanentlyDenied) {
-        print('❌ RoomEntry: Permission $permissionName is permanently denied');
+        Logger.error(' RoomEntry: Permission $permissionName is permanently denied', null, null, 'room_entry_screen');
         throw Exception('Permission permanently denied: $permissionName. Please enable camera and microphone permissions in your device settings.');
       } else if (!status.isGranted) {
-        print('❌ RoomEntry: Permission $permissionName is not granted');
+        Logger.error(' RoomEntry: Permission $permissionName is not granted', null, null, 'room_entry_screen');
         throw Exception('Permission not granted: $permissionName. Please enable camera and microphone permissions in your device settings.');
       } else {
-        print('✅ RoomEntry: Permission $permissionName is already granted');
+        Logger.debug(' RoomEntry: Permission $permissionName is already granted', 'room_entry_screen');
       }
     }
     
-    print('✅ RoomEntry: All permissions granted successfully');
+    Logger.debug(' RoomEntry: All permissions granted successfully', 'room_entry_screen');
   }
 
   @override
   Widget build(BuildContext context) {
-    final spacing = Theme.of(context).extension<AppSpacing>()!;
+    final theme = _buildEntryTheme(context);
 
-    return AppScaffold(
-      extendBodyBehindAppBar: true,
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: EdgeInsets.symmetric(horizontal: spacing.lg, vertical: spacing.xl),
-          children: [
-            _buildHeader(context),
-            SizedBox(height: spacing.xl),
-            _buildPreviewCard(context),
-            SizedBox(height: spacing.lg),
-            _buildFormCard(context),
-            if (_error != null) ...[
-              SizedBox(height: spacing.lg),
-              _buildErrorBanner(context),
-            ],
-            SizedBox(height: spacing.xxl),
-            AppButton(
-              label: _isLoading ? 'Joining...' : 'Join Meeting',
-              onPressed: _isLoading ? null : _joinRoom,
-              leading: const Icon(Icons.play_arrow_rounded, color: AppColors.textPrimary),
-              isLoading: _isLoading,
+    return Theme(
+      data: theme,
+      child: Scaffold(
+        backgroundColor: _EntryColors.background,
+        appBar: _buildTopAppBar(theme),
+        body: SafeArea(
+          child: Form(
+            key: _formKey,
+            child: ListView(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              children: [
+                _buildJoinCard(theme),
+                if (_error != null) ...[
+                  const SizedBox(height: 20),
+                  _buildErrorBanner(theme),
+                ],
+                const SizedBox(height: 24),
+                _buildHelpfulTips(theme),
+              ],
             ),
-            SizedBox(height: spacing.lg),
-            TextButton.icon(
-              onPressed: () {
-                setState(() {
-                  _participantType = _participantType == 'host' ? 'guest' : 'host';
-                });
-              },
-              icon: Icon(
-                Icons.swap_horiz,
-                color: AppColors.textSecondary,
-              ),
-              label: Text(
-                _participantType == 'host' ? 'Switch to Guest Mode' : 'Switch to Host Mode',
-              ),
-            ),
-            SizedBox(height: spacing.xl),
-            _buildInfoCallout(context),
-            SizedBox(height: spacing.xxl),
-          ],
+          ),
+        ),
+        bottomNavigationBar: _buildBottomNavigation(),
+      ),
+    );
+  }
+
+  ThemeData _buildEntryTheme(BuildContext context) {
+    final base = Theme.of(context);
+    final colorScheme = base.colorScheme.copyWith(
+      primary: _EntryColors.primary,
+      onPrimary: Colors.black,
+      surface: _EntryColors.surface,
+      onSurface: _EntryColors.textPrimary,
+      background: _EntryColors.background,
+      onBackground: _EntryColors.textPrimary,
+    );
+
+    return base.copyWith(
+      colorScheme: colorScheme,
+      scaffoldBackgroundColor: _EntryColors.background,
+      appBarTheme: base.appBarTheme.copyWith(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+        titleTextStyle: base.textTheme.titleLarge?.copyWith(
+          color: Colors.white,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      textTheme: base.textTheme.apply(
+        bodyColor: _EntryColors.textPrimary,
+        displayColor: _EntryColors.textPrimary,
+      ),
+      iconTheme: const IconThemeData(color: _EntryColors.textSecondary),
+      inputDecorationTheme: base.inputDecorationTheme.copyWith(
+        filled: true,
+        fillColor: const Color(0xFFF4F8FF),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+        hintStyle: base.textTheme.bodyMedium?.copyWith(
+          color: _EntryColors.textSecondary,
+        ),
+        labelStyle: base.textTheme.bodyMedium?.copyWith(
+          color: _EntryColors.textSecondary,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: _EntryColors.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: _EntryColors.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(
+            color: _EntryColors.active,
+            width: 2,
+          ),
+        ),
+        prefixIconColor: _EntryColors.active,
+        suffixIconColor: _EntryColors.active,
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: _EntryColors.active,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 18),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          textStyle: base.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
-    final spacing = Theme.of(context).extension<AppSpacing>()!;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  PreferredSizeWidget _buildTopAppBar(ThemeData theme) {
+    return AppBar(
+      automaticallyImplyLeading: false,
+      toolbarHeight: 84,
+      titleSpacing: 0,
+      flexibleSpace: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              _EntryColors.active,
+              _EntryColors.primary,
+              _EntryColors.accent,
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+      ),
+      title: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Row(
           children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Welcome to',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyMedium
-                      ?.copyWith(color: AppColors.textMuted),
-                ),
-                SizedBox(height: spacing.xs),
-                Text(
-                  'Almajd Meet',
-                  style: Theme.of(context).textTheme.displaySmall,
-                ),
-              ],
-            ),
             Container(
-              padding: const EdgeInsets.all(18),
+              height: 52,
+              width: 52,
               decoration: BoxDecoration(
-                color: AppColors.surface.withOpacity(0.6),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.outline.withOpacity(0.6)),
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withOpacity(.7)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 12,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
               ),
+              padding: const EdgeInsets.all(8),
               child: Image.asset(
                 'assets/icons/logo.png',
-                width: 48,
-                height: 48,
+                fit: BoxFit.contain,
+              ),
+            ),
+            const SizedBox(width: 18),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Academiq Meet',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.4,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Where interactive learning begins',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: Colors.white.withOpacity(0.85),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
         ),
-        SizedBox(height: spacing.xs),
-        Text(
-          'Enter the room details below to get started',
-          style: Theme.of(context)
-              .textTheme
-              .bodyMedium
-              ?.copyWith(color: AppColors.textMuted),
+      ),
+      actions: [
+        Padding(
+          padding: const EdgeInsets.only(right: 16),
+          child: IconButton(
+            icon: const Icon(Icons.person_rounded, color: Colors.white),
+            onPressed: () async {
+              // Check if user is logged in
+              final authProvider = Provider.of<AuthProvider>(context, listen: false);
+              
+              // Refresh auth state to ensure it's up to date
+              await authProvider.refreshClientInfo();
+              
+              if (authProvider.isLoggedIn) {
+                // User is logged in, navigate to dashboard
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ClientDashboardScreen(),
+                  ),
+                );
+              } else {
+                // User is not logged in, navigate to login screen
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ClientLoginScreen(),
+                  ),
+                );
+              }
+            },
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildPreviewCard(BuildContext context) {
-    final spacing = Theme.of(context).extension<AppSpacing>()!;
-
-    return AppCard(
-      backgroundColor: AppColors.surfaceElevated.withOpacity(0.9),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          const SizedBox(height: 12),
-          UserAvatar(
-            initials: _participantNameController.text.isEmpty
-                ? 'C'
-                : _participantNameController.text.characters.take(2).toString(),
-            showGlow: _participantType == 'host',
-            statusColor: _isMicEnabled ? AppColors.success : AppColors.danger,
-          ),
-          SizedBox(height: spacing.md),
-          Text(
-            _participantNameController.text.isEmpty
-                ? 'Guest'
-                : _participantNameController.text.trim(),
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          SizedBox(height: spacing.xs),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.16),
-              borderRadius: BorderRadius.circular(16),
+  Widget _buildTabs() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 18),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.65),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: _EntryColors.border),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: _EntryColors.primary.withOpacity(0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.play_circle_fill_rounded,
+                color: _EntryColors.active,
+              ),
             ),
-            child: Text(
-              _participantType.toUpperCase(),
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: AppColors.primary,
-                    letterSpacing: 1.1,
-                  ),
+            const SizedBox(width: 14),
+            Text(
+              'Join an Academiq room',
+              style: TextStyle(
+                color: _EntryColors.active,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.3,
+              ),
             ),
-          ),
-          SizedBox(height: spacing.lg),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              AppIconButton(
-                icon: _isVideoEnabled ? Icons.videocam : Icons.videocam_off,
-                label: 'Video',
-                isToggled: _isVideoEnabled,
-                onPressed: () {
-                  setState(() {
-                    _isVideoEnabled = !_isVideoEnabled;
-                  });
-                },
-              ),
-              AppIconButton(
-                icon: _isMicEnabled ? Icons.mic : Icons.mic_off,
-                label: 'Mic',
-                isToggled: _isMicEnabled,
-                onPressed: () {
-                  setState(() {
-                    _isMicEnabled = !_isMicEnabled;
-                  });
-                },
-              ),
-              AppIconButton(
-                icon: _isSpeakerEnabled ? Icons.volume_up : Icons.volume_off,
-                label: 'Speaker',
-                isToggled: _isSpeakerEnabled,
-                onPressed: () {
-                  setState(() {
-                    _isSpeakerEnabled = !_isSpeakerEnabled;
-                  });
-                },
-              ),
-            ],
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildFormCard(BuildContext context) {
-    final spacing = Theme.of(context).extension<AppSpacing>()!;
-    return AppCard(
-      backgroundColor: AppColors.surface.withOpacity(0.9),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Meeting Details',
-            style: Theme.of(context).textTheme.headlineSmall,
+  Widget _buildJoinCard(ThemeData theme) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: _EntryColors.surface,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.03),
+                blurRadius: 18,
+                offset: const Offset(0, 12),
+              ),
+            ],
+            border: Border.all(color: _EntryColors.border),
           ),
-          SizedBox(height: spacing.sm),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
           Text(
-            'Only hosts can start or end a meeting. Guests will wait in the lobby until admitted.',
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(color: AppColors.textMuted),
+            'Join meeting',
+            style: theme.textTheme.headlineSmall?.copyWith(
+              color: _EntryColors.textPrimary,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-          SizedBox(height: spacing.lg),
+          const SizedBox(height: 8),
+          Text(
+            'Enter the meeting ID or full meeting link. Links will be automatically parsed.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: _EntryColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 24),
           TextFormField(
             controller: _roomNameController,
-            decoration: const InputDecoration(
-              labelText: 'Room Name',
-              hintText: 'e.g. almajd-class-12a',
-              prefixIcon: Icon(Icons.meeting_room_rounded),
+            keyboardType: TextInputType.text,
+            textInputAction: TextInputAction.next,
+            decoration: InputDecoration(
+              hintText: 'Enter Meeting ID/Meeting Link',
+              prefixIcon: _buildInputIcon(Icons.meeting_room_outlined),
+              prefixIconConstraints:
+                  const BoxConstraints(minWidth: 64, minHeight: 48),
             ),
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
-                return 'Please enter a room name';
+                return 'Meeting ID or link is required';
               }
               return null;
             },
           ),
-          SizedBox(height: spacing.md),
+          const SizedBox(height: 18),
           TextFormField(
             controller: _participantNameController,
-            decoration: const InputDecoration(
-              labelText: 'Your Name',
-              hintText: 'Optional',
-              prefixIcon: Icon(Icons.person_outline_rounded),
+            textInputAction: TextInputAction.done,
+            decoration: InputDecoration(
+              hintText: 'Enter your name',
+              prefixIcon: _buildInputIcon(Icons.person_outline),
+              prefixIconConstraints:
+                  const BoxConstraints(minWidth: 64, minHeight: 48),
             ),
           ),
-          SizedBox(height: spacing.md),
-          Text(
-            'Participant Role',
-            style: Theme.of(context).textTheme.titleSmall,
-          ),
-          SizedBox(height: spacing.xs),
-          ToggleButtons(
-            isSelected: [
-              _participantType == 'host',
-              _participantType == 'guest',
-            ],
-            onPressed: (index) {
-              setState(() {
-                _participantType = index == 0 ? 'host' : 'guest';
-              });
-            },
-            borderRadius: BorderRadius.circular(16),
-            fillColor: AppColors.primary.withOpacity(0.2),
-            selectedColor: AppColors.primary,
-            color: AppColors.textSecondary,
-            borderColor: AppColors.outline,
-            selectedBorderColor: AppColors.primary,
-            children: const [
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                child: Text('Host'),
-              ),
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                child: Text('Guest'),
-              ),
-            ],
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _isLoading ? null : _joinRoom,
+              child: _isLoading
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Text('Joining...'),
+                      ],
+                    )
+                  : Row(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        Icon(Icons.video_call_rounded),
+                        SizedBox(width: 8),
+                        Text('Join'),
+                      ],
+                    ),
+            ),
           ),
         ],
-      ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildErrorBanner(BuildContext context) {
-    final spacing = Theme.of(context).extension<AppSpacing>()!;
+  Widget _buildErrorBanner(ThemeData theme) {
     return Container(
-      padding: EdgeInsets.all(spacing.md),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.danger.withOpacity(0.08),
         borderRadius: BorderRadius.circular(20),
@@ -436,15 +608,14 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
       ),
       child: Row(
         children: [
-          const Icon(Icons.error, color: AppColors.danger),
-          SizedBox(width: spacing.sm),
+          const Icon(Icons.error_outline, color: AppColors.danger),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
               _error!,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: AppColors.danger),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: AppColors.danger,
+              ),
             ),
           ),
         ],
@@ -452,14 +623,13 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
     );
   }
 
-  Widget _buildInfoCallout(BuildContext context) {
-    final spacing = Theme.of(context).extension<AppSpacing>()!;
+  Widget _buildHelpfulTips(ThemeData theme) {
     return Container(
-      padding: EdgeInsets.all(spacing.md),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: AppColors.surface.withOpacity(0.7),
+        color: _EntryColors.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.outline.withOpacity(0.7)),
+        border: Border.all(color: _EntryColors.border),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -467,32 +637,184 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.18),
-              borderRadius: BorderRadius.circular(14),
+              color: _EntryColors.primary.withOpacity(0.15),
+              shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.security, color: AppColors.primary, size: 20),
+            child: const Icon(
+              Icons.lightbulb,
+              color: _EntryColors.active,
+            ),
           ),
-          SizedBox(width: spacing.md),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Secure rooms with admin control',
-                  style: Theme.of(context).textTheme.titleMedium,
+                  'Need a room?',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: _EntryColors.textPrimary,
+                  ),
                 ),
-                SizedBox(height: spacing.xs),
+                const SizedBox(height: 6),
                 Text(
-                  'Only administrators can create new rooms. Hosts must be assigned from the dashboard before joining.',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: AppColors.textMuted),
+                  'Rooms are created by the admin team. Contact your coordinator if you need hosting access.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: _EntryColors.textSecondary,
+                  ),
                 ),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildBottomNavigation() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: _EntryColors.surface,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 14,
+            offset: const Offset(0, -2),
+          ),
+        ],
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(24),
+          topRight: Radius.circular(24),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Expanded(
+            child: _BottomNavItem(
+              icon: Icons.home_rounded,
+              label: 'Home',
+              isActive: true,
+            ),
+          ),
+          const Expanded(
+            child: _BottomNavItem(
+              icon: Icons.group_outlined,
+              label: 'Contacts',
+            ),
+          ),
+          const Expanded(
+            child: _BottomNavItem(
+              icon: Icons.meeting_room_outlined,
+              label: 'Rooms',
+            ),
+          ),
+          Expanded(
+            child: _BottomNavItem(
+              icon: Icons.headset_mic_outlined,
+              label: 'Support',
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SupportScreen(),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _handleInputChange() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Widget _buildInputIcon(IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 16, right: 12),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: _EntryColors.primary.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Icon(
+          icon,
+          color: _EntryColors.active,
+          size: 20,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDropdownItem({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return Text(
+      title,
+      style: TextStyle(
+        color: _EntryColors.textPrimary,
+        fontWeight: FontWeight.w600,
+        fontSize: 14,
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
+class _BottomNavItem extends StatelessWidget {
+  const _BottomNavItem({
+    required this.icon,
+    required this.label,
+    this.isActive = false,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool isActive;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isActive
+        ? _EntryColors.active
+        : _EntryColors.textSecondary.withOpacity(0.7);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: isActive
+              ? _EntryColors.primary.withOpacity(0.2)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                    color: color,
+                  ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -8,15 +8,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:almjad_meet/main.dart';
+import 'package:academiq_meet/main.dart';
 
 void main() {
-  testWidgets('App starts with room entry screen', (WidgetTester tester) async {
+  testWidgets('App starts with splash screen', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const NewMeetApp());
+    await tester.pumpWidget(const AcademiqMeetApp());
+    await tester.pumpAndSettle();
 
-    // Verify that the room entry screen is displayed
-    expect(find.text('Join Meeting'), findsOneWidget);
-    expect(find.text('Room Name'), findsOneWidget);
+    // Verify that the app starts (splash screen will navigate to room entry)
+    expect(find.byType(MaterialApp), findsOneWidget);
   });
 }

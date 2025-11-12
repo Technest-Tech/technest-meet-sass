@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken, getAuthTokenFromRequest } from '@/lib/auth';
 import { prisma } from '@/lib/database';
+import bcrypt from 'bcryptjs';
 
 // PUT - Update a room
 export async function PUT(
@@ -20,7 +21,7 @@ export async function PUT(
 
     const { roomId } = await params;
     const body = await request.json();
-    const { name, description, hostApproval, maxParticipants, isActive, canRecord, requireWaitingRoom, allowGuestUnmute, enablePrivateChat } = body;
+    const { name, description, hostApproval, maxParticipants, isActive, canRecord, requireWaitingRoom, allowGuestUnmute, enablePrivateChat, password, passwordRequired, passwordFor } = body;
 
     console.log('Updating room', roomId, 'with body:', body);
 
@@ -43,20 +44,48 @@ export async function PUT(
       );
     }
 
+    // Handle password update
+    let hashedPassword: string | null | undefined = undefined;
+    if (passwordRequired !== undefined) {
+      if (passwordRequired && password) {
+        // Hash new password
+        hashedPassword = await bcrypt.hash(password, 10);
+      } else if (!passwordRequired) {
+        // Remove password if password is disabled
+        hashedPassword = null;
+      } else if (passwordRequired && !password) {
+        // Keep existing password if passwordRequired is true but no new password provided
+        hashedPassword = existingRoom.password;
+      }
+    }
+
     // Update the room
+    const updateData: any = {
+      name,
+      description,
+      hostApproval: hostApproval !== undefined ? hostApproval : existingRoom.hostApproval,
+      maxParticipants: maxParticipants || existingRoom.maxParticipants,
+      isActive: isActive !== undefined ? isActive : existingRoom.isActive,
+      canRecord: canRecord !== undefined ? canRecord : existingRoom.canRecord,
+      requireWaitingRoom: requireWaitingRoom !== undefined ? requireWaitingRoom : existingRoom.requireWaitingRoom,
+      allowGuestUnmute: allowGuestUnmute !== undefined ? allowGuestUnmute : existingRoom.allowGuestUnmute,
+      enablePrivateChat: enablePrivateChat !== undefined ? enablePrivateChat : existingRoom.enablePrivateChat,
+    };
+
+    // Add password fields if provided
+    if (passwordRequired !== undefined) {
+      updateData.passwordRequired = passwordRequired;
+      if (hashedPassword !== undefined) {
+        updateData.password = hashedPassword;
+      }
+    }
+    if (passwordFor !== undefined) {
+      updateData.passwordFor = passwordFor;
+    }
+
     const updatedRoom = await prisma.room.update({
       where: { id: roomId },
-      data: {
-        name,
-        description,
-        hostApproval: hostApproval !== undefined ? hostApproval : existingRoom.hostApproval,
-        maxParticipants: maxParticipants || existingRoom.maxParticipants,
-        isActive: isActive !== undefined ? isActive : existingRoom.isActive,
-        canRecord: canRecord !== undefined ? canRecord : existingRoom.canRecord,
-        requireWaitingRoom: requireWaitingRoom !== undefined ? requireWaitingRoom : existingRoom.requireWaitingRoom,
-        allowGuestUnmute: allowGuestUnmute !== undefined ? allowGuestUnmute : existingRoom.allowGuestUnmute,
-        enablePrivateChat: enablePrivateChat !== undefined ? enablePrivateChat : existingRoom.enablePrivateChat
-      },
+      data: updateData,
       include: {
         participants: true
       }

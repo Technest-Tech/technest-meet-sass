@@ -41,6 +41,7 @@ const ALL_FEATURES: FeatureType[] = [
   'NORMAL_WHITEBOARD',
   'MANAGE_PARTICIPANTS',
   'VIRTUAL_BACKGROUND',
+  'NOISE_CANCELLATION',
 ];
 
 const FEATURE_LABELS: Record<FeatureType, string> = {
@@ -62,6 +63,7 @@ const FEATURE_LABELS: Record<FeatureType, string> = {
   NORMAL_WHITEBOARD: 'Normal Whiteboard',
   MANAGE_PARTICIPANTS: 'Manage Participants',
   VIRTUAL_BACKGROUND: 'Virtual Background',
+  NOISE_CANCELLATION: 'Noise Cancellation',
 };
 
 function PlansManagementContent({ userEmail }: { userEmail: string }) {

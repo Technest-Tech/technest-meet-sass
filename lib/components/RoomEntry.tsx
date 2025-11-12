@@ -10,6 +10,8 @@ import { ErrorBoundary } from '@/lib/components/ErrorBoundary';
 
 interface RoomValidation {
   exists: boolean;
+  message?: string;
+  errorType?: string;
   room?: {
     id: string;
     name: string;
@@ -84,6 +86,11 @@ export function RoomEntry({ roomLink, accessType }: RoomEntryProps) {
         } else {
           const errorData = await response.json();
           setError(errorData.message || 'الغرفة غير موجودة أو تم حذفها');
+          setRoomValidation({
+            exists: false,
+            message: errorData.message,
+            errorType: errorData.errorType,
+          });
         }
       } catch (error) {
         logger.error('Failed to validate room access:', error);
@@ -129,6 +136,8 @@ export function RoomEntry({ roomLink, accessType }: RoomEntryProps) {
         accessType={accessType}
         roomName={roomValidation?.room?.name}
         clientName={roomValidation?.client?.name}
+        passwordRequired={roomValidation?.room?.passwordRequired}
+        passwordFor={roomValidation?.room?.passwordFor}
         onNameSubmit={(name) => {
           setUserName(name);
           setShowNameInput(false);
@@ -155,25 +164,134 @@ export function RoomEntry({ roomLink, accessType }: RoomEntryProps) {
     );
   }
 
-  // Show error state
+  // Show error state with specific placeholder pages based on error type
   if (error || !roomValidation?.exists) {
+    const errorType = roomValidation?.errorType || 'UNKNOWN';
+    
+    // Account-related errors
+    if (errorType === 'ACCOUNT_INACTIVE' || errorType === 'ACCOUNT_NOT_FOUND' || errorType === 'ACCOUNT_SUSPENDED') {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-red-50 via-orange-50 to-yellow-50 flex items-center justify-center p-4" dir="rtl">
+          <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12 max-w-lg w-full text-center">
+            <div className="w-24 h-24 bg-gradient-to-br from-red-100 to-orange-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg className="w-12 h-12 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+              </svg>
+            </div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">
+              {errorType === 'ACCOUNT_SUSPENDED' ? 'حساب معطل' : 'حساب غير نشط'}
+            </h1>
+            <p className="text-lg text-gray-700 mb-2">
+              {error || roomValidation?.message || 'حساب العميل غير نشط'}
+            </p>
+            <p className="text-sm text-gray-600 mb-8 leading-relaxed">
+              {errorType === 'ACCOUNT_SUSPENDED' 
+                ? 'تم تعطيل هذا الحساب من قبل المسؤول. يرجى التواصل مع الدعم الفني.'
+                : 'حساب العميل غير نشط حالياً. يرجى التواصل مع المسؤول لتفعيل الحساب.'}
+            </p>
+            <div className="space-y-3">
+              <button
+                onClick={() => window.history.back()}
+                className="w-full px-6 py-3 bg-gradient-to-r from-primary-600 to-indigo-600 text-white rounded-xl hover:from-primary-700 hover:to-indigo-700 transition-all duration-200 font-medium shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+              >
+                العودة للخلف
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Subscription-related errors
+    if (errorType === 'NO_SUBSCRIPTION' || errorType === 'SUBSCRIPTION_INACTIVE' || errorType === 'SUBSCRIPTION_EXPIRED' || errorType === 'TRIAL_EXPIRED') {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-yellow-50 via-orange-50 to-red-50 flex items-center justify-center p-4" dir="rtl">
+          <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12 max-w-lg w-full text-center">
+            <div className="w-24 h-24 bg-gradient-to-br from-yellow-100 to-orange-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg className="w-12 h-12 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">
+              {errorType === 'TRIAL_EXPIRED' ? 'انتهت الفترة التجريبية' : errorType === 'SUBSCRIPTION_EXPIRED' ? 'انتهى الاشتراك' : 'اشتراك غير نشط'}
+            </h1>
+            <p className="text-lg text-gray-700 mb-2">
+              {error || roomValidation?.message || 'الاشتراك غير نشط'}
+            </p>
+            <p className="text-sm text-gray-600 mb-8 leading-relaxed">
+              {errorType === 'TRIAL_EXPIRED' 
+                ? 'انتهت الفترة التجريبية. يرجى التواصل مع المسؤول للترقية إلى خطة مدفوعة.'
+                : errorType === 'SUBSCRIPTION_EXPIRED'
+                ? 'انتهى الاشتراك. يرجى التواصل مع المسؤول لتجديد الاشتراك.'
+                : 'الاشتراك غير نشط حالياً. يرجى التواصل مع المسؤول لتفعيل الاشتراك.'}
+            </p>
+            <div className="space-y-3">
+              <button
+                onClick={() => window.history.back()}
+                className="w-full px-6 py-3 bg-gradient-to-r from-primary-600 to-indigo-600 text-white rounded-xl hover:from-primary-700 hover:to-indigo-700 transition-all duration-200 font-medium shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+              >
+                العودة للخلف
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Room not found error
+    if (errorType === 'ROOM_NOT_FOUND') {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-red-50 via-orange-50 to-yellow-50 flex items-center justify-center p-4" dir="rtl">
+          <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12 max-w-lg w-full text-center">
+            <div className="relative mb-6">
+              <div className="w-24 h-24 bg-gradient-to-br from-red-100 to-orange-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+                <svg className="w-12 h-12 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              </div>
+              <div className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full animate-ping"></div>
+            </div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">الغرفة غير موجودة</h1>
+            <p className="text-lg text-gray-700 mb-2">
+              {error || roomValidation?.message || 'الغرفة غير موجودة أو تم حذفها'}
+            </p>
+            <p className="text-sm text-gray-600 mb-8 leading-relaxed">
+              يبدو أن الرابط الذي تحاول الوصول إليه غير صحيح أو أن الغرفة قد تم حذفها. يرجى التحقق من الرابط والتأكد من صحته.
+            </p>
+            <div className="space-y-3">
+              <button
+                onClick={() => window.history.back()}
+                className="w-full px-6 py-3 bg-gradient-to-r from-primary-600 to-indigo-600 text-white rounded-xl hover:from-primary-700 hover:to-indigo-700 transition-all duration-200 font-medium shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+              >
+                العودة للخلف
+              </button>
+              <button
+                onClick={() => window.location.href = '/'}
+                className="w-full px-6 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors duration-200 font-medium"
+              >
+                الصفحة الرئيسية
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Default error placeholder
     return (
       <div className="min-h-screen bg-gradient-to-br from-red-50 via-orange-50 to-yellow-50 flex items-center justify-center p-4" dir="rtl">
         <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12 max-w-lg w-full text-center">
-          <div className="relative mb-6">
-            <div className="w-24 h-24 bg-gradient-to-br from-red-100 to-orange-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
-              <svg className="w-12 h-12 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
-            </div>
-            <div className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full animate-ping"></div>
+          <div className="w-24 h-24 bg-gradient-to-br from-red-100 to-orange-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg className="w-12 h-12 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">الرابط غير صحيح</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-4">خطأ في الوصول</h1>
           <p className="text-lg text-gray-700 mb-2">
-            {error || 'الغرفة غير موجودة أو تم حذفها'}
+            {error || roomValidation?.message || 'حدث خطأ أثناء محاولة الوصول للغرفة'}
           </p>
           <p className="text-sm text-gray-600 mb-8 leading-relaxed">
-            يبدو أن الرابط الذي تحاول الوصول إليه غير صحيح أو أن الغرفة قد تم حذفها. يرجى التحقق من الرابط والتأكد من صحته.
+            يرجى التحقق من الرابط والتأكد من صحته، أو التواصل مع المسؤول.
           </p>
           <div className="space-y-3">
             <button

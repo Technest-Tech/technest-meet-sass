@@ -5,10 +5,10 @@
 @tailwind utilities;
 
 /* Custom styles */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Cairo:wght@300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Almarai:wght@300;400;700;800&display=swap');
 
 body {
-  font-family: 'Inter', 'Cairo', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+  font-family: 'Inter', 'Almarai', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -17,7 +17,7 @@ body {
 
 /* RTL Support */
 [dir="rtl"] {
-  font-family: 'Cairo', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+  font-family: 'Almarai', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
 }
@@ -188,6 +188,8 @@ html,
 body {
   max-width: 100vw;
   overflow-x: hidden;
+  margin: 0;
+  padding: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
@@ -199,6 +201,59 @@ body {
 body:not(:has(.lk-room-container)) {
   overflow-y: auto !important;
   height: auto !important;
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+/* Ensure footer has no bottom spacing */
+footer {
+  margin-bottom: 0 !important;
+}
+
+/* Ensure no white space after footer */
+body > div:last-child footer,
+body footer:last-child {
+  margin-bottom: 0 !important;
+}
+
+/* Remove any spacing after the last element */
+body > div:last-child {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+/* Ensure html and body have no bottom spacing */
+html {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+body {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+/* Remove any spacing from the root container */
+body > div[dir="rtl"] {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+  background: transparent !important;
+}
+
+/* Ensure the main container doesn't add white space */
+body > div[dir="rtl"] > div:last-child {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+/* Ensure footer container has no spacing */
+footer > div {
+  margin-bottom: 0 !important;
+}
+
+footer > div > div:last-child {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
 }
 
 html:not(:has(.lk-room-container)) {

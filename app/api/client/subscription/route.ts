@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireClient } from '@/lib/auth/server-auth';
 import { prisma } from '@/lib/database';
+import { checkTrialExpiration, getTrialDaysRemaining } from '@/lib/utils/trial-check';
 
 // All possible features in the system
 const ALL_FEATURES = [
@@ -22,6 +23,7 @@ const ALL_FEATURES = [
   'NORMAL_WHITEBOARD',
   'MANAGE_PARTICIPANTS',
   'VIRTUAL_BACKGROUND',
+  'NOISE_CANCELLATION',
 ] as const;
 
 export async function GET(request: NextRequest) {
@@ -53,10 +55,13 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // Check and update trial expiration if needed
+    const checkedSubscription = await checkTrialExpiration(subscription);
+
     // Build complete feature list with enabled/disabled status
-    const allFeaturesWithStatus = subscription.plan
+    const allFeaturesWithStatus = checkedSubscription.plan
       ? ALL_FEATURES.map((featureName) => {
-          const planFeature = subscription.plan!.features.find(
+          const planFeature = checkedSubscription.plan!.features.find(
             (f) => f.feature === featureName
           );
           return {
@@ -69,14 +74,24 @@ export async function GET(request: NextRequest) {
           enabled: false,
         }));
 
+    // Calculate trial days remaining
+    const trialDaysRemaining = checkedSubscription.isTrial 
+      ? getTrialDaysRemaining(checkedSubscription)
+      : null;
+
     return NextResponse.json({
-      status: subscription.status,
-      createdAt: subscription.createdAt,
-      updatedAt: subscription.updatedAt,
-      plan: subscription.plan
+      status: checkedSubscription.status,
+      createdAt: checkedSubscription.createdAt,
+      updatedAt: checkedSubscription.updatedAt,
+      isTrial: checkedSubscription.isTrial,
+      trialStartDate: checkedSubscription.trialStartDate,
+      trialEndDate: checkedSubscription.trialEndDate,
+      trialDays: checkedSubscription.trialDays,
+      trialDaysRemaining,
+      plan: checkedSubscription.plan
         ? {
-            name: subscription.plan.name,
-            description: subscription.plan.description,
+            name: checkedSubscription.plan.name,
+            description: checkedSubscription.plan.description,
             features: allFeaturesWithStatus,
           }
         : null,

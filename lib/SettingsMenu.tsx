@@ -20,6 +20,7 @@ export interface SettingsMenuProps extends React.HTMLAttributes<HTMLDivElement> 
   onClose?: () => void;
   roomFeatures?: {
     enableVirtualBackground?: boolean;
+    enableNoiseCancellation?: boolean;
   };
 }
 
@@ -91,14 +92,15 @@ export function SettingsMenu(props: SettingsMenuProps) {
   };
 
   return (
-    <div className="settings-menu" style={{ width: '100%', position: 'relative' }} {...domProps}>
+    <div className="settings-menu" dir="ltr" style={{ width: '100%', position: 'relative' }} {...domProps}>
       {/* Tabs */}
       <div style={{
         display: 'flex',
         gap: '12px',
         marginBottom: '24px',
         borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
-        paddingBottom: '12px'
+        paddingBottom: '12px',
+        direction: 'ltr'
       }}>
         {tabs.map(
           (tab) =>
@@ -144,7 +146,7 @@ export function SettingsMenu(props: SettingsMenuProps) {
             ),
         )}
       </div>
-      <div className="tab-content" style={{ color: 'white' }}>
+      <div className="tab-content" style={{ color: 'white', direction: 'ltr' }}>
         {activeTab === 'media' && (
           <>
             {settings.media && settings.media.camera && (
@@ -179,7 +181,7 @@ export function SettingsMenu(props: SettingsMenuProps) {
                   🎤 Microphone
                 </h3>
                 <section>
-                  <MicrophoneSettings />
+                  <MicrophoneSettings roomFeatures={roomFeatures} />
                 </section>
               </div>
             )}

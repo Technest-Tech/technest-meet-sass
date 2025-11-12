@@ -60,8 +60,7 @@ async function main() {
         email: clientEmail,
         accountId: account.id,
         maxRooms: 10,
-        maxHosts: 50,
-        maxGuests: 500,
+        maxParticipants: 50,
       },
     });
 
@@ -70,43 +69,163 @@ async function main() {
       where: { id: account.id },
       data: { clientId: client.id },
     });
+  } else {
+    console.log('ℹ️  Test client account already exists:', clientEmail);
+  }
 
-    // Create a plan with all features
-    const plan = await prisma.plan.create({
+  // Create 3 plans: Trial, Basic, Premium
+  console.log('📦 Creating subscription plans...');
+
+  // 1. Trial Plan - Most features (exclude E2EE, CUSTOM_BRANDING, VIRTUAL_BACKGROUND)
+  let trialPlan = await prisma.plan.findFirst({
+    where: { name: 'Trial Plan' },
+  });
+
+  if (!trialPlan) {
+    trialPlan = await prisma.plan.create({
+      data: {
+        name: 'Trial Plan',
+        description: 'Trial plan with most features enabled (3 days)',
+        isActive: true,
+      },
+    });
+  } else {
+    await prisma.plan.update({
+      where: { id: trialPlan.id },
+      data: {
+        description: 'Trial plan with most features enabled (3 days)',
+        isActive: true,
+      },
+    });
+  }
+
+  // Get all features except the premium ones
+  const allFeatures = Object.values(FeatureType);
+  const trialExcludedFeatures = ['E2EE', 'CUSTOM_BRANDING', 'VIRTUAL_BACKGROUND'] as FeatureType[];
+  const trialFeatures = allFeatures.filter(f => !trialExcludedFeatures.includes(f));
+
+  // Delete existing features and recreate
+  await prisma.planFeature.deleteMany({
+    where: { planId: trialPlan.id },
+  });
+
+  await prisma.planFeature.createMany({
+    data: trialFeatures.map(feature => ({
+      planId: trialPlan.id,
+      feature: feature,
+      enabled: true,
+    })),
+  });
+
+  console.log('✅ Trial Plan created with', trialFeatures.length, 'features');
+
+  // 2. Basic Plan - Limited features
+  let basicPlan = await prisma.plan.findFirst({
+    where: { name: 'Basic Plan' },
+  });
+
+  if (!basicPlan) {
+    basicPlan = await prisma.plan.create({
+      data: {
+        name: 'Basic Plan',
+        description: 'Basic plan with essential features',
+        isActive: true,
+      },
+    });
+  } else {
+    await prisma.plan.update({
+      where: { id: basicPlan.id },
+      data: {
+        description: 'Basic plan with essential features',
+        isActive: true,
+      },
+    });
+  }
+
+  const basicFeatures: FeatureType[] = [
+    'PRIVATE_CHAT',
+    'REACTIONS',
+    'RAISE_HAND',
+    'WAITING_ROOM',
+    'GUEST_UNMUTE',
+  ];
+
+  await prisma.planFeature.deleteMany({
+    where: { planId: basicPlan.id },
+  });
+
+  await prisma.planFeature.createMany({
+    data: basicFeatures.map(feature => ({
+      planId: basicPlan.id,
+      feature: feature,
+      enabled: true,
+    })),
+  });
+
+  console.log('✅ Basic Plan created with', basicFeatures.length, 'features');
+
+  // 3. Premium Plan - All features
+  let premiumPlan = await prisma.plan.findFirst({
+    where: { name: 'Premium Plan' },
+  });
+
+  if (!premiumPlan) {
+    premiumPlan = await prisma.plan.create({
       data: {
         name: 'Premium Plan',
         description: 'Premium plan with all features enabled',
         isActive: true,
       },
     });
-
-    // Add all features to the plan
-    const allFeatures = Object.values(FeatureType);
-    await prisma.planFeature.createMany({
-      data: allFeatures.map(feature => ({
-        planId: plan.id,
-        feature: feature,
-        enabled: true,
-      })),
-    });
-
-    // Create subscription for the client
-    await prisma.subscription.create({
+  } else {
+    await prisma.plan.update({
+      where: { id: premiumPlan.id },
       data: {
-        clientId: client.id,
-        planId: plan.id,
-        status: SubscriptionStatus.ACTIVE,
+        description: 'Premium plan with all features enabled',
+        isActive: true,
       },
     });
+  }
 
-    console.log('✅ Test client account created:');
-    console.log('   Email:', clientEmail);
-    console.log('   Password:', clientPassword);
-    console.log('   Client Name:', clientName);
-    console.log('   Plan: Premium Plan (all features enabled)');
-    console.log('   Subscription: ACTIVE');
-  } else {
-    console.log('ℹ️  Test client account already exists:', clientEmail);
+  await prisma.planFeature.deleteMany({
+    where: { planId: premiumPlan.id },
+  });
+
+  await prisma.planFeature.createMany({
+    data: allFeatures.map(feature => ({
+      planId: premiumPlan.id,
+      feature: feature,
+      enabled: true,
+    })),
+  });
+
+  console.log('✅ Premium Plan created with', allFeatures.length, 'features');
+
+  // Create subscription for test client if it doesn't exist
+  const clientAccountWithClient = await prisma.account.findUnique({
+    where: { email: clientEmail },
+    include: { client: true },
+  });
+
+  if (clientAccountWithClient && clientAccountWithClient.client) {
+    const existingSubscription = await prisma.subscription.findUnique({
+      where: { clientId: clientAccountWithClient.client.id },
+    });
+
+    if (!existingSubscription) {
+      await prisma.subscription.create({
+        data: {
+          clientId: clientAccountWithClient.client.id,
+          planId: premiumPlan.id,
+          status: SubscriptionStatus.ACTIVE,
+        },
+      });
+
+      console.log('✅ Test client subscription created:');
+      console.log('   Email:', clientEmail);
+      console.log('   Plan: Premium Plan (all features enabled)');
+      console.log('   Subscription: ACTIVE');
+    }
   }
 
   console.log('✅ Database seed completed!');

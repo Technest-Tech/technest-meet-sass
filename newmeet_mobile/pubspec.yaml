@@ -1,5 +1,5 @@
-name: almjad_meet
-description: "Almajd Meet - LiveKit Video Conferencing App with Whiteboard"
+name: academiq_meet
+description: "Academiq Meet - LiveKit Video Conferencing App with Whiteboard"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -36,6 +36,9 @@ dependencies:
   
   # HTTP requests for API calls
   http: ^1.1.0
+  dio: ^5.4.0
+  cookie_jar: ^4.0.8
+  dio_cookie_manager: ^3.1.1
   
   # State management
   provider: ^6.0.0
@@ -45,6 +48,10 @@ dependencies:
   
   # Screen sharing
   screen_capturer: ^0.1.0
+  
+  
+  # Picture-in-Picture support
+  wakelock_plus: ^1.2.1
   
   # Local storage
   shared_preferences: ^2.2.0
@@ -60,9 +67,16 @@ dependencies:
   
   # File operations
   path_provider: ^2.1.0
+  path: ^1.9.0
   
   # JSON handling
   json_annotation: ^4.8.0
+  
+  # Audio playback for reactions and sounds
+  audioplayers: ^5.2.1
+  
+  # URL launcher for opening WhatsApp, phone, and email
+  url_launcher: ^6.2.5
 
 dev_dependencies:
   flutter_test:
@@ -75,6 +89,7 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^4.0.0
   flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.4.1
   
   # JSON code generation
   json_serializable: ^6.7.0
@@ -99,6 +114,7 @@ flutter:
   assets:
     - assets/images/
     - assets/icons/
+    - assets/sounds/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
@@ -144,3 +160,13 @@ flutter_launcher_icons:
   macos:
     generate: true
     image_path: "assets/icons/logo.png"
+
+flutter_native_splash:
+  color: "#0F172A"
+  image: assets/icons/logo_splash.png
+  android_gravity: center
+  ios_content_mode: scaleAspectFit
+  web: false
+  android_12:
+    color: "#0F172A"
+    image: assets/icons/logo_splash.png

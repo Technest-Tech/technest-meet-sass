@@ -329,41 +329,41 @@ export function WaitingList({ isHost, roomName }: WaitingListProps) {
           zIndex: 9999999,
           width: '380px',
           maxHeight: '550px',
-          backgroundColor: '#ffffff',
-          borderRadius: '16px',
+          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+          backdropFilter: 'blur(20px)',
+          borderRadius: '20px',
           boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3), 0 0 1px rgba(0, 0, 0, 0.1)',
           overflow: 'hidden',
-          border: '2px solid transparent',
-          background: 'linear-gradient(white, white) padding-box, linear-gradient(135deg, #667eea 0%, #764ba2 100%) border-box',
+          border: '1px solid rgba(255, 255, 255, 0.2)',
         }}
       >
         {/* Header */}
         <div 
           className="waiting-list-header"
           style={{
-            padding: '20px',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            padding: '16px 20px',
+            background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%)',
             color: 'white',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+            boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
             flexWrap: 'wrap',
-            gap: '12px',
+            gap: '10px',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 auto', minWidth: '200px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 auto', minWidth: '180px' }}>
             <div style={{
-              background: 'rgba(255, 255, 255, 0.2)',
+              background: 'rgba(255, 255, 255, 0.25)',
               borderRadius: '12px',
-              padding: '10px',
+              padding: '8px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               backdropFilter: 'blur(10px)',
             }}>
               <Bell 
-                size={22} 
+                size={20} 
                 className={isAnimating ? 'bell-icon-animating' : ''}
                 style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.2))' }}
               />
@@ -371,18 +371,19 @@ export function WaitingList({ isHost, roomName }: WaitingListProps) {
             <div>
               <h3 style={{ 
                 margin: 0, 
-                fontSize: '18px', 
+                fontSize: '16px', 
                 fontWeight: '700',
-                letterSpacing: '-0.5px',
+                letterSpacing: '-0.3px',
                 textShadow: '0 2px 4px rgba(0,0,0,0.1)'
               }}>
                 Waiting Room
               </h3>
               <p style={{ 
                 margin: 0, 
-                fontSize: '13px', 
-                opacity: 0.9,
-                fontWeight: '500'
+                fontSize: '12px', 
+                opacity: 0.95,
+                fontWeight: '500',
+                marginTop: '2px'
               }}>
                 {waitingParticipants.length} {waitingParticipants.length === 1 ? 'person' : 'people'} waiting
               </p>
@@ -394,11 +395,11 @@ export function WaitingList({ isHost, roomName }: WaitingListProps) {
               onClick={admitAll}
               disabled={isLoading}
               style={{
-                padding: '10px 16px',
-                fontSize: '14px',
+                padding: '8px 14px',
+                fontSize: '13px',
                 fontWeight: '600',
                 backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                color: '#667eea',
+                color: '#3b82f6',
                 border: 'none',
                 borderRadius: '10px',
                 cursor: isLoading ? 'not-allowed' : 'pointer',
@@ -406,8 +407,19 @@ export function WaitingList({ isHost, roomName }: WaitingListProps) {
                 boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
                 position: 'relative',
                 flexShrink: 0,
+                transition: 'all 0.2s ease',
               }}
               title="Admit all waiting participants"
+              onMouseEnter={(e) => {
+                if (!isLoading) {
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.boxShadow = '0 6px 16px rgba(0, 0, 0, 0.2)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+              }}
             >
               <span style={{ position: 'relative', zIndex: 1 }}>
                 Admit All
@@ -422,8 +434,8 @@ export function WaitingList({ isHost, roomName }: WaitingListProps) {
           style={{
             maxHeight: '450px',
             overflowY: 'auto',
-            padding: '16px',
-            background: 'linear-gradient(to bottom, #f9fafb, #ffffff)',
+            padding: '12px',
+            background: 'linear-gradient(to bottom, #f8fafc, #ffffff)',
           }}
         >
           {waitingParticipants.map((participant, index) => (
@@ -431,35 +443,35 @@ export function WaitingList({ isHost, roomName }: WaitingListProps) {
               key={participant.id}
               className="participant-item"
               style={{
-                padding: '16px',
-                marginBottom: '12px',
+                padding: '12px',
+                marginBottom: '8px',
                 backgroundColor: '#ffffff',
                 borderRadius: '12px',
-                border: '1px solid #e5e7eb',
+                border: '1px solid #e2e8f0',
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                gap: '12px',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                gap: '10px',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06)',
                 animationDelay: `${index * 0.1}s`,
                 flexWrap: 'wrap',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 auto', minWidth: '120px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1 1 auto', minWidth: '120px' }}>
                 {/* Avatar Circle */}
                 <div style={{
-                  width: '48px',
-                  height: '48px',
+                  width: '40px',
+                  height: '40px',
                   borderRadius: '50%',
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   color: 'white',
-                  fontSize: '18px',
+                  fontSize: '16px',
                   fontWeight: '700',
                   flexShrink: 0,
-                  boxShadow: '0 4px 12px rgba(102, 126, 234, 0.4)',
+                  boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
                   textTransform: 'uppercase',
                 }}>
                   {participant.participantName.charAt(0)}
@@ -469,11 +481,11 @@ export function WaitingList({ isHost, roomName }: WaitingListProps) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{
                     fontWeight: '600',
-                    color: '#1f2937',
-                    fontSize: '15px',
+                    color: '#1e293b',
+                    fontSize: '14px',
                     wordBreak: 'break-word',
                     lineHeight: '1.4',
-                    letterSpacing: '-0.3px',
+                    letterSpacing: '-0.2px',
                   }}>
                     {participant.participantName}
                   </div>
@@ -481,28 +493,39 @@ export function WaitingList({ isHost, roomName }: WaitingListProps) {
               </div>
 
               {/* Actions */}
-              <div style={{ display: 'flex', gap: '8px', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', gap: '6px', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 <button
                   className="action-button"
                   onClick={() => admitParticipant(participant.id, participant.participantName)}
                   disabled={processingId === participant.id}
                   style={{
-                    padding: '10px 14px',
+                    padding: '8px 12px',
                     backgroundColor: processingId === participant.id ? '#9ca3af' : '#10b981',
                     color: 'white',
                     border: 'none',
                     borderRadius: '10px',
                     cursor: processingId === participant.id ? 'not-allowed' : 'pointer',
-                    fontSize: '13px',
+                    fontSize: '12px',
                     fontWeight: '600',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
-                    boxShadow: processingId === participant.id ? 'none' : '0 4px 12px rgba(16, 185, 129, 0.3)',
+                    gap: '5px',
+                    boxShadow: processingId === participant.id ? 'none' : '0 4px 12px rgba(16, 185, 129, 0.25)',
+                    transition: 'all 0.2s ease',
                   }}
                   title="Admit to meeting"
+                  onMouseEnter={(e) => {
+                    if (processingId !== participant.id) {
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = '0 6px 16px rgba(16, 185, 129, 0.35)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = processingId === participant.id ? 'none' : '0 4px 12px rgba(16, 185, 129, 0.25)';
+                  }}
                 >
-                  <CheckCircle size={16} />
+                  <CheckCircle size={14} />
                   <span>Admit</span>
                 </button>
                 <button
@@ -510,22 +533,33 @@ export function WaitingList({ isHost, roomName }: WaitingListProps) {
                   onClick={() => rejectParticipant(participant.id, participant.participantName)}
                   disabled={processingId === participant.id}
                   style={{
-                    padding: '10px 14px',
+                    padding: '8px 12px',
                     backgroundColor: processingId === participant.id ? '#9ca3af' : '#ef4444',
                     color: 'white',
                     border: 'none',
                     borderRadius: '10px',
                     cursor: processingId === participant.id ? 'not-allowed' : 'pointer',
-                    fontSize: '13px',
+                    fontSize: '12px',
                     fontWeight: '600',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
-                    boxShadow: processingId === participant.id ? 'none' : '0 4px 12px rgba(239, 68, 68, 0.3)',
+                    gap: '5px',
+                    boxShadow: processingId === participant.id ? 'none' : '0 4px 12px rgba(239, 68, 68, 0.25)',
+                    transition: 'all 0.2s ease',
                   }}
                   title="Reject participant"
+                  onMouseEnter={(e) => {
+                    if (processingId !== participant.id) {
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = '0 6px 16px rgba(239, 68, 68, 0.35)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = processingId === participant.id ? 'none' : '0 4px 12px rgba(239, 68, 68, 0.25)';
+                  }}
                 >
-                  <XCircle size={16} />
+                  <XCircle size={14} />
                   <span>Reject</span>
                 </button>
               </div>

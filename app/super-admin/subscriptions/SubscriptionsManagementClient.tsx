@@ -13,6 +13,10 @@ import toast from 'react-hot-toast';
 interface Subscription {
   id: string;
   status: string;
+  isTrial?: boolean;
+  trialStartDate?: string;
+  trialEndDate?: string;
+  trialDays?: number;
   client: {
     id: string;
     name: string;
@@ -120,7 +124,10 @@ function SubscriptionsManagementContent({ userEmail }: { userEmail: string }) {
     switch (status) {
       case 'ACTIVE':
         return 'text-green-600 bg-green-100';
+      case 'TRIAL':
+        return 'text-blue-600 bg-blue-100';
       case 'EXPIRED':
+      case 'TRIAL_EXPIRED':
         return 'text-red-600 bg-red-100';
       default:
         return 'text-yellow-600 bg-yellow-100';
@@ -131,11 +138,29 @@ function SubscriptionsManagementContent({ userEmail }: { userEmail: string }) {
     switch (status) {
       case 'ACTIVE':
         return 'نشط';
+      case 'TRIAL':
+        return 'تجريبي';
       case 'EXPIRED':
         return 'منتهي';
+      case 'TRIAL_EXPIRED':
+        return 'انتهت الفترة التجريبية';
       default:
         return 'غير نشط';
     }
+  };
+
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return 'غير متوفر';
+    const date = new Date(dateString);
+    // Use Gregorian calendar by manually formatting
+    const months = [
+      'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+      'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
+    ];
+    const day = date.getDate();
+    const month = months[date.getMonth()];
+    const year = date.getFullYear();
+    return `${day} ${month} ${year}`;
   };
 
   return (
@@ -193,16 +218,28 @@ function SubscriptionsManagementContent({ userEmail }: { userEmail: string }) {
                         <div className="text-sm text-gray-500">{subscription.client.email}</div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">{subscription.plan.name}</td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      {subscription.plan.name}
+                      {subscription.isTrial && (
+                        <span className="mr-2 text-xs text-blue-600 font-medium">(تجريبي)</span>
+                      )}
+                    </td>
                     <td className="px-6 py-4">
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(subscription.status)}`}
-                      >
-                        {getStatusText(subscription.status)}
-                      </span>
+                      <div className="flex flex-col gap-1">
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(subscription.status)}`}
+                        >
+                          {getStatusText(subscription.status)}
+                        </span>
+                        {subscription.isTrial && subscription.trialEndDate && (
+                          <span className="text-xs text-gray-500">
+                            ينتهي: {formatDate(subscription.trialEndDate)}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600">
-                      {new Date(subscription.createdAt).toLocaleDateString('ar-SA')}
+                      {formatDate(subscription.createdAt)}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
@@ -280,7 +317,9 @@ function CreateSubscriptionModal({
   const [formData, setFormData] = useState({
     clientId: '',
     planId: '',
-    status: 'INACTIVE' as 'ACTIVE' | 'INACTIVE' | 'EXPIRED',
+    status: 'INACTIVE' as 'ACTIVE' | 'INACTIVE' | 'EXPIRED' | 'TRIAL',
+    isTrial: false,
+    trialDays: 3,
   });
   const [isLoading, setIsLoading] = useState(false);
 
@@ -289,13 +328,25 @@ function CreateSubscriptionModal({
     setIsLoading(true);
 
     try {
+      const requestBody: any = {
+        clientId: formData.clientId,
+        planId: formData.planId,
+        status: formData.status,
+      };
+
+      // Include trial fields if isTrial is true
+      if (formData.isTrial) {
+        requestBody.isTrial = true;
+        requestBody.trialDays = formData.trialDays;
+      }
+
       const response = await fetch('/api/super-admin/subscriptions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify(formData),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -370,9 +421,47 @@ function CreateSubscriptionModal({
             >
               <option value="INACTIVE">غير نشط</option>
               <option value="ACTIVE">نشط</option>
+              <option value="TRIAL">تجريبي</option>
               <option value="EXPIRED">منتهي</option>
             </select>
           </div>
+
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="isTrial"
+              checked={formData.isTrial}
+              onChange={(e) => {
+                const isTrial = e.target.checked;
+                setFormData({ 
+                  ...formData, 
+                  isTrial,
+                  status: isTrial ? 'TRIAL' : 'INACTIVE'
+                });
+              }}
+              className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+            />
+            <label htmlFor="isTrial" className="text-sm font-medium text-gray-700">
+              تفعيل الفترة التجريبية
+            </label>
+          </div>
+
+          {formData.isTrial && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                مدة التجربة (أيام) *
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="365"
+                value={formData.trialDays}
+                onChange={(e) => setFormData({ ...formData, trialDays: parseInt(e.target.value) || 3 })}
+                required
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+            </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
             <button

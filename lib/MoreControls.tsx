@@ -27,11 +27,13 @@ interface MoreControlsProps {
     enableNormalWhiteboard?: boolean;
     enableManageParticipants?: boolean;
     enableVirtualBackground?: boolean;
+    enableNoiseCancellation?: boolean;
   };
 }
 
 export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOnly = false, roomFeatures }: MoreControlsProps) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
   const [isRecordingActive, setIsRecordingActive] = useState(false);
@@ -415,6 +417,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
               ? 'rgba(220, 38, 38, 0.95)'
               : 'rgba(75, 85, 99, 0.9)';
           }
+          setIsHovered(true);
         }}
         onMouseLeave={(e) => {
           if (!isDropdownOpen) {
@@ -422,16 +425,40 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
               ? 'rgba(220, 38, 38, 0.9)'
               : 'rgba(107, 114, 128, 0.9)';
           }
+          setIsHovered(false);
         }}
         title="More Controls"
       >
         <MoreHorizontal size={iconOnly ? 20 : 16} />
         {!iconOnly && (isRecordingActive ? 'Recording' : 'More')}
       </button>
+      
+      {/* Tooltip on hover */}
+      {iconOnly && isHovered && (
+        <div style={{
+          position: 'absolute',
+          bottom: 'calc(100% + 8px)',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          padding: '6px 12px',
+          backgroundColor: '#1f2937',
+          color: 'white',
+          fontSize: '12px',
+          fontWeight: '500',
+          borderRadius: '6px',
+          whiteSpace: 'nowrap',
+          zIndex: 9999,
+          pointerEvents: 'none',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+        }}>
+          {isRecordingActive ? 'Recording' : 'More Controls'}
+        </div>
+      )}
 
       {/* Dropdown Menu */}
       <div
         className="more-controls-dropdown"
+        dir="ltr"
         style={{
           position: 'absolute',
           bottom: '60px',
@@ -482,7 +509,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
           </button>
 
           {/* Dropdown Items */}
-          <div style={{ paddingRight: '48px', paddingTop: '4px' }}>
+          <div style={{ paddingLeft: '48px', paddingTop: '4px' }}>
             <h3 style={{
               margin: '0 0 12px 0',
               fontSize: '13px',
@@ -490,7 +517,8 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
               color: 'rgba(255, 255, 255, 0.9)',
               padding: '0 4px',
               textTransform: 'uppercase',
-              letterSpacing: '0.5px'
+              letterSpacing: '0.5px',
+              textAlign: 'left'
             }}>
               Controls
             </h3>
@@ -727,7 +755,63 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
                   background: 'linear-gradient(to right, #a855f7, #ec4899)',
                   borderRadius: '4px',
                   fontSize: '10px',
-                  fontWeight: 'bold'
+                  fontWeight: 'bold',
+                  direction: 'ltr'
+                }}>PRO</span>
+              )}
+            </button>
+
+            {/* Noise Cancellation Control */}
+            <button
+              onClick={() => {
+                if (roomFeatures?.enableNoiseCancellation ?? false) {
+                  setIsSettingsOpen(true);
+                  closeDropdown();
+                }
+              }}
+              disabled={!(roomFeatures?.enableNoiseCancellation ?? false)}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                backgroundColor: (roomFeatures?.enableNoiseCancellation ?? false) ? 'rgba(255, 255, 255, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                color: (roomFeatures?.enableNoiseCancellation ?? false) ? 'white' : 'rgba(255, 255, 255, 0.5)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '8px',
+                cursor: (roomFeatures?.enableNoiseCancellation ?? false) ? 'pointer' : 'not-allowed',
+                fontSize: '13px',
+                fontWeight: '500',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                transition: 'all 0.2s ease',
+                textAlign: 'left',
+                position: 'relative'
+              }}
+              onMouseEnter={(e) => {
+                if (roomFeatures?.enableNoiseCancellation ?? false) {
+                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (roomFeatures?.enableNoiseCancellation ?? false) {
+                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                }
+              }}
+              title={(roomFeatures?.enableNoiseCancellation ?? false) ? "Noise Cancellation Settings" : "Upgrade required for this feature"}
+            >
+              <span style={{ fontSize: '14px' }}>🔇</span>
+              Noise Cancellation
+              {!(roomFeatures?.enableNoiseCancellation ?? false) && (
+                <span style={{
+                  marginLeft: 'auto',
+                  padding: '2px 6px',
+                  background: 'linear-gradient(to right, #a855f7, #ec4899)',
+                  borderRadius: '4px',
+                  fontSize: '10px',
+                  fontWeight: 'bold',
+                  direction: 'ltr'
                 }}>PRO</span>
               )}
             </button>
@@ -931,7 +1015,8 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
             <div style={{ 
               flex: 1, 
               overflow: 'auto',
-              padding: '20px 24px'
+              padding: '20px 24px',
+              direction: 'ltr'
             }}>
               <SettingsMenu canRecord={canRecord} roomFeatures={roomFeatures} />
             </div>
@@ -1264,6 +1349,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
         return createPortal(
           <div 
             data-dropdown-menu
+            dir="ltr"
             style={{
               position: 'fixed',
               top: `${menuPosition.top}px`,

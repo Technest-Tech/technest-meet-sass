@@ -54,8 +54,11 @@ export async function POST(
 
     if (!validated.success) {
       console.error('❌ Validation failed:', validated.error);
+      const errorMessage = validated.error.errors && validated.error.errors.length > 0
+        ? validated.error.errors[0].message
+        : validated.error.message || 'Invalid feature data';
       return NextResponse.json(
-        { error: validated.error.errors[0].message },
+        { error: errorMessage, details: validated.error },
         { status: 400 }
       );
     }
@@ -123,6 +126,7 @@ export async function POST(
           enableNormalWhiteboard: enabledFeatures.includes('NORMAL_WHITEBOARD'),
           enableManageParticipants: enabledFeatures.includes('MANAGE_PARTICIPANTS'),
           enableVirtualBackground: enabledFeatures.includes('VIRTUAL_BACKGROUND'),
+          enableNoiseCancellation: enabledFeatures.includes('NOISE_CANCELLATION'),
         },
       });
 

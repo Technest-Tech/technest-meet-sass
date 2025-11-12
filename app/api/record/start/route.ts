@@ -43,18 +43,21 @@ export async function GET(req: NextRequest) {
       filepath: filename,
     });
 
+    // Record as screen share - use grid layout focused on screen share
     const egressInfo = await egressClient.startRoomCompositeEgress(
       roomName,
       {
         file: fileOutput,
       },
       {
-        layout: 'speaker',
+        layout: 'grid', // Use grid layout to capture screen share
         resolution: '1920x1080',
         videoBitrate: 3000,
         audioBitrate: 160,
         videoCodec: 'h264',
         audioCodec: 'aac',
+        // Prioritize screen share tracks
+        customBaseUrl: undefined,
       },
     );
 

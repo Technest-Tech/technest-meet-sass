@@ -15,6 +15,7 @@ import { ReactionsButton } from '@/lib/ReactionsButton';
 import { FloatingReactions } from '@/lib/FloatingReactions';
 import { StudentMonitorPiP } from '@/lib/StudentMonitorPiP';
 import { logger } from '@/lib/utils/logger';
+import { MeetingTimer } from '@/lib/MeetingTimer';
 
 interface VideoConferenceClientImplProps {
   liveKitUrl: string;
@@ -684,7 +685,7 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
   }
 
   return (
-    <div className="lk-room-container" onClick={handleUserInteraction}>
+    <div className="lk-room-container" dir="ltr" onClick={handleUserInteraction}>
       <RoomContext.Provider value={room}>
         <KeyboardShortcuts />
         
@@ -805,6 +806,9 @@ Are you sure you want to end the meeting for everyone?`;
             />
           </div>
         </div>
+
+        {/* Meeting Timer - Shows elapsed time */}
+        <MeetingTimer />
 
         {/* Main video area with proper LiveKit components */}
         <VideoLayout room={room} />

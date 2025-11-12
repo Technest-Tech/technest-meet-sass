@@ -137,8 +137,30 @@ export function FloatingReactions() {
         const messageString = new TextDecoder().decode(data);
         const messageData = JSON.parse(messageString);
         
-        console.log('Received data in FloatingReactions:', messageData);
+        // Ignore whiteboard message types to prevent crashes
+        const whiteboardTypes = [
+          'action_complete',
+          'action_update',
+          'clear',
+          'undo',
+          'redo',
+          'layer_add',
+          'layer_delete',
+          'layer_update',
+          'layer_reorder',
+          'background_update',
+          'history_sync',
+          'whiteboard_toggle',
+          'stroke',
+          'stroke_update',
+        ];
         
+        if (whiteboardTypes.includes(messageData.type)) {
+          // Silently ignore whiteboard data - it's handled by Whiteboard component
+          return;
+        }
+        
+        // Only process reaction data
         if (messageData.type === 'reaction') {
           console.log('Reaction data received:', messageData);
           const reactionData: ReactionData = {
@@ -152,7 +174,8 @@ export function FloatingReactions() {
           addReaction(reactionData);
         }
       } catch (error) {
-        console.error('Error parsing reaction data:', error);
+        // Silently ignore parsing errors for non-reaction data
+        // This prevents crashes from malformed or unexpected data
       }
     };
 

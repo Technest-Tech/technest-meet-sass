@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken, getAuthTokenFromRequest } from '@/lib/auth';
-import { prisma, generateShortLink, getNextParticipantName } from '@/lib/database';
+import { prisma, generateShortLink, getNextParticipantName, generateRoomLink } from '@/lib/database';
+import bcrypt from 'bcryptjs';
 
 // GET - Fetch all rooms
 export async function GET(request: NextRequest) {
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const { name, description, hostApproval, maxParticipants, isActive, canRecord, requireWaitingRoom, allowGuestUnmute, enablePrivateChat } = await request.json();
+    const { name, description, hostApproval, maxParticipants, isActive, canRecord, requireWaitingRoom, allowGuestUnmute, enablePrivateChat, password, passwordRequired, passwordFor } = await request.json();
 
     if (!name) {
       return NextResponse.json(
@@ -57,28 +58,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate room link based on room name
-    // Both host and guest will use the same room name with different types
+    // Generate room link using 7 random words
+    // Both host and guest will use the same room link
     let roomLink: string;
     let attempts = 0;
     const maxAttempts = 10;
 
     do {
-      // Create a URL-friendly version of the room name
-      let sanitizedName = name
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, '-') // Replace non-alphanumeric with hyphens
-        .replace(/-+/g, '-') // Replace multiple hyphens with single
-        .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
-      
-      // Ensure the sanitized name is not empty
-      if (!sanitizedName || sanitizedName.length < 1) {
-        sanitizedName = 'room';
-      }
-      
-      // Add a random suffix to ensure uniqueness if needed
-      const suffix = attempts === 0 ? '' : `-${Math.random().toString(36).substring(2, 6)}`;
-      roomLink = `${sanitizedName}${suffix}`;
+      // Generate link with 7 random words
+      roomLink = generateRoomLink();
       
       attempts++;
 
@@ -106,6 +94,12 @@ export async function POST(request: NextRequest) {
     const hostLink = roomLink;
     const guestLink = roomLink;
 
+    // Hash password if provided
+    let hashedPassword: string | null = null;
+    if (passwordRequired && password) {
+      hashedPassword = await bcrypt.hash(password, 10);
+    }
+
     // Create the room
     const room = await prisma.room.create({
       data: {
@@ -119,7 +113,10 @@ export async function POST(request: NextRequest) {
         allowGuestUnmute: allowGuestUnmute !== undefined ? allowGuestUnmute : true,
         enablePrivateChat: enablePrivateChat !== undefined ? enablePrivateChat : true,
         hostLink,
-        guestLink
+        guestLink,
+        password: hashedPassword,
+        passwordRequired: passwordRequired || false,
+        passwordFor: passwordFor || null,
       },
       include: {
         participants: true
@@ -190,7 +187,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const { id, name, description, hostApproval, maxParticipants, isActive, canRecord, requireWaitingRoom, allowGuestUnmute, enablePrivateChat } = await request.json();
+    const { id, name, description, hostApproval, maxParticipants, isActive, canRecord, requireWaitingRoom, allowGuestUnmute, enablePrivateChat, password, passwordRequired, passwordFor } = await request.json();
 
     if (!id) {
       return NextResponse.json(
@@ -218,74 +215,49 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    // Generate new room link if name changed
-    let roomLink = existingRoom.hostLink;
-    if (name !== existingRoom.name) {
-      let attempts = 0;
-      const maxAttempts = 10;
-
-      do {
-        // Create a URL-friendly version of the room name
-        let sanitizedName = name
-          .toLowerCase()
-          .replace(/[^a-z0-9]/g, '-') // Replace non-alphanumeric with hyphens
-          .replace(/-+/g, '-') // Replace multiple hyphens with single
-          .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
-        
-        // Ensure the sanitized name is not empty
-        if (!sanitizedName || sanitizedName.length < 1) {
-          sanitizedName = 'room';
-        }
-        
-        // Add a random suffix to ensure uniqueness if needed
-        const suffix = attempts === 0 ? '' : `-${Math.random().toString(36).substring(2, 6)}`;
-        roomLink = `${sanitizedName}${suffix}`;
-        
-        attempts++;
-
-        // Check if link already exists (excluding current room)
-        const existingRoomWithLink = await prisma.room.findFirst({
-          where: {
-            AND: [
-              {
-                OR: [
-                  { hostLink: roomLink },
-                  { guestLink: roomLink }
-                ]
-              },
-              { id: { not: id } }
-            ]
-          }
-        });
-
-        if (!existingRoomWithLink) break;
-      } while (attempts < maxAttempts);
-
-      if (attempts >= maxAttempts) {
-        return NextResponse.json(
-          { error: 'Failed to generate unique room link' },
-          { status: 500 }
-        );
+    // Handle password update
+    let hashedPassword: string | null | undefined = undefined;
+    if (passwordRequired !== undefined) {
+      if (passwordRequired && password) {
+        // Hash new password
+        hashedPassword = await bcrypt.hash(password, 10);
+      } else if (!passwordRequired) {
+        // Remove password if password is disabled
+        hashedPassword = null;
+      } else if (passwordRequired && !password) {
+        // Keep existing password if passwordRequired is true but no new password provided
+        hashedPassword = existingRoom.password;
       }
     }
 
     // Update the room
+    const updateData: any = {
+      name,
+      description,
+      hostApproval: hostApproval !== undefined ? hostApproval : existingRoom.hostApproval,
+      maxParticipants: maxParticipants !== undefined ? maxParticipants : existingRoom.maxParticipants,
+      isActive: isActive !== undefined ? isActive : existingRoom.isActive,
+      canRecord: canRecord !== undefined ? canRecord : existingRoom.canRecord,
+      requireWaitingRoom: requireWaitingRoom !== undefined ? requireWaitingRoom : existingRoom.requireWaitingRoom,
+      allowGuestUnmute: allowGuestUnmute !== undefined ? allowGuestUnmute : existingRoom.allowGuestUnmute,
+      enablePrivateChat: enablePrivateChat !== undefined ? enablePrivateChat : existingRoom.enablePrivateChat,
+      updatedAt: new Date()
+    };
+
+    // Add password fields if provided
+    if (passwordRequired !== undefined) {
+      updateData.passwordRequired = passwordRequired;
+      if (hashedPassword !== undefined) {
+        updateData.password = hashedPassword;
+      }
+    }
+    if (passwordFor !== undefined) {
+      updateData.passwordFor = passwordFor;
+    }
+
     const updatedRoom = await prisma.room.update({
       where: { id: id },
-      data: {
-        name,
-        description,
-        hostApproval: hostApproval !== undefined ? hostApproval : existingRoom.hostApproval,
-        maxParticipants: maxParticipants !== undefined ? maxParticipants : existingRoom.maxParticipants,
-        isActive: isActive !== undefined ? isActive : existingRoom.isActive,
-        canRecord: canRecord !== undefined ? canRecord : existingRoom.canRecord,
-        requireWaitingRoom: requireWaitingRoom !== undefined ? requireWaitingRoom : existingRoom.requireWaitingRoom,
-        allowGuestUnmute: allowGuestUnmute !== undefined ? allowGuestUnmute : existingRoom.allowGuestUnmute,
-        enablePrivateChat: enablePrivateChat !== undefined ? enablePrivateChat : existingRoom.enablePrivateChat,
-        hostLink: roomLink,
-        guestLink: roomLink,
-        updatedAt: new Date()
-      },
+      data: updateData,
       include: {
         participants: true
       }

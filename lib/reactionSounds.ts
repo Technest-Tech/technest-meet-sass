@@ -115,70 +115,52 @@ function playClapSound(): void {
   }
 }
 
+// Play audio file with 3 second limit
+function playAudioFile(src: string, maxDuration: number = 3): void {
+  try {
+    const audio = new Audio(src);
+    audio.volume = 0.7;
+    
+    // Stop after maxDuration seconds
+    const stopTimeout = setTimeout(() => {
+      audio.pause();
+      audio.currentTime = 0;
+    }, maxDuration * 1000);
+    
+    audio.play().catch((error) => {
+      console.warn('Error playing audio file:', error);
+      clearTimeout(stopTimeout);
+    });
+    
+    // Clean up when audio ends naturally
+    audio.addEventListener('ended', () => {
+      clearTimeout(stopTimeout);
+    });
+  } catch (error) {
+    console.warn('Error creating audio element:', error);
+  }
+}
+
 // Play reaction sound based on type
 export function playReactionSound(reactionType: ReactionType): void {
-  const ctx = getAudioContext();
-  if (!ctx) return;
-
   try {
-    // Resume context if needed (required for autoplay)
-    if (ctx.state === 'suspended') {
-      ctx.resume().then(() => {
-        playReactionSound(reactionType);
-      }).catch(() => {
-        // User interaction required - sound will play on next interaction
-      });
-      return;
-    }
+    // Map reactions to sound files
+    const soundMap: Record<ReactionType, string> = {
+      '👍': '/365scores_like.mp3',
+      '❤️': '/my_love.mp3',
+      '😂': '/laughs.mp3',
+      '👏': '/clap.mp3',
+      '🎉': '/children_celebrating.mp3',
+      '😮': '/wow.mp3',
+      '🙌': '/wow.mp3',
+    };
 
-    const currentTime = ctx.currentTime;
-
-    switch (reactionType) {
-      case '👍': // Thumbs up - Positive confirmation sound
-        playTone(330, 0.2, 0, 'sine', 0.3);
-        playTone(440, 0.15, 0.1, 'sine', 0.25);
-        break;
-
-      case '❤️': // Heart - Romantic chord progression
-        playChord([523.25, 659.25, 783.99], 0.3, 0, 'sine', 0.25); // C-E-G major chord
-        playTone(880, 0.2, 0.25, 'sine', 0.2); // A5
-        break;
-
-      case '😂': // Laughing - Bouncy, playful notes
-        playTone(440, 0.1, 0, 'triangle', 0.3);
-        playTone(554.37, 0.1, 0.08, 'triangle', 0.3);
-        playTone(659.25, 0.1, 0.16, 'triangle', 0.3);
-        playTone(783.99, 0.12, 0.24, 'triangle', 0.3);
-        break;
-
-      case '👏': // Clapping - Realistic clapping sound
-        playClapSound();
-        setTimeout(() => playClapSound(), 50);
-        setTimeout(() => playClapSound(), 100);
-        setTimeout(() => playClapSound(), 150);
-        break;
-
-      case '🎉': // Celebration - Fanfare with chord
-        playTone(523.25, 0.2, 0, 'sine', 0.35); // C5
-        playTone(659.25, 0.2, 0.1, 'sine', 0.35); // E5
-        playTone(783.99, 0.2, 0.2, 'sine', 0.35); // G5
-        playChord([1046.5, 1318.5], 0.3, 0.3, 'sine', 0.4); // C6-E6
-        break;
-
-      case '😮': // Surprised - Quick ascending whoosh
-        playTone(440, 0.08, 0, 'sine', 0.25);
-        playTone(880, 0.1, 0.05, 'sine', 0.3);
-        playTone(1320, 0.12, 0.1, 'sine', 0.25);
-        break;
-
-      case '🙌': // Raising hands - Uplifting major chord
-        playChord([440, 554.37, 659.25], 0.4, 0, 'sine', 0.3); // A-C#-E major
-        playTone(880, 0.3, 0.2, 'sine', 0.25); // A5
-        break;
-
-      default:
-        // Default sound for unknown reactions
-        playTone(440, 0.15, 0, 'sine', 0.25);
+    const soundFile = soundMap[reactionType];
+    if (soundFile) {
+      playAudioFile(soundFile, 3);
+    } else {
+      // Fallback to default sound
+      playAudioFile('/wow.mp3', 3);
     }
   } catch (error) {
     console.warn('Error playing reaction sound:', error);
@@ -187,32 +169,13 @@ export function playReactionSound(reactionType: ReactionType): void {
 
 // Play raise hand sound
 export function playRaiseHandSound(isRaised: boolean): void {
-  const ctx = getAudioContext();
-  if (!ctx) return;
-
   try {
-    // Resume context if needed (required for autoplay)
-    if (ctx.state === 'suspended') {
-      ctx.resume().then(() => {
-        playRaiseHandSound(isRaised);
-      }).catch(() => {
-        // User interaction required - sound will play on next interaction
-      });
-      return;
-    }
-
-    const currentTime = ctx.currentTime;
-
     if (isRaised) {
-      // Raising hand - uplifting ascending notes
-      playTone(440, 0.15, 0, 'sine', 0.3); // A4
-      playTone(554.37, 0.15, 0.1, 'sine', 0.3); // C#5
-      playTone(659.25, 0.2, 0.2, 'sine', 0.35); // E5
+      // Raising hand - play default gentle sound
+      playAudioFile('/365scores_like.mp3', 1);
     } else {
-      // Lowering hand - gentle descending notes
-      playTone(659.25, 0.15, 0, 'sine', 0.25); // E5
-      playTone(554.37, 0.15, 0.1, 'sine', 0.25); // C#5
-      playTone(440, 0.2, 0.2, 'sine', 0.25); // A4
+      // Lowering hand - no sound needed
+      // Just a brief confirmation if needed
     }
   } catch (error) {
     console.warn('Error playing raise hand sound:', error);

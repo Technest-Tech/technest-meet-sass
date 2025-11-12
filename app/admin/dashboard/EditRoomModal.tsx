@@ -15,6 +15,8 @@ interface Room {
   requireWaitingRoom?: boolean;
   allowGuestUnmute?: boolean;
   enablePrivateChat?: boolean;
+  passwordRequired?: boolean;
+  passwordFor?: 'HOST_ONLY' | 'HOST_AND_GUEST' | null;
   createdAt: string;
   hostLink: string;
   guestLink: string;
@@ -38,7 +40,10 @@ export default function EditRoomModal({ room, onClose, onRoomUpdated }: EditRoom
     canRecord: false,
     requireWaitingRoom: false,
     allowGuestUnmute: true,
-    enablePrivateChat: true
+    enablePrivateChat: true,
+    password: '',
+    passwordRequired: false,
+    passwordFor: 'HOST_ONLY' as 'HOST_ONLY' | 'HOST_AND_GUEST',
   });
   const [isLoading, setIsLoading] = useState(false);
 
@@ -49,7 +54,10 @@ export default function EditRoomModal({ room, onClose, onRoomUpdated }: EditRoom
       canRecord: room.canRecord,
       requireWaitingRoom: room.requireWaitingRoom ?? false,
       allowGuestUnmute: room.allowGuestUnmute ?? true,
-      enablePrivateChat: room.enablePrivateChat ?? true
+      enablePrivateChat: room.enablePrivateChat ?? true,
+      password: '',
+      passwordRequired: room.passwordRequired ?? false,
+      passwordFor: room.passwordFor ?? 'HOST_ONLY',
     });
   }, [room]);
 
@@ -70,7 +78,10 @@ export default function EditRoomModal({ room, onClose, onRoomUpdated }: EditRoom
         canRecord: formData.canRecord,
         requireWaitingRoom: formData.requireWaitingRoom,
         allowGuestUnmute: formData.allowGuestUnmute,
-        enablePrivateChat: formData.enablePrivateChat
+        enablePrivateChat: formData.enablePrivateChat,
+        password: formData.passwordRequired && formData.password ? formData.password : undefined,
+        passwordRequired: formData.passwordRequired,
+        passwordFor: formData.passwordRequired ? formData.passwordFor : undefined,
       };
       
       console.log('Updating room with data:', updateData);
@@ -269,6 +280,81 @@ export default function EditRoomModal({ room, onClose, onRoomUpdated }: EditRoom
                 )}
               />
             </button>
+          </div>
+
+          {/* Password Protection Section */}
+          <div className="space-y-4 pt-4 border-t border-gray-200">
+            <div className="flex items-center justify-between">
+              <div className="text-right">
+                <label htmlFor="passwordRequired" className="text-sm font-medium text-gray-700">
+                  يتطلب كلمة مرور
+                </label>
+                <p className="text-xs text-gray-500">إضافة حماية بكلمة مرور للغرفة</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleInputChange('passwordRequired', !formData.passwordRequired)}
+                className={cn(
+                  'relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                  formData.passwordRequired ? 'bg-blue-600' : 'bg-gray-200'
+                )}
+              >
+                <span
+                  className={cn(
+                    'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                    formData.passwordRequired ? 'translate-x-6' : 'translate-x-1'
+                  )}
+                />
+              </button>
+            </div>
+
+            {formData.passwordRequired && (
+              <div className="space-y-4 pr-6">
+                <div>
+                  <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2 text-right">
+                    كلمة المرور (اتركه فارغاً للاحتفاظ بالكلمة الحالية) *
+                  </label>
+                  <input
+                    id="password"
+                    type="password"
+                    value={formData.password}
+                    onChange={(e) => handleInputChange('password', e.target.value)}
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-colors text-right"
+                    placeholder="أدخل كلمة مرور جديدة أو اتركه فارغاً"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2 text-right">
+                    كلمة المرور مطلوبة لـ
+                  </label>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="passwordFor"
+                        value="HOST_ONLY"
+                        checked={formData.passwordFor === 'HOST_ONLY'}
+                        onChange={(e) => handleInputChange('passwordFor', 'HOST_ONLY')}
+                        className="w-4 h-4 text-primary-600 focus:ring-primary-500"
+                      />
+                      <span className="text-sm text-gray-700">المضيف فقط</span>
+                    </label>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="passwordFor"
+                        value="HOST_AND_GUEST"
+                        checked={formData.passwordFor === 'HOST_AND_GUEST'}
+                        onChange={(e) => handleInputChange('passwordFor', 'HOST_AND_GUEST')}
+                        className="w-4 h-4 text-primary-600 focus:ring-primary-500"
+                      />
+                      <span className="text-sm text-gray-700">المضيف والضيف</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Room Info - Simplified */}

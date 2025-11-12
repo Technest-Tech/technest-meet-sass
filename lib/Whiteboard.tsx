@@ -142,16 +142,50 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
         const data = JSON.parse(new TextDecoder().decode(payload));
         
         if (participant.identity === participantId) return; // Ignore own messages
+        
+        // Handle whiteboard_toggle even when whiteboard is closed
+        if (data.type === 'whiteboard_toggle') {
+          if (data.isHost && onHostToggle) {
+            onHostToggle(data.action === 'open');
+          }
+          return;
+        }
+        
+        // Only process other whiteboard data when whiteboard is open
+        if (!isOpen) return;
+        
+        // Only process whiteboard-related message types
+        const whiteboardTypes = [
+          'action_complete',
+          'action_update',
+          'clear',
+          'undo',
+          'redo',
+          'layer_add',
+          'layer_delete',
+          'layer_update',
+          'layer_reorder',
+          'background_update',
+          'history_sync',
+        ];
+        
+        if (!whiteboardTypes.includes(data.type)) {
+          return; // Ignore non-whiteboard data
+        }
 
         switch (data.type) {
           case 'action_complete':
             // Add completed action from another participant
-            setActions(prev => [...prev, data.action]);
+            if (data.action) {
+              setActions(prev => [...prev, data.action]);
+            }
             break;
 
           case 'action_update':
             // Real-time action update (shapes, strokes being drawn)
-            setCurrentAction(data.action);
+            if (data.action) {
+              setCurrentAction(data.action);
+            }
             break;
 
           case 'clear':
@@ -164,39 +198,51 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
 
           case 'undo':
             // Synchronized undo
-            setHistoryStep(data.historyStep);
-            setActions(data.actions);
-            setCurrentAction(null);
+            if (data.historyStep !== undefined && data.actions) {
+              setHistoryStep(data.historyStep);
+              setActions(data.actions);
+              setCurrentAction(null);
+            }
             break;
 
           case 'redo':
             // Synchronized redo
-            setHistoryStep(data.historyStep);
-            setActions(data.actions);
-            setCurrentAction(null);
+            if (data.historyStep !== undefined && data.actions) {
+              setHistoryStep(data.historyStep);
+              setActions(data.actions);
+              setCurrentAction(null);
+            }
             break;
 
           case 'layer_add':
             // Add layer
-            setLayers(prev => [...prev, data.layer]);
+            if (data.layer) {
+              setLayers(prev => [...prev, data.layer]);
+            }
             break;
 
           case 'layer_delete':
             // Delete layer
-            setLayers(prev => prev.filter(l => l.id !== data.layerId));
-            if (data.layerId === activeLayerId && data.newActiveLayerId) {
-              setActiveLayerId(data.newActiveLayerId);
+            if (data.layerId) {
+              setLayers(prev => prev.filter(l => l.id !== data.layerId));
+              if (data.layerId === activeLayerId && data.newActiveLayerId) {
+                setActiveLayerId(data.newActiveLayerId);
+              }
             }
             break;
 
           case 'layer_update':
             // Update layer properties
-            setLayers(prev => prev.map(l => l.id === data.layer.id ? data.layer : l));
+            if (data.layer) {
+              setLayers(prev => prev.map(l => l.id === data.layer.id ? data.layer : l));
+            }
             break;
 
           case 'layer_reorder':
             // Reorder layers
-            setLayers(data.layers);
+            if (data.layers && Array.isArray(data.layers)) {
+              setLayers(data.layers);
+            }
             break;
 
           case 'active_layer_change':
@@ -204,29 +250,25 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
             // setActiveLayerId(data.layerId);
             break;
 
-          case 'whiteboard_toggle':
-            // Host controlling whiteboard state
-            if (data.isHost && onHostToggle) {
-              onHostToggle(data.action === 'open');
-            }
-            break;
-
           case 'background_update':
             // Background settings update
-            setBackgroundColor(data.backgroundColor);
-            setShowGrid(data.showGrid);
-            setGridSize(data.gridSize);
+            if (data.backgroundColor) setBackgroundColor(data.backgroundColor);
+            if (data.showGrid !== undefined) setShowGrid(data.showGrid);
+            if (data.gridSize !== undefined) setGridSize(data.gridSize);
             break;
 
           case 'history_sync':
             // Full history synchronization
-            setHistory(data.history);
-            setHistoryStep(data.historyStep);
-            setActions(data.actions);
+            if (data.history && data.historyStep !== undefined && data.actions) {
+              setHistory(data.history);
+              setHistoryStep(data.historyStep);
+              setActions(data.actions);
+            }
             break;
         }
       } catch (error) {
         console.error('Error parsing whiteboard data:', error);
+        // Don't crash - just log the error
       }
     };
 
@@ -235,7 +277,7 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
     return () => {
       room.off('dataReceived', handleDataReceived);
     };
-  }, [room, participantId, activeLayerId, onHostToggle]);
+  }, [room, participantId, activeLayerId, onHostToggle, isOpen]);
 
   // Initialize canvas
   useEffect(() => {

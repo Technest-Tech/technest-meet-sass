@@ -22,6 +22,7 @@ export function ReactionsButton({
   showProBadge = false 
 }: ReactionsButtonProps) {
   const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
 
   // LiveKit hooks
@@ -114,11 +115,13 @@ export function ReactionsButton({
             if (!isPickerOpen) {
               e.currentTarget.style.backgroundColor = 'rgba(75, 85, 99, 0.9)';
             }
+            setIsHovered(true);
           }}
           onMouseLeave={(e) => {
             if (!isPickerOpen) {
               e.currentTarget.style.backgroundColor = 'rgba(107, 114, 128, 0.9)';
             }
+            setIsHovered(false);
           }}
           title="Reactions"
         >
@@ -144,8 +147,30 @@ export function ReactionsButton({
         </span>
       )}
 
+      {/* Tooltip on hover */}
+      {iconOnly && isHovered && !disabled && (
+        <div style={{
+          position: 'absolute',
+          bottom: 'calc(100% + 8px)',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          padding: '6px 12px',
+          backgroundColor: '#1f2937',
+          color: 'white',
+          fontSize: '12px',
+          fontWeight: '500',
+          borderRadius: '6px',
+          whiteSpace: 'nowrap',
+          zIndex: 9999,
+          pointerEvents: 'none',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+        }}>
+          Reactions
+        </div>
+      )}
+
       {/* Tooltip on hover for disabled */}
-      {disabled && (
+      {disabled && isHovered && (
         <div style={{
           position: 'absolute',
           bottom: 'calc(100% + 8px)',
@@ -157,12 +182,9 @@ export function ReactionsButton({
           fontSize: '12px',
           borderRadius: '8px',
           whiteSpace: 'nowrap',
-          zIndex: 50,
+          zIndex: 9999,
           pointerEvents: 'none',
-          opacity: 0,
-          transition: 'opacity 0.2s'
-        }}
-        className="group-hover:opacity-100">
+        }}>
           Upgrade required for this feature
         </div>
       )}

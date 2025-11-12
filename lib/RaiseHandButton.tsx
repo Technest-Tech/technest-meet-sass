@@ -19,6 +19,7 @@ export function RaiseHandButton({
   showProBadge = false 
 }: RaiseHandButtonProps) {
   const [isRaised, setIsRaised] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
   const room = useRoomContext();
   const { localParticipant } = useLocalParticipant();
 
@@ -96,6 +97,7 @@ export function RaiseHandButton({
             } else {
               e.currentTarget.style.transform = 'scale(1.05)';
             }
+            setIsHovered(true);
           }}
           onMouseLeave={(e) => {
             if (!isRaised) {
@@ -105,6 +107,7 @@ export function RaiseHandButton({
             } else {
               e.currentTarget.style.transform = 'scale(1.02)';
             }
+            setIsHovered(false);
           }}
           title={isRaised ? 'Lower Hand' : 'Raise Hand'}
         >
@@ -165,8 +168,30 @@ export function RaiseHandButton({
         </span>
       )}
 
+      {/* Tooltip on hover */}
+      {iconOnly && isHovered && !disabled && (
+        <div style={{
+          position: 'absolute',
+          bottom: 'calc(100% + 8px)',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          padding: '6px 12px',
+          backgroundColor: '#1f2937',
+          color: 'white',
+          fontSize: '12px',
+          fontWeight: '500',
+          borderRadius: '6px',
+          whiteSpace: 'nowrap',
+          zIndex: 9999,
+          pointerEvents: 'none',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+        }}>
+          {isRaised ? 'Lower Hand' : 'Raise Hand'}
+        </div>
+      )}
+
       {/* Tooltip on hover for disabled */}
-      {disabled && (
+      {disabled && isHovered && (
         <div style={{
           position: 'absolute',
           bottom: 'calc(100% + 8px)',
@@ -178,12 +203,9 @@ export function RaiseHandButton({
           fontSize: '12px',
           borderRadius: '8px',
           whiteSpace: 'nowrap',
-          zIndex: 50,
+          zIndex: 9999,
           pointerEvents: 'none',
-          opacity: 0,
-          transition: 'opacity 0.2s'
-        }}
-        className="group-hover:opacity-100">
+        }}>
           Upgrade required for this feature
         </div>
       )}

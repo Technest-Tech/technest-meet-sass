@@ -240,6 +240,13 @@
   border-bottom-left-radius: 5px;
 }
 
+/* Private message styling - override default colors */
+.messageContent[style*="background: linear-gradient"] {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%) !important;
+  color: #1f2937 !important;
+  border: 1px solid #fbbf24 !important;
+}
+
 /* Input Container */
 .inputContainer {
   display: flex;

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireClient } from '@/lib/auth/server-auth';
 import { prisma } from '@/lib/database';
-import { generateRoomLink } from '@/lib/database';
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,32 +22,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get client to generate the link
-    const client = await prisma.client.findUnique({
-      where: { id: session.clientId },
-    });
-
-    if (!client) {
-      return NextResponse.json(
-        { error: 'العميل غير موجود' },
-        { status: 404 }
-      );
-    }
-
-    // Generate the room link that would be used
-    const roomLink = generateRoomLink(client.name, roomName);
-
-    // Check if a room with this link already exists
-    const existingRoom = await prisma.room.findFirst({
-      where: {
-        clientId: session.clientId,
-        OR: [{ hostLink: roomLink }, { guestLink: roomLink }],
-      },
-    });
-
+    // Since room links are now randomly generated (7 words), we can't check by name
+    // Just validate that the name is provided and return available
+    // The actual link will be generated during room creation
     return NextResponse.json({
-      available: !existingRoom,
-      roomLink,
+      available: true,
+      roomLink: null, // Link will be generated during creation
     });
   } catch (error) {
     console.error('Check room name error:', error);

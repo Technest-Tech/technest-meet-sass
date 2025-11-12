@@ -4,11 +4,18 @@ import { ConnectionDetails } from '@/lib/types';
 import { AccessToken, AccessTokenOptions, VideoGrant, RoomServiceClient } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/database';
+import { checkTrialExpiration, isSubscriptionActive } from '@/lib/utils/trial-check';
 
 const API_KEY = process.env.LIVEKIT_API_KEY || 'devkey';
 const API_SECRET = process.env.LIVEKIT_API_SECRET || 'secret';
-const LIVEKIT_URL = process.env.LIVEKIT_URL || 'ws://localhost:7880';
-const PUBLIC_LIVEKIT_URL = process.env.NEXT_PUBLIC_LIVEKIT_URL || 'ws://localhost:7880';
+// For local development, use local IP instead of localhost for mobile devices
+// Check if we're in development mode (using devkey or NODE_ENV)
+const isDevelopment = (process.env.NODE_ENV === 'development' || process.env.NODE_ENV !== 'production') && API_KEY === 'devkey';
+const defaultLivekitUrl = isDevelopment 
+  ? 'ws://192.168.1.13:7880' 
+  : 'ws://localhost:7880';
+const LIVEKIT_URL = process.env.LIVEKIT_URL || defaultLivekitUrl;
+const PUBLIC_LIVEKIT_URL = process.env.NEXT_PUBLIC_LIVEKIT_URL || defaultLivekitUrl;
 
 const COOKIE_KEY = 'random-participant-postfix';
 
@@ -95,7 +102,18 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    if (!room.client.subscription || room.client.subscription.status !== 'ACTIVE') {
+    if (!room.client.subscription) {
+      return NextResponse.json(
+        { error: 'اشتراك العميل غير موجود' },
+        { status: 403 }
+      );
+    }
+
+    // Check and update trial expiration if needed
+    const subscription = await checkTrialExpiration(room.client.subscription);
+
+    // Check if subscription is active (ACTIVE or valid TRIAL)
+    if (!isSubscriptionActive(subscription)) {
       return NextResponse.json(
         { error: 'اشتراك العميل غير نشط. يرجى التواصل مع المسؤول' },
         { status: 403 }
