@@ -335,7 +335,16 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
             </button>
           <button 
             className={styles.closeButton}
-            onClick={onClose}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+            }}
             title="Close Chat"
           >
             ✕

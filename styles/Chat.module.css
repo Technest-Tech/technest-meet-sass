@@ -7,7 +7,7 @@
   bottom: 0 !important;
   background: rgba(0, 0, 0, 0.8);
   backdrop-filter: blur(10px);
-  z-index: 2000 !important;
+  z-index: 10000 !important; /* Higher than StudentMonitorPiP (9000) */
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -111,24 +111,39 @@
 }
 
 .closeButton {
-  background: none;
-  border: none;
-  color: #ffffff;
-  font-size: 20px;
+  background: rgba(239, 68, 68, 0.2);
+  border: 2px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  font-size: 18px;
+  font-weight: bold;
   cursor: pointer;
-  padding: 5px;
-  border-radius: 50%;
-  width: 30px;
-  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+  z-index: 10;
+  position: relative;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .closeButton:hover {
-  background: rgba(255, 255, 255, 0.1);
-  transform: scale(1.1);
+  background: rgba(239, 68, 68, 0.9);
+  border-color: rgba(239, 68, 68, 1);
+  color: white;
+  transform: scale(1.1) rotate(90deg);
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+}
+
+.closeButton:active {
+  transform: scale(0.95);
 }
 
 /* Messages Container */
@@ -339,6 +354,20 @@
     min-height: 0 !important;
     border-radius: 0 !important;
     margin: 0 !important;
+    /* Ensure chat panel is above control bar and StudentMonitor */
+    position: relative !important;
+    z-index: 10001 !important;
+  }
+  
+  .closeButton {
+    width: 44px !important;
+    height: 44px !important;
+    min-width: 44px !important;
+    min-height: 44px !important;
+    font-size: 20px !important;
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
   }
   
   .chatHeader {
@@ -365,8 +394,8 @@
     /* Ensure input is always visible on mobile */
     position: relative;
     z-index: 10;
-    /* Add safe area support for mobile devices */
-    padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
+    /* Add padding to account for control bar (60px) + safe area */
+    padding-bottom: max(72px, calc(60px + env(safe-area-inset-bottom, 12px)));
     border-radius: 0;
     flex-direction: column;
     flex-shrink: 0;
@@ -403,10 +432,13 @@
   
   .iconButton,
   .closeButton {
-    min-width: 44px;
-    min-height: 44px;
-    width: 44px;
-    height: 44px;
+    min-width: 44px !important;
+    min-height: 44px !important;
+    width: 44px !important;
+    height: 44px !important;
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
   }
   
   /* Recipient selector mobile styles */
@@ -467,7 +499,8 @@
   .inputContainer {
     padding: 10px 12px;
     gap: 8px;
-    padding-bottom: max(10px, env(safe-area-inset-bottom, 10px));
+    /* Add padding to account for control bar (60px) + safe area */
+    padding-bottom: max(70px, calc(60px + env(safe-area-inset-bottom, 10px)));
     border-radius: 0;
   }
   
@@ -558,7 +591,8 @@
   .inputContainer {
     padding: 8px 10px;
     gap: 6px;
-    padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
+    /* Add padding to account for control bar (60px) + safe area */
+    padding-bottom: max(68px, calc(60px + env(safe-area-inset-bottom, 8px)));
     border-radius: 0;
   }
   
@@ -591,10 +625,13 @@
   
   .iconButton,
   .closeButton {
-    min-width: 40px;
-    min-height: 40px;
-    width: 40px;
-    height: 40px;
+    min-width: 40px !important;
+    min-height: 40px !important;
+    width: 40px !important;
+    height: 40px !important;
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
   }
 }
 

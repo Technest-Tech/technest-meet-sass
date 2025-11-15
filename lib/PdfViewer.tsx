@@ -199,9 +199,27 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
   // Render current page
   useEffect(() => {
     if (pdfDocument && pdfCanvasRef.current) {
-      renderPage(currentPage);
+      // Small delay to ensure container is sized correctly on mobile
+      const timer = setTimeout(() => {
+        renderPage(currentPage);
+      }, 100);
+      return () => clearTimeout(timer);
     }
   }, [pdfDocument, currentPage, zoom]);
+  
+  // Re-render on window resize for mobile orientation changes
+  useEffect(() => {
+    if (!pdfDocument || !isOpen) return;
+    
+    const handleResize = () => {
+      if (pdfDocument && pdfCanvasRef.current) {
+        renderPage(currentPage);
+      }
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [pdfDocument, currentPage, isOpen]);
 
   // Redraw annotations when page or strokes change
   useEffect(() => {
@@ -213,7 +231,18 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
     
     try {
       const page = await pdfDocument.getPage(pageNum);
-      const viewport = page.getViewport({ scale: zoom });
+      
+      // Calculate responsive scale for mobile
+      let scale = zoom;
+      if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+        // On mobile, adjust scale to fit screen width
+        const containerWidth = canvasContainerRef.current?.clientWidth || window.innerWidth - 20;
+        const baseViewport = page.getViewport({ scale: 1.0 });
+        const maxScale = Math.min(zoom, (containerWidth - 20) / baseViewport.width);
+        scale = Math.max(0.5, maxScale);
+      }
+      
+      const viewport = page.getViewport({ scale });
       
       const canvas = pdfCanvasRef.current;
       const context = canvas.getContext('2d');
@@ -306,20 +335,36 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
     }
   };
 
-  const getMousePos = (e: React.MouseEvent<HTMLCanvasElement>): DrawingPoint => {
+  const getMousePos = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>): DrawingPoint => {
     if (!annotationCanvasRef.current) return { x: 0, y: 0 };
     
     const rect = annotationCanvasRef.current.getBoundingClientRect();
     const scaleX = annotationCanvasRef.current.width / rect.width;
     const scaleY = annotationCanvasRef.current.height / rect.height;
     
+    let clientX: number;
+    let clientY: number;
+    
+    if ('touches' in e && e.touches.length > 0) {
+      // Touch event
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else if ('clientX' in e) {
+      // Mouse event
+      clientX = e.clientX;
+      clientY = e.clientY;
+    } else {
+      return { x: 0, y: 0 };
+    }
+    
     return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY,
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
     };
   };
 
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
     setIsDrawing(true);
     const pos = getMousePos(e);
     
@@ -334,7 +379,8 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
     setCurrentStroke(newStroke);
   };
 
-  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
     if (!isDrawing || !currentStroke) return;
     
     const pos = getMousePos(e);
@@ -347,7 +393,10 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
     redrawAnnotations();
   };
 
-  const stopDrawing = async () => {
+  const stopDrawing = async (e?: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (e) {
+      e.preventDefault();
+    }
     if (!currentStroke || !localParticipant) return;
     
     setIsDrawing(false);
@@ -455,7 +504,22 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
         {/* Header */}
         <div className={styles.header}>
           <h3 className={styles.title}>📄 {file.originalName}</h3>
-          <button className={styles.closeButton} onClick={onClose}>✕</button>
+          <button 
+            className={styles.closeButton} 
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+            }}
+            title="Close"
+          >
+            ✕
+          </button>
         </div>
 
         {/* Toolbar */}
@@ -464,6 +528,12 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
           <div className={styles.toolGroup}>
             <button
               onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                if (currentPage > 1) {
+                  handlePageChange(Math.max(1, currentPage - 1));
+                }
+              }}
               disabled={currentPage <= 1}
               className={styles.toolButton}
               title="Previous page"
@@ -475,6 +545,12 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
             </span>
             <button
               onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                if (currentPage < totalPages) {
+                  handlePageChange(Math.min(totalPages, currentPage + 1));
+                }
+              }}
               disabled={currentPage >= totalPages}
               className={styles.toolButton}
               title="Next page"
@@ -575,6 +651,10 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
                 onMouseMove={draw}
                 onMouseUp={stopDrawing}
                 onMouseLeave={stopDrawing}
+                onTouchStart={startDrawing}
+                onTouchMove={draw}
+                onTouchEnd={stopDrawing}
+                style={{ touchAction: 'none' }}
               />
             </div>
           )}
