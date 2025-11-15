@@ -27,6 +27,7 @@ import { ParticipantManager } from '@/lib/ParticipantManager';
 import { RoomFile } from '@/lib/types';
 import { logger } from '@/lib/utils/logger';
 import { MeetingTimer } from '@/lib/MeetingTimer';
+import { RoomLogo } from '@/lib/components/RoomLogo';
 import {
   formatChatMessageLinks,
   LocalUserChoices,
@@ -2158,46 +2159,98 @@ The meeting has been terminated for all participants and the room has been delet
   return (
     <div className="lk-room-container" dir="ltr">
       <RoomContext.Provider value={room}>
-        {/* Show participant type indicator */}
+        {/* Show participant type indicator - Positioned below timer to avoid overlap */}
         {props.participantType && (
-          <div style={{
+          <div 
+            className="participant-type-indicator"
+            style={{
+              position: 'fixed',
+              top: '70px',
+              right: '20px',
+              zIndex: 1000,
+              padding: '8px 16px',
+              backgroundColor: props.participantType === 'host' ? 'rgba(220, 38, 38, 0.9)' : 'rgba(59, 130, 246, 0.9)',
+              color: 'white',
+              borderRadius: '20px',
+              fontSize: '14px',
+              fontWeight: '500',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255, 255, 255, 0.2)'
+            }}
+          >
+            {props.participantType === 'host' ? '👑 Host' : '👤 Guest'}
+          </div>
+        )}
+        <style jsx global>{`
+          /* Responsive adjustments for participant type indicator */
+          @media (max-width: 768px) {
+            .participant-type-indicator {
+              top: 60px !important;
+              right: 10px !important;
+              font-size: 12px !important;
+              padding: 6px 12px !important;
+            }
+          }
+          
+          @media (max-width: 480px) {
+            .participant-type-indicator {
+              top: 55px !important;
+              right: 8px !important;
+              font-size: 11px !important;
+              padding: 5px 10px !important;
+            }
+          }
+        `}</style>
+        
+        {/* Meeting Timer - Shows elapsed time in center top */}
+        <MeetingTimer />
+        
+        {/* Show room name indicator - Positioned below timer to avoid overlap */}
+        <div 
+          className="room-name-indicator"
+          style={{
             position: 'fixed',
-            top: '20px',
-            right: '20px',
+            top: '70px',
+            left: '20px',
             zIndex: 1000,
             padding: '8px 16px',
-            backgroundColor: props.participantType === 'host' ? 'rgba(220, 38, 38, 0.9)' : 'rgba(59, 130, 246, 0.9)',
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
             color: 'white',
             borderRadius: '20px',
             fontSize: '14px',
             fontWeight: '500',
             backdropFilter: 'blur(10px)',
-            border: '1px solid rgba(255, 255, 255, 0.2)'
-          }}>
-            {props.participantType === 'host' ? '👑 Host' : '👤 Guest'}
-          </div>
-        )}
-        
-        {/* Show room name indicator */}
-        <div style={{
-          position: 'fixed',
-          top: '20px',
-          left: '20px',
-          zIndex: 1000,
-          padding: '8px 16px',
-          backgroundColor: 'rgba(0, 0, 0, 0.7)',
-          color: 'white',
-          borderRadius: '20px',
-          fontSize: '14px',
-          fontWeight: '500',
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255, 255, 255, 0.2)'
-        }}>
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            maxWidth: 'calc(50% - 40px)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}
+        >
           🏠 {props.connectionDetails?.roomName || 'Meeting'}
         </div>
-        
-        {/* Meeting Timer - Shows elapsed time in center top */}
-        <MeetingTimer />
+        <style jsx global>{`
+          /* Responsive adjustments for room name indicator */
+          @media (max-width: 768px) {
+            .room-name-indicator {
+              top: 60px !important;
+              left: 10px !important;
+              max-width: calc(50% - 20px) !important;
+              font-size: 12px !important;
+              padding: 6px 12px !important;
+            }
+          }
+          
+          @media (max-width: 480px) {
+            .room-name-indicator {
+              top: 55px !important;
+              left: 8px !important;
+              max-width: calc(50% - 16px) !important;
+              font-size: 11px !important;
+              padding: 5px 10px !important;
+            }
+          }
+        `}</style>
         
         <KeyboardShortcuts />
         <VideoConference
@@ -2405,6 +2458,9 @@ The meeting has been terminated for all participants and the room has been delet
             roomName={props.connectionDetails?.roomName || props.roomName}
           />
         )}
+        
+        {/* Room Logo - Bottom left corner */}
+        <RoomLogo />
       </RoomContext.Provider>
     </div>
   );
