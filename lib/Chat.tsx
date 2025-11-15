@@ -46,6 +46,21 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
     return () => setMounted(false);
   }, []);
 
+  // Add/remove class to body when chat is open/closed to hide control bar on mobile
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    
+    if (isOpen) {
+      document.body.classList.add('chat-open');
+    } else {
+      document.body.classList.remove('chat-open');
+    }
+    
+    return () => {
+      document.body.classList.remove('chat-open');
+    };
+  }, [isOpen]);
+
   // Auto-scroll to bottom when new messages arrive
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

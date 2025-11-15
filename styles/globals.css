@@ -768,6 +768,18 @@ main:not(:has(.lk-room-container)) {
   }
 }
 
+/* Hide control bar when chat is open - Desktop and Mobile */
+body.chat-open .lk-control-bar,
+body.chat-open .mobile-control-bar,
+body.chat-open .custom-control-bar,
+body.chat-open .custom-action-buttons-row {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  transform: translateY(100%) !important;
+  transition: transform 0.3s ease, opacity 0.3s ease !important;
+}
+
 /* Ensure LiveKit control bar is visible on mobile */
 @media (max-width: 768px) {
   .lk-control-bar {
@@ -788,6 +800,7 @@ main:not(:has(.lk-room-container)) {
     align-items: center !important;
     width: 100vw !important;
     box-sizing: border-box !important;
+    transition: transform 0.3s ease, opacity 0.3s ease !important;
   }
   
   /* Ensure the control bar is not hidden by other elements */
@@ -1313,6 +1326,16 @@ button[data-lk-source="screen_share"] {
     left: -9999px !important;
   }
   
+  /* Hide control bar when chat is open */
+  body.chat-open .mobile-control-bar,
+  body.chat-open .custom-control-bar,
+  body.chat-open .custom-action-buttons-row {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    transform: translateY(100%) !important;
+  }
+  
   /* Hide divider on mobile grid layout */
   .control-divider {
     display: none !important;
@@ -1385,6 +1408,16 @@ button[data-lk-source="screen_share"] {
     left: -9999px !important;
   }
   
+  /* Hide control bar when chat is open */
+  body.chat-open .mobile-control-bar,
+  body.chat-open .custom-control-bar,
+  body.chat-open .custom-action-buttons-row {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    transform: translateY(100%) !important;
+  }
+  
   /* Hide divider on mobile */
   .control-divider {
     display: none !important;
@@ -1450,6 +1483,16 @@ button[data-lk-source="screen_share"] {
 
 /* Extra small screens (390px and below) */
 @media (max-width: 390px) {
+  /* Hide control bar when chat is open */
+  body.chat-open .mobile-control-bar,
+  body.chat-open .custom-control-bar,
+  body.chat-open .custom-action-buttons-row {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    transform: translateY(100%) !important;
+  }
+  
   /* Hide divider on extra small screens */
   .control-divider {
     display: none !important;
