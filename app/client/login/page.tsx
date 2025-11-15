@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import FormInput from '@/lib/components/FormInput';
 import Button from '@/lib/components/Button';
-import { Mail, Lock, Video, MessageCircle, HelpCircle } from 'lucide-react';
+import { Mail, Lock, Video, MessageCircle, HelpCircle, Info } from 'lucide-react';
 
 export default function ClientLogin() {
   const [email, setEmail] = useState('');

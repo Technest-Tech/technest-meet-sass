@@ -16,6 +16,7 @@ import { FloatingReactions } from '@/lib/FloatingReactions';
 import { StudentMonitorPiP } from '@/lib/StudentMonitorPiP';
 import { logger } from '@/lib/utils/logger';
 import { MeetingTimer } from '@/lib/MeetingTimer';
+import { RoomLogo } from '@/lib/components/RoomLogo';
 
 interface VideoConferenceClientImplProps {
   liveKitUrl: string;
@@ -824,6 +825,9 @@ Are you sure you want to end the meeting for everyone?`;
         
         {/* Recording Indicator */}
         <RecordingIndicator />
+        
+        {/* Room Logo - Bottom left corner */}
+        <RoomLogo />
       </RoomContext.Provider>
     </div>
   );

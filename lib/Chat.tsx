@@ -420,12 +420,16 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
         </div>
 
         {/* Enhanced Recipient Selector */}
-        <div style={{
-          padding: '12px 16px',
-          backgroundColor: 'rgba(0, 0, 0, 0.2)',
-          borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.1)'
-        }}>
+        <div 
+          className="recipient-selector-container"
+          style={{
+            padding: '12px 16px',
+            backgroundColor: 'rgba(0, 0, 0, 0.2)',
+            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+            flexShrink: 0
+          }}
+        >
           <div style={{ 
             display: 'flex', 
             flexDirection: 'column',
@@ -612,46 +616,56 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
             display: 'flex', 
             gap: '10px',
             alignItems: 'center',
-            width: '100%'
+            width: '100%',
+            flexWrap: 'wrap'
           }}>
-            <input
-              ref={inputRef}
-              type="text"
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder={
-                isConnected 
-                  ? (recipientType === 'all' 
-                      ? "Type a message to everyone..." 
-                      : recipientType === 'host'
-                      ? "Type a private message to host..."
-                      : `Type a private message to ${selectedRecipient ? getCleanName(selectedRecipient) : 'participant'}...`)
-                  : "Connecting..."
-              }
-              disabled={!isConnected}
-              className={styles.messageInput}
-              maxLength={500}
-              style={{ flex: 1 }}
-            />
-            {recipientType !== 'all' && (
-              <div style={{
-                padding: '6px 10px',
-                backgroundColor: 'rgba(251, 191, 36, 0.2)',
-                border: '1px solid #fbbf24',
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                fontSize: '11px',
-                color: '#fbbf24',
-                fontWeight: '600',
-                whiteSpace: 'nowrap'
-              }}>
-                <Lock size={12} />
-                Private
-              </div>
-            )}
+            <div style={{ 
+              display: 'flex', 
+              gap: '8px',
+              alignItems: 'center',
+              width: '100%',
+              flex: '1 1 100%'
+            }}>
+              <input
+                ref={inputRef}
+                type="text"
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder={
+                  isConnected 
+                    ? (recipientType === 'all' 
+                        ? "Type a message..." 
+                        : recipientType === 'host'
+                        ? "Private to host..."
+                        : `Private to ${selectedRecipient ? getCleanName(selectedRecipient) : 'participant'}...`)
+                    : "Connecting..."
+                }
+                disabled={!isConnected}
+                className={styles.messageInput}
+                maxLength={500}
+                style={{ flex: 1, minWidth: 0 }}
+              />
+              {recipientType !== 'all' && (
+                <div className="mobile-private-indicator" style={{
+                  padding: '6px 10px',
+                  backgroundColor: 'rgba(251, 191, 36, 0.2)',
+                  border: '1px solid #fbbf24',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontSize: '11px',
+                  color: '#fbbf24',
+                  fontWeight: '600',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0
+                }}>
+                  <Lock size={12} />
+                  <span className="mobile-private-text">Private</span>
+                </div>
+              )}
+            </div>
             <button
               onClick={sendMessage}
               disabled={!newMessage.trim() || !isConnected}
@@ -679,6 +693,47 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
             </div>
           )}
         </div>
+        <style jsx global>{`
+          /* Mobile-specific styles for chat input */
+          @media (max-width: 768px) {
+            .mobile-private-indicator {
+              padding: 6px 8px !important;
+            }
+            
+            .mobile-private-text {
+              display: none;
+            }
+            
+            .inputContainer {
+              flex-direction: column !important;
+            }
+            
+            .inputContainer > div:first-child {
+              flex-direction: column !important;
+              gap: 8px !important;
+            }
+            
+            .inputContainer > div:first-child > div:first-child {
+              width: 100% !important;
+            }
+            
+            .sendButton {
+              width: 100% !important;
+              border-radius: 24px !important;
+              height: 48px !important;
+            }
+          }
+          
+          @media (max-width: 480px) {
+            .mobile-private-indicator {
+              padding: 5px 6px !important;
+            }
+            
+            .inputContainer > div:first-child {
+              gap: 6px !important;
+            }
+          }
+        `}</style>
       </div>
     </div>
   );
