@@ -378,10 +378,15 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
   };
 
   return (
-    <div ref={dropdownRef} className="more-controls-container" style={{ position: 'relative' }}>
+    <div 
+      ref={dropdownRef} 
+      className={`more-controls-container ${isDropdownOpen ? 'dropdown-open' : ''}`}
+      style={{ position: 'relative', zIndex: isDropdownOpen ? 100000 : 'auto' }}
+    >
       {/* More Button */}
       <button
         className="more-controls-button"
+        data-dropdown-button="true"
         onClick={toggleDropdown}
         style={{
           padding: iconOnly ? '12px' : '12px 16px',
@@ -409,7 +414,9 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
             ? '0 10px 25px rgba(220, 38, 38, 0.35)'
             : isDropdownOpen
               ? '0 4px 12px rgba(0, 0, 0, 0.15)'
-              : 'none'
+              : 'none',
+          position: 'relative',
+          zIndex: isDropdownOpen ? 100001 : 'auto'
         }}
         onMouseEnter={(e) => {
           if (!isDropdownOpen) {
@@ -458,6 +465,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
       {/* Dropdown Menu */}
       <div
         className="more-controls-dropdown"
+        data-dropdown-menu="true"
         dir="ltr"
         style={{
           position: 'absolute',
@@ -471,7 +479,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
           maxWidth: 'calc(100vw - 40px)',
           boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.1)',
           border: '1px solid rgba(255, 255, 255, 0.1)',
-          zIndex: 99999,
+          zIndex: 100000,
           display: isDropdownOpen ? 'flex' : 'none',
           flexDirection: 'column',
           gap: '8px'
@@ -479,7 +487,20 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
       >
           {/* Close button */}
           <button
-            onClick={closeDropdown}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              closeDropdown();
+            }}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              closeDropdown();
+            }}
             style={{
               position: 'absolute',
               top: '8px',
@@ -488,13 +509,18 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
               border: 'none',
               cursor: 'pointer',
               color: 'rgba(255, 255, 255, 0.7)',
-              width: '24px',
-              height: '24px',
+              width: '44px',
+              height: '44px',
+              minWidth: '44px',
+              minHeight: '44px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              borderRadius: '6px',
-              transition: 'all 0.2s ease'
+              borderRadius: '8px',
+              transition: 'all 0.2s ease',
+              zIndex: 10001,
+              touchAction: 'manipulation',
+              WebkitTapHighlightColor: 'transparent'
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
@@ -504,8 +530,9 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
               e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
               e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)';
             }}
+            title="Close"
           >
-            <X size={14} />
+            <X size={20} />
           </button>
 
           {/* Dropdown Items */}
@@ -710,7 +737,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
             <button
               onClick={() => {
                 if (roomFeatures?.enableVirtualBackground ?? false) {
-                  toast.info('Virtual Background - Coming Soon');
+                  setIsSettingsOpen(true);
                   closeDropdown();
                 }
               }}
@@ -927,6 +954,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
       {/* Settings Menu Overlay - Rendered via portal */}
       {mounted && isSettingsOpen && createPortal(
         <div
+          className="settings-modal-overlay"
           style={{
             position: 'fixed',
             top: 0,
@@ -945,6 +973,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
           onClick={() => setIsSettingsOpen(false)}
         >
           <div
+            className="settings-modal-content"
             style={{
               background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
               borderRadius: '20px',
@@ -982,20 +1011,37 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
                 ⚙️ Settings
               </h2>
               <button
-                onClick={() => setIsSettingsOpen(false)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsSettingsOpen(false);
+                }}
+                onTouchStart={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsSettingsOpen(false);
+                }}
                 style={{
                   background: 'rgba(255, 255, 255, 0.1)',
                   border: 'none',
                   fontSize: '20px',
                   cursor: 'pointer',
                   color: 'white',
-                  width: '32px',
-                  height: '32px',
+                  width: '44px',
+                  height: '44px',
+                  minWidth: '44px',
+                  minHeight: '44px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   borderRadius: '8px',
-                  transition: 'all 0.2s ease'
+                  transition: 'all 0.2s ease',
+                  touchAction: 'manipulation',
+                  WebkitTapHighlightColor: 'transparent'
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
@@ -1007,7 +1053,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
                 }}
                 title="Close Settings"
               >
-                ✕
+                <X size={20} />
               </button>
             </div>
 
@@ -1545,6 +1591,99 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
+        }
+      `}</style>
+      
+      <style jsx global>{`
+        /* Settings Modal Mobile Responsive */
+        @media (max-width: 768px) {
+          .settings-modal-overlay {
+            padding: 0 !important;
+            align-items: flex-start !important;
+          }
+          
+          .settings-modal-content {
+            width: 100vw !important;
+            height: 100vh !important;
+            max-width: 100vw !important;
+            min-width: 0 !important;
+            max-height: 100vh !important;
+            min-height: 0 !important;
+            border-radius: 0 !important;
+            margin: 0 !important;
+          }
+          
+          .settings-modal-content > div:first-child {
+            padding: 16px 20px !important;
+          }
+          
+          .settings-modal-content > div:last-child {
+            padding: 16px 20px !important;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .settings-modal-content > div:first-child {
+            padding: 12px 16px !important;
+          }
+          
+          .settings-modal-content > div:last-child {
+            padding: 12px 16px !important;
+          }
+          
+          .settings-modal-content h2 {
+            font-size: 18px !important;
+          }
+        }
+        
+        /* More Controls Dropdown Mobile */
+        @media (max-width: 768px) {
+          .more-controls-container {
+            z-index: 100000 !important;
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            position: relative !important;
+          }
+          
+          .more-controls-button {
+            z-index: 100001 !important;
+            position: relative !important;
+            display: flex !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            pointer-events: auto !important;
+          }
+          
+          /* Ensure button stays visible when dropdown is open */
+          .more-controls-container.dropdown-open .more-controls-button,
+          .more-controls-container:has([data-dropdown-menu][style*="display: flex"]) .more-controls-button,
+          .more-controls-container[style*="zIndex: 100000"] .more-controls-button {
+            display: flex !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            z-index: 100001 !important;
+          }
+          
+          /* Ensure container stays visible when dropdown is open */
+          .more-controls-container.dropdown-open {
+            display: block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            z-index: 100000 !important;
+          }
+          
+          [data-dropdown-menu] {
+            width: calc(100vw - 20px) !important;
+            max-width: calc(100vw - 20px) !important;
+            bottom: 80px !important;
+            left: 10px !important;
+            right: 10px !important;
+            transform: none !important;
+            z-index: 100000 !important;
+          }
         }
       `}</style>
     </div>

@@ -985,7 +985,10 @@ main:not(:has(.lk-room-container)) {
   .more-controls-button {
     pointer-events: auto !important;
     position: relative !important;
-    z-index: 99999 !important;
+    z-index: 100000 !important;
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
   }
   
   /* Ensure More button appears above all video elements */
@@ -1001,11 +1004,24 @@ main:not(:has(.lk-room-container)) {
   
   /* Ensure More button appears above any stacked user cards */
   .more-controls-container {
-    z-index: 99999 !important;
-    position: fixed !important;
-    top: auto !important;
-    bottom: 140px !important;
-    right: 20px !important;
+    z-index: 100000 !important;
+    position: relative !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+  
+  /* Ensure More button is always visible when dropdown is open */
+  .more-controls-container[style*="zIndex: 100000"],
+  .more-controls-container:has([data-dropdown-menu][style*="display: flex"]) {
+    z-index: 100000 !important;
+  }
+  
+  .more-controls-button {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
   }
   
   /* Ensure device selection menus don't overlap but don't force them to be visible */

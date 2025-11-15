@@ -94,13 +94,14 @@ export function SettingsMenu(props: SettingsMenuProps) {
   return (
     <div className="settings-menu" dir="ltr" style={{ width: '100%', position: 'relative' }} {...domProps}>
       {/* Tabs */}
-      <div style={{
+      <div className="settings-tabs" style={{
         display: 'flex',
         gap: '12px',
         marginBottom: '24px',
         borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
         paddingBottom: '12px',
-        direction: 'ltr'
+        direction: 'ltr',
+        flexWrap: 'wrap'
       }}>
         {tabs.map(
           (tab) =>
@@ -146,7 +147,7 @@ export function SettingsMenu(props: SettingsMenuProps) {
             ),
         )}
       </div>
-      <div className="tab-content" style={{ color: 'white', direction: 'ltr' }}>
+      <div className="tab-content" style={{ color: 'white', direction: 'ltr', width: '100%' }}>
         {activeTab === 'media' && (
           <>
             {settings.media && settings.media.camera && (
