@@ -2,6 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+
+// Force dynamic rendering to prevent SSR issues
+export const dynamic = 'force-dynamic';
 import {
   Video, Users, Shield, Zap, Globe, MessageCircle, Mail, Phone, ArrowRight, CheckCircle, Menu, X,
   GraduationCap, School, BookOpen, UserCheck, Eye, PenTool, FileText, Share2, Mic, Hand,
