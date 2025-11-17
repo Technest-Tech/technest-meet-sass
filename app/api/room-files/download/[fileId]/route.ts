@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
-import path from 'path';
 import { PrismaClient } from '@prisma/client';
+import { getRoomFilePath } from '@/lib/utils/storage';
 
 const prisma = new PrismaClient();
 
@@ -23,7 +23,6 @@ export async function GET(
     // Get file metadata from database
     const roomFile = await prisma.roomFile.findUnique({
       where: { id: fileId },
-      include: { room: true },
     });
 
     if (!roomFile) {
@@ -34,16 +33,13 @@ export async function GET(
     }
 
     // Construct file path
-    const filePath = path.join(
-      process.cwd(),
-      'public',
-      'uploads',
-      roomFile.room.name,
-      roomFile.filename
-    );
+    const filePath = getRoomFilePath(roomFile.roomId, roomFile.filename);
 
     // Check if file exists on disk
     if (!existsSync(filePath)) {
+      console.warn(
+        `[RoomFiles] File ${roomFile.id} missing on disk at ${filePath}. Verify ROOM_UPLOAD_ROOT and run scripts/migrate-room-file-folders.ts if upgrading.`,
+      );
       return NextResponse.json(
         { error: 'File not found on disk' },
         { status: 404 }

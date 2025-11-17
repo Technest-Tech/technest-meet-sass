@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useRoomContext, useLocalParticipant } from '@livekit/components-react';
 import { RaiseHandData } from './types';
 import { playRaiseHandSound } from './reactionSounds';
+import { useRaiseHandStore } from './store/raiseHandStore';
 
 interface RaiseHandButtonProps {
   isHost?: boolean;
@@ -18,18 +19,22 @@ export function RaiseHandButton({
   disabled = false,
   showProBadge = false 
 }: RaiseHandButtonProps) {
-  const [isRaised, setIsRaised] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const room = useRoomContext();
   const { localParticipant } = useLocalParticipant();
+  const localIdentity = localParticipant?.identity;
+  const setRaisedHand = useRaiseHandStore((state) => state.setRaisedHand);
+  const isRaised = useRaiseHandStore((state) =>
+    localIdentity ? state.raisedHands.get(localIdentity) ?? false : false,
+  );
 
   // Toggle raise hand state
   const toggleRaiseHand = async () => {
-    if (!room || !localParticipant || disabled) return;
+    if (!room || !localParticipant || !localIdentity || disabled) return;
 
     try {
       const newState = !isRaised;
-      setIsRaised(newState);
+      setRaisedHand(localIdentity, newState);
 
       // Play sound immediately for local feedback
       playRaiseHandSound(newState);
@@ -48,7 +53,7 @@ export function RaiseHandButton({
     } catch (error) {
       console.error('Error toggling raise hand:', error);
       // Revert state on error
-      setIsRaised(isRaised);
+      setRaisedHand(localIdentity, isRaised);
     }
   };
 

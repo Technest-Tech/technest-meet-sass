@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { CreditCard, CheckCircle, AlertCircle, Video, Settings } from 'lucide-react';
+import { CreditCard, CheckCircle, AlertCircle, Video, Settings, Gift } from 'lucide-react';
 import Sidebar from '@/lib/components/Sidebar';
 import Header from '@/lib/components/Header';
 import Card from '@/lib/components/Card';
@@ -106,6 +106,7 @@ function SubscriptionPageContent({
     { href: '/client/rooms', label: 'إدارة الغرف', icon: Video },
     { href: '/client/subscription', label: 'الاشتراك', icon: CreditCard },
     { href: '/client/settings', label: 'الإعدادات', icon: Settings },
+    { href: '/client/referral-center', label: 'مركز الإحالات', icon: Gift },
   ];
 
   const getStatusColor = (status: string) => {

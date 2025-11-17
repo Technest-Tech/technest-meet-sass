@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, CheckCircle, XCircle, AlertCircle, Activity, CreditCard, Users, Package, Building2 } from 'lucide-react';
+import { Plus, CheckCircle, XCircle, AlertCircle, Activity, CreditCard, Users, Package, Building2, Gift } from 'lucide-react';
 import Sidebar from '@/lib/components/Sidebar';
 import Header from '@/lib/components/Header';
 import Button from '@/lib/components/Button';
@@ -118,6 +118,7 @@ function SubscriptionsManagementContent({ userEmail }: { userEmail: string }) {
     { href: '/super-admin/plans', label: 'الخطط', icon: Package },
     { href: '/super-admin/subscriptions', label: 'الاشتراكات', icon: CreditCard },
     { href: '/super-admin/clients', label: 'العملاء', icon: Building2 },
+    { href: '/super-admin/referrals', label: 'الإحالات والمكافآت', icon: Gift },
   ];
 
   const getStatusColor = (status: string) => {

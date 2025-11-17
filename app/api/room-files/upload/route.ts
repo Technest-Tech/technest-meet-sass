@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
-import { existsSync } from 'fs';
-import path from 'path';
+import { writeFile } from 'fs/promises';
 import { PrismaClient } from '@prisma/client';
+import { ensureRoomUploadPath, getRoomFilePath } from '@/lib/utils/storage';
 
 const prisma = new PrismaClient();
 
@@ -72,16 +71,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Create upload directory if it doesn't exist
-    const uploadDir = path.join(process.cwd(), 'public', 'uploads', room.name);
-    if (!existsSync(uploadDir)) {
-      await mkdir(uploadDir, { recursive: true });
-    }
+    const roomStorageId = room.id;
+    const uploadDir = await ensureRoomUploadPath(roomStorageId);
 
     // Generate unique filename
     const timestamp = Date.now();
     const sanitizedOriginalName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
     const filename = `${timestamp}-${sanitizedOriginalName}`;
-    const filePath = path.join(uploadDir, filename);
+    const filePath = getRoomFilePath(roomStorageId, filename);
 
     // Convert file to buffer and save
     const bytes = await file.arrayBuffer();

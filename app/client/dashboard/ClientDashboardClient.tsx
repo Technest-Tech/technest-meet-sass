@@ -2,16 +2,17 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  Video, 
-  CreditCard, 
-  Settings, 
+import {
+  Video,
+  CreditCard,
+  Settings,
   AlertCircle,
   CheckCircle,
   TrendingUp,
   Users,
   Plus,
-  ArrowUpRight
+  ArrowUpRight,
+  Gift,
 } from 'lucide-react';
 import Sidebar from '@/lib/components/Sidebar';
 import Header from '@/lib/components/Header';
@@ -93,6 +94,7 @@ function ClientDashboardContent({
     { href: '/client/rooms', label: 'إدارة الغرف', icon: Video },
     { href: '/client/subscription', label: 'الاشتراك', icon: CreditCard },
     { href: '/client/settings', label: 'الإعدادات', icon: Settings },
+    { href: '/client/referral-center', label: 'مركز الإحالات', icon: Gift },
   ];
 
   const getSubscriptionStatusColor = (status: string) => {

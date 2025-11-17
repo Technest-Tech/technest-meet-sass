@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Video, Users, Shield, Zap, Globe, MessageCircle, Mail, Phone, ArrowRight, CheckCircle, Menu, X,
   GraduationCap, School, BookOpen, UserCheck, Eye, PenTool, FileText, Share2, Mic, Hand,
@@ -13,9 +14,18 @@ import {
 import Link from 'next/link';
 
 export default function Page() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [visibleSections, setVisibleSections] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const referralCode = searchParams?.get('ref');
+    if (referralCode) {
+      router.replace(`/subscription-request?ref=${encodeURIComponent(referralCode)}`);
+    }
+  }, [router, searchParams]);
 
   useEffect(() => {
     const handleScroll = () => {

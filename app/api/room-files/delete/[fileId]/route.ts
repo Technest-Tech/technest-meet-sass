@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { unlink } from 'fs/promises';
 import { existsSync } from 'fs';
-import path from 'path';
 import { PrismaClient } from '@prisma/client';
+import { getRoomFilePath } from '@/lib/utils/storage';
 
 const prisma = new PrismaClient();
 
@@ -32,7 +32,6 @@ export async function DELETE(
     // Get file metadata from database
     const roomFile = await prisma.roomFile.findUnique({
       where: { id: fileId },
-      include: { room: true },
     });
 
     if (!roomFile) {
@@ -55,17 +54,15 @@ export async function DELETE(
     }
 
     // Construct file path
-    const filePath = path.join(
-      process.cwd(),
-      'public',
-      'uploads',
-      roomFile.room.name,
-      roomFile.filename
-    );
+    const filePath = getRoomFilePath(roomFile.roomId, roomFile.filename);
 
     // Delete file from disk if it exists
     if (existsSync(filePath)) {
       await unlink(filePath);
+    } else {
+      console.warn(
+        `[RoomFiles] Delete requested for ${roomFile.id}, but file missing at ${filePath}. Verify ROOM_UPLOAD_ROOT and migrate legacy folders.`,
+      );
     }
 
     // Delete file metadata from database

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Edit, Activity, Building2, Users, Package, CreditCard } from 'lucide-react';
+import { Edit, Activity, Building2, Users, Package, CreditCard, Gift } from 'lucide-react';
 import Sidebar from '@/lib/components/Sidebar';
 import Header from '@/lib/components/Header';
 import { SidebarProvider, useSidebar } from '@/lib/components/SidebarContext';
@@ -71,6 +71,7 @@ function ClientsManagementContent({ userEmail }: { userEmail: string }) {
     { href: '/super-admin/plans', label: 'الخطط', icon: Package },
     { href: '/super-admin/subscriptions', label: 'الاشتراكات', icon: CreditCard },
     { href: '/super-admin/clients', label: 'العملاء', icon: Building2 },
+    { href: '/super-admin/referrals', label: 'الإحالات والمكافآت', icon: Gift },
   ];
 
   return (

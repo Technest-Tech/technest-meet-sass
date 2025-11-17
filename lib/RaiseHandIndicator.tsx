@@ -1,108 +1,30 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useRoomContext, useLocalParticipant, useParticipants } from '@livekit/components-react';
-import { RaiseHandData } from './types';
-import { playRaiseHandSound } from './reactionSounds';
-import { isObserver } from './utils/observer-filter';
+import React, { useEffect } from 'react';
+import { useLocalParticipant, useParticipants } from '@livekit/components-react';
+import { useRaiseHandStore } from './store/raiseHandStore';
 
 export function RaiseHandIndicator() {
-  const [raisedHands, setRaisedHands] = useState<Map<string, boolean>>(new Map());
-  const room = useRoomContext();
   const { localParticipant } = useLocalParticipant();
   const participants = useParticipants();
-
-  // Update raised hand state
-  const updateRaisedHand = useCallback((participantIdentity: string, isRaised: boolean) => {
-    setRaisedHands(prev => {
-      const newMap = new Map(prev);
-      if (isRaised) {
-        newMap.set(participantIdentity, true);
-      } else {
-        newMap.delete(participantIdentity);
-      }
-      return newMap;
-    });
-  }, []);
-
-  // Listen for incoming raise hand events from other participants
-  useEffect(() => {
-    if (!room) {
-      return;
-    }
-
-    const handleDataReceived = (data: Uint8Array, participant?: any) => {
-      try {
-        const messageString = new TextDecoder().decode(data);
-        const messageData = JSON.parse(messageString);
-        
-        if (messageData.type === 'raise-hand') {
-          const raiseHandData: RaiseHandData = {
-            type: 'raise-hand',
-            sender: messageData.sender || participant?.identity || 'Unknown',
-            isRaised: messageData.isRaised ?? true,
-            timestamp: messageData.timestamp || Date.now(),
-            id: messageData.id || `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
-          };
-          
-          // Play sound for received raise hand events (not for local ones, as they already played)
-          if (raiseHandData.sender !== localParticipant?.identity) {
-            playRaiseHandSound(raiseHandData.isRaised);
-          }
-          
-          updateRaisedHand(raiseHandData.sender, raiseHandData.isRaised);
-        }
-      } catch (error) {
-        console.error('Error parsing raise hand data:', error);
-      }
-    };
-
-    room.on('dataReceived', handleDataReceived);
-    
-    return () => {
-      room.off('dataReceived', handleDataReceived);
-    };
-  }, [room, updateRaisedHand]);
-
-  // Clean up raised hands when participants disconnect
-  useEffect(() => {
-    const allParticipantIdentities = new Set<string>();
-    
-    if (localParticipant) {
-      allParticipantIdentities.add(localParticipant.identity);
-    }
-    
-    // Filter out observers - they cannot raise hands
-    participants.filter(p => !isObserver(p)).forEach(p => {
-      allParticipantIdentities.add(p.identity);
-    });
-
-    // Remove raised hands for participants who are no longer in the room
-    setRaisedHands(prev => {
-      const newMap = new Map();
-      prev.forEach((isRaised, identity) => {
-        if (allParticipantIdentities.has(identity)) {
-          newMap.set(identity, isRaised);
-        }
-      });
-      return newMap;
-    });
-  }, [participants, localParticipant]);
+  const raisedHands = useRaiseHandStore((state) => state.raisedHands);
 
   // Inject indicators into participant tiles using DOM manipulation
   useEffect(() => {
     const updateIndicators = () => {
-      // Get all participant identities (local + remote)
+      // Build lookup maps for participants
       const allParticipantIdentities = new Set<string>();
-      const identityToName = new Map<string, string>();
+      const nameToIdentity = new Map<string, string>();
       
       if (localParticipant) {
+        const localName = localParticipant.name || localParticipant.identity;
         allParticipantIdentities.add(localParticipant.identity);
-        identityToName.set(localParticipant.identity, 'You');
+        nameToIdentity.set(localName, localParticipant.identity);
       }
-      participants.forEach(p => {
+      participants.forEach((p) => {
+        const displayName = p.name || p.identity;
         allParticipantIdentities.add(p.identity);
-        identityToName.set(p.identity, p.identity);
+        nameToIdentity.set(displayName, p.identity);
       });
 
       // Find all participant tiles - LiveKit uses various selectors
@@ -111,43 +33,62 @@ export function RaiseHandIndicator() {
         '.lk-participant-tile, [data-lk-participant], .lk-participant, [class*="participant"], [class*="Participant"], video[data-lk-participant], .lk-grid-item, .lk-focus-layout-main > div, .lk-grid-layout > div'
       );
       
-      participantTiles.forEach((tile) => {
+      const processedTiles = new Set<Element>();
+      participantTiles.forEach((node) => {
+        const tile = (node as HTMLElement).closest('.lk-participant-tile') || node;
+        if (!tile || processedTiles.has(tile)) {
+          return;
+        }
+        processedTiles.add(tile);
+        
         const existingIndicator = tile.querySelector('.raise-hand-indicator');
         let participantIdentity: string | null = null;
         
         // Try multiple methods to find participant identity
         // Method 1: Check for data attributes
-        participantIdentity = tile.getAttribute('data-participant-identity') || 
-                             tile.getAttribute('data-lk-participant-identity') ||
-                             null;
+        participantIdentity =
+          tile.getAttribute('data-participant-identity') ||
+          tile.getAttribute('data-lk-participant-identity') ||
+          null;
         
         // Method 2: Look for participant name in tile
         if (!participantIdentity) {
-          const nameElements = tile.querySelectorAll(
-            '.lk-participant-name, [data-lk-participant-name], [class*="name"], .lk-participant-tile-info, [data-lk-name], span, div'
-          );
-          for (const nameEl of nameElements) {
-            const text = nameEl.textContent?.trim();
-            if (!text) continue;
-            
-            // Check if text matches any participant identity
-            if (allParticipantIdentities.has(text)) {
-              participantIdentity = text;
-              break;
-            }
-            // Also check for "You" which might be the local participant
-            if ((text === 'You' || text.startsWith('You')) && localParticipant) {
-              participantIdentity = localParticipant.identity;
-              break;
-            }
-            // Check if text contains any identity
-            for (const identity of allParticipantIdentities) {
-              if (text.includes(identity)) {
-                participantIdentity = identity;
+          const directNameAttr = tile.getAttribute('data-lk-participant-name');
+          if (directNameAttr && nameToIdentity.has(directNameAttr)) {
+            participantIdentity = nameToIdentity.get(directNameAttr) || null;
+          }
+        }
+
+        if (!participantIdentity) {
+          const nameAttr = (tile.querySelector('[data-lk-participant-name]') as HTMLElement | null)?.getAttribute('data-lk-participant-name');
+          if (nameAttr && nameToIdentity.has(nameAttr)) {
+            participantIdentity = nameToIdentity.get(nameAttr) || null;
+          }
+
+          if (!participantIdentity) {
+            const nameElements = tile.querySelectorAll(
+              '.lk-participant-name, [data-lk-participant-name], [class*="name"], .lk-participant-tile-info, [data-lk-name], span, div'
+            );
+            for (const nameEl of nameElements) {
+              const text = nameEl.textContent?.trim();
+              if (!text) continue;
+              
+              if (nameToIdentity.has(text)) {
+                participantIdentity = nameToIdentity.get(text) || null;
                 break;
               }
+              if ((text === 'You' || text.startsWith('You')) && localParticipant) {
+                participantIdentity = localParticipant.identity;
+                break;
+              }
+              for (const identity of allParticipantIdentities) {
+                if (text.includes(identity)) {
+                  participantIdentity = identity;
+                  break;
+                }
+              }
+              if (participantIdentity) break;
             }
-            if (participantIdentity) break;
           }
         }
 
@@ -214,7 +155,6 @@ export function RaiseHandIndicator() {
         const isRaised = raisedHands.get(participantIdentity) || false;
 
         if (isRaised) {
-          // Add or update indicator
           if (!existingIndicator) {
             const indicator = document.createElement('div');
             indicator.className = 'raise-hand-indicator';
@@ -241,7 +181,6 @@ export function RaiseHandIndicator() {
             indicator.textContent = '✋';
             indicator.title = `${participantIdentity} has raised their hand`;
             
-            // Add animation style if not already added
             if (!document.getElementById('raise-hand-indicator-styles')) {
               const style = document.createElement('style');
               style.id = 'raise-hand-indicator-styles';
@@ -256,11 +195,8 @@ export function RaiseHandIndicator() {
             
             tile.appendChild(indicator);
           }
-        } else {
-          // Remove indicator
-          if (existingIndicator) {
-            existingIndicator.remove();
-          }
+        } else if (existingIndicator) {
+          existingIndicator.remove();
         }
       });
     };

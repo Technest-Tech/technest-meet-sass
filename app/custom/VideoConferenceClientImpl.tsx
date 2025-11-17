@@ -7,6 +7,7 @@ import { TrackToggle, MediaDeviceMenu } from '@livekit/components-react';
 import { KeyboardShortcuts } from '@/lib/KeyboardShortcuts';
 import { RecordingIndicator } from '@/lib/RecordingIndicator';
 import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
+import { useAdaptiveStreamManager } from '@/lib/useAdaptiveStreamManager';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
 import { ExternalE2EEKeyProvider } from 'livekit-client';
 import { PictureInPicture } from '@/lib/PictureInPicture';
@@ -537,6 +538,7 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
   }, [room.state, room.localParticipant]);
 
   useLowCPUOptimizer(room);
+  useAdaptiveStreamManager(room);
 
   // Cleanup on unmount - only disconnect if we're actually connected
   useEffect(() => {
