@@ -1,10 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-
-// Force dynamic rendering to prevent SSR issues
-export const dynamic = 'force-dynamic';
 import {
   Video, Users, Shield, Zap, Globe, MessageCircle, Mail, Phone, ArrowRight, CheckCircle, Menu, X,
   GraduationCap, School, BookOpen, UserCheck, Eye, PenTool, FileText, Share2, Mic, Hand,
@@ -16,7 +13,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 
-export default function Page() {
+function PageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isScrolled, setIsScrolled] = useState(false);
@@ -1270,5 +1267,13 @@ export default function Page() {
         </footer>
       </div>
     </div>
+  );
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <PageContent />
+    </Suspense>
   );
 }
