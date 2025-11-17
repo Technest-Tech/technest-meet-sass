@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { ReferralEventType } from '@prisma/client';
+import { z } from 'zod';
 import { requireSuperAdmin } from '@/lib/auth/server-auth';
 import { prisma } from '@/lib/database';
-import { z } from 'zod';
+import { qualifyReferralEvent } from '@/lib/services/referrals';
+
+const referralInfoSchema = z.object({
+  eventId: z.string().optional(),
+  email: z.string().email().optional(),
+  code: z.string().optional(),
+  type: z.enum(['SUBSCRIBED', 'LARGE_PLAN']).optional(),
+  pointsOverride: z.number().int().min(0).optional(),
+});
 
 const createSubscriptionSchema = z.object({
   clientId: z.string().min(1, 'معرف العميل مطلوب'),
@@ -9,6 +19,7 @@ const createSubscriptionSchema = z.object({
   status: z.enum(['ACTIVE', 'INACTIVE', 'EXPIRED', 'TRIAL', 'TRIAL_EXPIRED']).default('INACTIVE'),
   isTrial: z.boolean().optional(),
   trialDays: z.number().int().min(1).max(365).optional(),
+  referral: referralInfoSchema.optional(),
 });
 
 // GET - List all subscriptions
@@ -59,7 +70,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { clientId, planId, status, isTrial, trialDays } = validated.data;
+    const { clientId, planId, status, isTrial, trialDays, referral } = validated.data;
 
     // Check if client exists
     const client = await prisma.client.findUnique({
@@ -184,6 +195,24 @@ export async function POST(request: NextRequest) {
     });
 
     console.log(`✅ Auto-synced rooms for client ${clientId} with new plan ${planId}`);
+
+    if (referral && finalStatus === 'ACTIVE') {
+      try {
+        await qualifyReferralEvent({
+          referralEventId: referral.eventId,
+          referralCode: referral.code,
+          referredEmail: referral.email ?? client.email,
+          referredClientId: clientId,
+          eventType:
+            referral.type === 'LARGE_PLAN'
+              ? ReferralEventType.LARGE_PLAN
+              : ReferralEventType.SUBSCRIBED,
+          pointsOverride: referral.pointsOverride,
+        });
+      } catch (referralError) {
+        console.error('Referral qualification failed', referralError);
+      }
+    }
 
     return NextResponse.json({ subscription }, { status: 201 });
   } catch (error) {

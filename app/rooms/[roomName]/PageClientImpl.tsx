@@ -15,6 +15,7 @@ import { FloatingReactions } from '@/lib/FloatingReactions';
 import { StudentMonitorPiP } from '@/lib/StudentMonitorPiP';
 import { RaiseHandButton } from '@/lib/RaiseHandButton';
 import { RaiseHandIndicator } from '@/lib/RaiseHandIndicator';
+import { RaiseHandSync } from '@/lib/RaiseHandSync';
 import { FileSharingButton } from '@/lib/FileSharingButton';
 import { ScreenAnnotationButton } from '@/lib/ScreenAnnotationButton';
 import { FileSharing } from '@/lib/FileSharing';
@@ -53,6 +54,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
 import { useLowCPUOptimizer } from '@/lib/usePerfomanceOptimiser';
+import { useAdaptiveStreamManager } from '@/lib/useAdaptiveStreamManager';
 import { CustomPreJoin } from '@/lib/CustomPreJoin';
 import toast from 'react-hot-toast';
 
@@ -1639,6 +1641,7 @@ function VideoConferenceComponent(props: {
   }, [room]);
 
   const lowPowerMode = useLowCPUOptimizer(room);
+  useAdaptiveStreamManager(room);
   
   const handleError = React.useCallback((error: Error) => {
     logger.error('LiveKit error:', error);
@@ -2261,6 +2264,7 @@ The meeting has been terminated for all participants and the room has been delet
         {/* Floating Reactions Overlay */}
         <FloatingReactions />
         
+        <RaiseHandSync />
         {/* Raise Hand Indicator - Shows raised hand status on participant tiles */}
         <RaiseHandIndicator />
         

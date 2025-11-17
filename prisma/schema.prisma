@@ -60,13 +60,49 @@ enum PasswordFor {
   HOST_AND_GUEST
 }
 
+enum ReferralEventType {
+  REGISTERED
+  SUBSCRIBED
+  LARGE_PLAN
+}
+
+enum ReferralEventStatus {
+  PENDING
+  QUALIFIED
+  CANCELED
+}
+
+enum RewardType {
+  FREE_ROOMS
+  DISCOUNT
+  MONTH_EXTENSION
+  CREDIT
+}
+
+enum RedeemRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  FULFILLED
+}
+
+enum ProspectStatus {
+  NEW
+  CONTACTED
+  ACTIVATED
+  ARCHIVED
+}
+
 // Super Admin - Single super admin account
 model SuperAdmin {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  password  String   // Hashed with bcrypt
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                   String                 @id @default(cuid())
+  email                String                 @unique
+  password             String // Hashed with bcrypt
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  ProspectRegistration ProspectRegistration[]
+  RewardCatalog        RewardCatalog[]
+  RedeemRequest        RedeemRequest[]
 
   @@map("super_admins")
 }
@@ -75,13 +111,13 @@ model SuperAdmin {
 model Account {
   id        String        @id @default(cuid())
   email     String        @unique
-  password  String        // Hashed with bcrypt
+  password  String // Hashed with bcrypt
   role      AccountRole
   status    AccountStatus @default(ACTIVE)
-  clientId  String?       // Only set if role is CLIENT
+  clientId  String? // Only set if role is CLIENT
   client    Client?
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
 
   @@index([clientId])
   @@index([role, status])
@@ -90,44 +126,47 @@ model Account {
 
 // Client - Tenant organization
 model Client {
-  id                String         @id @default(cuid())
-  name              String
-  email             String         @unique
-  accountId         String         @unique // Link to Account
-  account           Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  
+  id        String  @id @default(cuid())
+  name      String
+  email     String  @unique
+  accountId String  @unique // Link to Account
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
   // Limits (set by super admin)
-  maxRooms          Int            @default(10)
-  maxParticipants   Int            @default(50) // Maximum participants per room
-  enableObserverLinks Boolean      @default(true)
-  
+  maxRooms            Int     @default(10)
+  maxParticipants     Int     @default(50) // Maximum participants per room
+  enableObserverLinks Boolean @default(true)
+
   // Subscription
-  subscription      Subscription?
-  
+  subscription Subscription?
+
   // Relations
-  rooms             Room[]
-  hostAccounts      HostAccount[]
-  guestAccounts     GuestAccount[]
-  
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  rooms          Room[]
+  hostAccounts   HostAccount[]
+  guestAccounts  GuestAccount[]
+  referralLink   ReferralLink?
+  redeemRequests RedeemRequest[]
+
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  ReferralEvent ReferralEvent[]
 
   @@map("clients")
 }
 
 // Plan - Subscription plan template
 model Plan {
-  id              String        @id @default(cuid())
-  name            String
-  description     String?
-  isActive        Boolean       @default(true)
-  
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean @default(true)
+
   // Relations
-  features        PlanFeature[]
-  subscriptions   Subscription[]
-  
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  features      PlanFeature[]
+  subscriptions Subscription[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("plans")
 }
@@ -148,21 +187,21 @@ model PlanFeature {
 
 // Subscription - Client's active subscription
 model Subscription {
-  id        String             @id @default(cuid())
-  clientId  String             @unique
-  client    Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  planId    String
-  plan      Plan               @relation(fields: [planId], references: [id])
-  status    SubscriptionStatus @default(INACTIVE)
-  
+  id       String             @id @default(cuid())
+  clientId String             @unique
+  client   Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  planId   String
+  plan     Plan               @relation(fields: [planId], references: [id])
+  status   SubscriptionStatus @default(INACTIVE)
+
   // Trial fields
-  isTrial         Boolean            @default(false)
-  trialStartDate  DateTime?
-  trialEndDate    DateTime?
-  trialDays       Int?               @default(3) // Default 3 days
-  
-  createdAt DateTime           @default(now())
-  updatedAt   DateTime         @updatedAt
+  isTrial        Boolean   @default(false)
+  trialStartDate DateTime?
+  trialEndDate   DateTime?
+  trialDays      Int?      @default(3) // Default 3 days
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([clientId])
@@ -172,56 +211,56 @@ model Subscription {
 
 // Room - Meeting rooms (belongs to client)
 model Room {
-  id                String              @id @default(cuid())
-  name              String
-  description       String?
-  clientId          String
-  client            Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  clientId    String
+  client      Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
   // Room settings (inherited from plan features, but can be overridden per room)
-  hostApproval      Boolean             @default(false)
-  maxParticipants   Int                 @default(50)
-  isActive          Boolean             @default(true)
-  canRecord         Boolean             @default(false)
-  requireWaitingRoom Boolean            @default(false)
-  allowGuestUnmute  Boolean             @default(true)
-  enablePrivateChat Boolean             @default(true)
-  enableScreenAnnotation Boolean        @default(false)
-  enableFileSharing Boolean             @default(false)
-  enablePdfViewer   Boolean             @default(false)
-  enableReactions   Boolean             @default(false)
-  enableRaiseHand   Boolean             @default(false)
-  enableE2EE        Boolean             @default(false)
+  hostApproval                  Boolean @default(false)
+  maxParticipants               Int     @default(50)
+  isActive                      Boolean @default(true)
+  canRecord                     Boolean @default(false)
+  requireWaitingRoom            Boolean @default(false)
+  allowGuestUnmute              Boolean @default(true)
+  enablePrivateChat             Boolean @default(true)
+  enableScreenAnnotation        Boolean @default(false)
+  enableFileSharing             Boolean @default(false)
+  enablePdfViewer               Boolean @default(false)
+  enableReactions               Boolean @default(false)
+  enableRaiseHand               Boolean @default(false)
+  enableE2EE                    Boolean @default(false)
   enableCollaborativeWhiteboard Boolean @default(false)
   enableNormalWhiteboard        Boolean @default(false)
   enableManageParticipants      Boolean @default(false)
   enableVirtualBackground       Boolean @default(false)
   enableNoiseCancellation       Boolean @default(false)
-  
+
   // Links
-  hostLink          String              @unique
-  guestLink         String              @unique
-  observerLink      String?             @unique  // Secret link for silent observers
-  
+  hostLink     String  @unique
+  guestLink    String  @unique
+  observerLink String? @unique // Secret link for silent observers
+
   // Active host tracking
-  activeHostIdentity String?            // Track active host identity
-  activeHostSessionId String?           // Track active host session ID
-  activeHostLastSeen DateTime?          // Last time active host was seen
-  
+  activeHostIdentity  String? // Track active host identity
+  activeHostSessionId String? // Track active host session ID
+  activeHostLastSeen  DateTime? // Last time active host was seen
+
   // Password protection
-  password            String?            // Hashed password
-  passwordRequired    Boolean            @default(false)
-  passwordFor         PasswordFor?
-  
+  password         String? // Hashed password
+  passwordRequired Boolean      @default(false)
+  passwordFor      PasswordFor?
+
   // Relations
-  participants      Participant[]
-  files             RoomFile[]
+  participants        Participant[]
+  files               RoomFile[]
   waitingParticipants WaitingParticipant[]
-  hostAccounts      HostAccount[]
-  guestAccounts     GuestAccount[]
-  
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  hostAccounts        HostAccount[]
+  guestAccounts       GuestAccount[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([clientId])
   @@index([isActive])
@@ -230,15 +269,15 @@ model Room {
 
 // Participant - Room participants
 model Participant {
-  id        String         @id @default(cuid())
+  id        String   @id @default(cuid())
   name      String
-  type      String         // HOST or GUEST
+  type      String // HOST or GUEST
   roomId    String
-  used      Boolean        @default(false)
-  room      Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-  
+  used      Boolean  @default(false)
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@unique([roomId, name])
   @@index([roomId])
   @@map("participants")
@@ -246,16 +285,16 @@ model Participant {
 
 // RoomFile - Files uploaded to rooms
 model RoomFile {
-  id            String   @id @default(cuid())
-  roomId        String
-  filename      String
-  originalName  String
-  fileType      String
-  size          Int
-  uploadedBy    String
-  uploadedAt    DateTime @default(now())
-  room          Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  
+  id           String   @id @default(cuid())
+  roomId       String
+  filename     String
+  originalName String
+  fileType     String
+  size         Int
+  uploadedBy   String
+  uploadedAt   DateTime @default(now())
+  room         Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
   @@index([roomId])
   @@map("room_files")
 }
@@ -269,7 +308,7 @@ model WaitingParticipant {
   status          String   @default("waiting")
   joinedAt        DateTime @default(now())
   room            Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  
+
   @@index([roomId, status])
   @@map("waiting_participants")
 }
@@ -306,4 +345,118 @@ model GuestAccount {
   @@index([clientId])
   @@index([roomId])
   @@map("guest_accounts")
+}
+
+model ReferralSetting {
+  id                 String   @id @default(cuid())
+  registerPoints     Int      @default(5)
+  subscribePoints    Int      @default(25)
+  largePlanPoints    Int      @default(40)
+  largePlanThreshold Int?
+  minRedeemPoints    Int      @default(50)
+  creditPointValue   Int      @default(1)
+  freeRoomDays       Int      @default(30)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("referral_settings")
+}
+
+model ReferralLink {
+  id              String          @id @default(cuid())
+  clientId        String          @unique
+  client          Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  code            String          @unique
+  qrCodeUrl       String?
+  totalPoints     Int             @default(0)
+  availablePoints Int             @default(0)
+  redeemedPoints  Int             @default(0)
+  referralCount   Int             @default(0)
+  referralEvents  ReferralEvent[]
+  redeemRequests  RedeemRequest[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@map("referral_links")
+}
+
+model ReferralEvent {
+  id               String                @id @default(cuid())
+  referralLinkId   String
+  referralLink     ReferralLink          @relation(fields: [referralLinkId], references: [id], onDelete: Cascade)
+  referredEmail    String?
+  referredClientId String?
+  referredClient   Client?               @relation(fields: [referredClientId], references: [id], onDelete: SetNull)
+  eventType        ReferralEventType
+  status           ReferralEventStatus   @default(PENDING)
+  pointsAwarded    Int                   @default(0)
+  metadata         Json?
+  occurredAt       DateTime              @default(now())
+  processedAt      DateTime?
+  prospect         ProspectRegistration?
+
+  @@index([referralLinkId, eventType, status])
+  @@index([referredClientId])
+  @@map("referral_events")
+}
+
+model ProspectRegistration {
+  id              String         @id @default(cuid())
+  referralEventId String         @unique
+  referralEvent   ReferralEvent  @relation(fields: [referralEventId], references: [id], onDelete: Cascade)
+  name            String?
+  email           String?
+  phone           String?
+  companyName     String?
+  desiredPlanId   String?
+  notes           String?
+  status          ProspectStatus @default(NEW)
+  assignedAdminId String?
+  assignedAdmin   SuperAdmin?    @relation(fields: [assignedAdminId], references: [id], onDelete: SetNull)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@map("prospect_registrations")
+}
+
+model RewardCatalog {
+  id             String          @id @default(cuid())
+  label          String
+  description    String?
+  rewardType     RewardType
+  config         Json?
+  costPoints     Int
+  isActive       Boolean         @default(true)
+  createdById    String?
+  createdBy      SuperAdmin?     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  redeemRequests RedeemRequest[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@unique([label])
+  @@map("reward_catalog")
+}
+
+model RedeemRequest {
+  id             String              @id @default(cuid())
+  clientId       String
+  client         Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  referralLinkId String?
+  referralLink   ReferralLink?       @relation(fields: [referralLinkId], references: [id], onDelete: SetNull)
+  rewardId       String?
+  reward         RewardCatalog?      @relation(fields: [rewardId], references: [id], onDelete: SetNull)
+  pointsSpent    Int
+  status         RedeemRequestStatus @default(PENDING)
+  notes          String?
+  payload        Json?
+  reviewedById   String?
+  reviewedBy     SuperAdmin?         @relation(fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt     DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([clientId, status])
+  @@index([rewardId])
+  @@index([reviewedById])
+  @@map("redeem_requests")
 }

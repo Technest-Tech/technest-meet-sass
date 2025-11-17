@@ -13,7 +13,7 @@ import Card from '@/lib/components/Card';
 import { SidebarProvider, useSidebar } from '@/lib/components/SidebarContext';
 import { logout } from '@/lib/auth/client-auth';
 import toast from 'react-hot-toast';
-import { Activity, Users, Package, CreditCard, Building2 } from 'lucide-react';
+import { Activity, Users, Package, CreditCard, Building2, Gift } from 'lucide-react';
 
 interface Account {
   id: string;
@@ -158,6 +158,7 @@ function AccountsManagementContent({ userEmail }: { userEmail: string }) {
     { href: '/super-admin/plans', label: 'الخطط', icon: Package },
     { href: '/super-admin/subscriptions', label: 'الاشتراكات', icon: CreditCard },
     { href: '/super-admin/clients', label: 'العملاء', icon: Building2 },
+    { href: '/super-admin/referrals', label: 'الإحالات والمكافآت', icon: Gift },
   ];
 
   const getStatusBadge = (status: string) => {

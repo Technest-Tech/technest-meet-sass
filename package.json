@@ -19,6 +19,7 @@
     "db:studio": "prisma studio",
     "db:studio:local": "cp env.local .env.local && export $(cat .env.local | grep -v '^#' | xargs) && prisma studio",
     "db:init:local": "cp env.local .env.local && export $(cat .env.local | grep -v '^#' | xargs) && node scripts/init-local-db.js",
+    "files:migrate": "tsx scripts/migrate-room-file-folders.ts",
     "livekit:start": "docker compose -f docker-compose.local.yml up -d",
     "livekit:stop": "docker compose -f docker-compose.local.yml down",
     "livekit:logs": "docker compose -f docker-compose.local.yml logs -f",

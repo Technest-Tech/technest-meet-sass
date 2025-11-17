@@ -2,16 +2,17 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  Users, 
-  Package, 
-  CreditCard, 
-  Building2, 
+import {
+  Users,
+  Package,
+  CreditCard,
+  Building2,
   TrendingUp,
   Activity,
   ArrowUpRight,
   ArrowDownRight,
-  Plus
+  Plus,
+  Gift,
 } from 'lucide-react';
 import Sidebar from '@/lib/components/Sidebar';
 import Header from '@/lib/components/Header';
@@ -75,6 +76,7 @@ function SuperAdminDashboardContent({ userEmail }: { userEmail: string }) {
     { href: '/super-admin/plans', label: 'الخطط', icon: Package },
     { href: '/super-admin/subscriptions', label: 'الاشتراكات', icon: CreditCard },
     { href: '/super-admin/clients', label: 'العملاء', icon: Building2 },
+    { href: '/super-admin/referrals', label: 'الإحالات والمكافآت', icon: Gift },
   ];
 
   return (

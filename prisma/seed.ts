@@ -1,4 +1,4 @@
-import { PrismaClient, AccountRole, AccountStatus, SubscriptionStatus, FeatureType } from '@prisma/client';
+import { PrismaClient, AccountRole, AccountStatus, SubscriptionStatus, FeatureType, RewardType, Prisma } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -225,6 +225,97 @@ async function main() {
       console.log('   Email:', clientEmail);
       console.log('   Plan: Premium Plan (all features enabled)');
       console.log('   Subscription: ACTIVE');
+    }
+  }
+
+  // Referral defaults
+  const existingReferralSettings = await prisma.referralSetting.findFirst();
+  if (!existingReferralSettings) {
+    await prisma.referralSetting.create({
+      data: {
+        registerPoints: 5,
+        subscribePoints: 25,
+        largePlanPoints: 40,
+        largePlanThreshold: 1000,
+        minRedeemPoints: 50,
+        creditPointValue: 1,
+        freeRoomDays: 30,
+      },
+    });
+    console.log('✅ Referral settings initialized');
+  } else {
+    console.log('ℹ️  Referral settings already configured');
+  }
+
+  const defaultRewards: {
+    label: string;
+    description: string;
+    rewardType: RewardType;
+    costPoints: number;
+    config: Prisma.JsonValue;
+  }[] = [
+    {
+      label: 'Free Room (30 Days)',
+      description: 'Unlock an extra room for 30 days',
+      rewardType: RewardType.FREE_ROOMS,
+      costPoints: 120,
+      config: { freeRoomDays: 30 },
+    },
+    {
+      label: '10% Subscription Discount',
+      description: 'Apply 10% off the next subscription invoice',
+      rewardType: RewardType.DISCOUNT,
+      costPoints: 150,
+      config: { percentOff: 10 },
+    },
+    {
+      label: '1 Extra Month',
+      description: 'Extend current subscription by one month',
+      rewardType: RewardType.MONTH_EXTENSION,
+      costPoints: 200,
+      config: { months: 1 },
+    },
+    {
+      label: '100 EGP Credit',
+      description: 'Redeem 100 EGP credit handled manually by admin',
+      rewardType: RewardType.CREDIT,
+      costPoints: 100,
+      config: { creditAmount: 100, currency: 'EGP' },
+    },
+  ];
+
+  for (const reward of defaultRewards) {
+    await prisma.rewardCatalog.upsert({
+      where: { label: reward.label },
+      update: {
+        description: reward.description,
+        rewardType: reward.rewardType,
+        costPoints: reward.costPoints,
+        config: reward.config,
+        isActive: true,
+      },
+      create: reward,
+    });
+  }
+  console.log('✅ Referral reward catalog seeded');
+
+  const clients = await prisma.client.findMany({
+    include: { referralLink: true },
+  });
+
+  for (const client of clients) {
+    if (!client.referralLink) {
+      const codeBase = client.name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6).toUpperCase();
+      const suffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const code = `${codeBase || 'CLIENT'}-${suffix}`;
+
+      await prisma.referralLink.create({
+        data: {
+          clientId: client.id,
+          code,
+        },
+      });
+      console.log(`✅ Referral link created for client ${client.name}`);
     }
   }
 

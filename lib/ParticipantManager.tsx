@@ -4,8 +4,10 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { useParticipants, useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { UserMinus, Users, X, Mic, MicOff, Video, VideoOff, MessageSquare, MoreVertical, Info } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { RaiseHandData, VideoRequestData } from './types';
+import { VideoRequestData } from './types';
 import { isObserver } from './utils/observer-filter';
+import { useRaiseHandStore } from './store/raiseHandStore';
+import { RoomEvent } from 'livekit-client';
 
 interface ParticipantManagerProps {
   isHost: boolean;
@@ -27,7 +29,7 @@ export function ParticipantManager({ isHost, roomName }: ParticipantManagerProps
   const room = useRoomContext();
   const { localParticipant } = useLocalParticipant();
   const participants = useParticipants();
-  const [raisedHands, setRaisedHands] = useState<Map<string, boolean>>(new Map());
+  const raisedHands = useRaiseHandStore((state) => state.raisedHands);
 
   // Helper function to clean participant names (remove _host_1, _guest_1 suffixes)
   const getCleanName = (identity: string): string => {
@@ -38,30 +40,12 @@ export function ParticipantManager({ isHost, roomName }: ParticipantManagerProps
   useEffect(() => {
     if (!room) return;
 
-    const handleDataReceived = (data: Uint8Array, participant?: any) => {
+    const handleDataReceived = (data: Uint8Array) => {
       try {
         const messageString = new TextDecoder().decode(data);
         const messageData = JSON.parse(messageString);
         
-        if (messageData.type === 'raise-hand') {
-          const raiseHandData: RaiseHandData = {
-            type: 'raise-hand',
-            sender: messageData.sender || participant?.identity || 'Unknown',
-            isRaised: messageData.isRaised ?? true,
-            timestamp: messageData.timestamp || Date.now(),
-            id: messageData.id || `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
-          };
-          
-          setRaisedHands(prev => {
-            const newMap = new Map(prev);
-            if (raiseHandData.isRaised) {
-              newMap.set(raiseHandData.sender, true);
-            } else {
-              newMap.delete(raiseHandData.sender);
-            }
-            return newMap;
-          });
-        } else if (messageData.type === 'video_request_response' && isHost) {
+        if (messageData.type === 'video_request_response' && isHost) {
           // Show response from student
           const response = messageData.response === 'accepted' ? 'accepted' : 'declined';
           const action = messageData.requestType === 'camera_on' ? 'turn on camera' : 'turn off camera';
@@ -79,10 +63,10 @@ export function ParticipantManager({ isHost, roomName }: ParticipantManagerProps
       }
     };
 
-    room.on('dataReceived', handleDataReceived);
+    room.on(RoomEvent.DataReceived, handleDataReceived);
     
     return () => {
-      room.off('dataReceived', handleDataReceived);
+      room.off(RoomEvent.DataReceived, handleDataReceived);
     };
   }, [room, isHost]);
 
@@ -126,29 +110,6 @@ export function ParticipantManager({ isHost, roomName }: ParticipantManagerProps
     
     return () => clearInterval(interval);
   }, [participants]);
-
-  // Clean up raised hands when participants disconnect
-  useEffect(() => {
-    const allParticipantIdentities = new Set<string>();
-    
-    if (localParticipant) {
-      allParticipantIdentities.add(localParticipant.identity);
-    }
-    
-    participants.forEach(p => {
-      allParticipantIdentities.add(p.identity);
-    });
-
-    setRaisedHands(prev => {
-      const newMap = new Map();
-      prev.forEach((isRaised, identity) => {
-        if (allParticipantIdentities.has(identity)) {
-          newMap.set(identity, isRaised);
-        }
-      });
-      return newMap;
-    });
-  }, [participants, localParticipant]);
 
   // Combine local and remote participants, excluding the host and observers
   const allParticipants = React.useMemo(() => {

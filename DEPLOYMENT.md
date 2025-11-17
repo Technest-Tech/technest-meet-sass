@@ -11,6 +11,7 @@ This checklist ensures all necessary steps are completed before deploying to pro
   - [ ] `LIVEKIT_API_SECRET`
   - [ ] `DATABASE_URL`
   - [ ] `NEXT_PUBLIC_ENV=production`
+  - [ ] `ROOM_UPLOAD_ROOT`
 - [ ] Environment variables are properly secured (not exposed in client)
 - [ ] Configuration file (`lib/config.ts`) values are correct for production
 
@@ -101,6 +102,11 @@ This checklist ensures all necessary steps are completed before deploying to pro
 - [ ] Troubleshooting guide is available
 - [ ] User documentation is available
 
+### File Upload Storage
+- [ ] Persistent volume or directory is mounted at `ROOM_UPLOAD_ROOT`
+- [ ] Directory permissions allow the Next.js process to read/write files
+- [ ] `scripts/migrate-room-file-folders.ts` has been run after deployments that change storage conventions
+
 ### Backup & Recovery
 - [ ] Backup strategy is in place
 - [ ] Recovery procedures are documented
@@ -138,6 +144,27 @@ This checklist ensures all necessary steps are completed before deploying to pro
    - Monitor performance metrics
    - Monitor user feedback
    - Check server resources utilization
+
+## Persistent Room Uploads
+
+Room uploads are no longer stored under `public/uploads/<roomName>`. Each room now writes to `ROOM_UPLOAD_ROOT/<roomId>`, so the root directory must live on durable storage.
+
+1. **Set the root path**  
+   Define `ROOM_UPLOAD_ROOT` in your environment (e.g. `/var/lib/almajd/uploads` on bare metal or `/app/data/uploads` inside Docker). Relative paths are resolved from the repo root, but absolute paths are recommended.
+
+2. **Create and mount storage**  
+   - Bare metal / VM: create the directory (`sudo mkdir -p /var/lib/almajd/uploads && sudo chown -R node:node ...`).  
+   - Docker: mount a host volume when running the container, e.g. `docker run -v /var/lib/almajd/uploads:/app/data/uploads -e ROOM_UPLOAD_ROOT=/app/data/uploads ...`.
+
+3. **Migrate legacy folders**  
+   After deploying the new code, run:  
+   ```bash
+   npx tsx scripts/migrate-room-file-folders.ts
+   ```  
+   The script moves any `public/uploads/<room.name>` directories into the new `<room.id>` layout without overwriting existing data.
+
+4. **Back up regularly**  
+   Snapshot or rsync the `ROOM_UPLOAD_ROOT` directory as part of your backup strategy. Because uploads are served through API routes, the files no longer need to live inside `public`.
 
 ## Rollback Plan
 
@@ -197,6 +224,8 @@ If issues are detected after deployment:
 
 **Last Updated**: [Date]
 **Deployment Version**: [Version number]
+
+
 
 
 

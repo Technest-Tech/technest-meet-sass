@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Edit, Trash2, Activity, Package, CreditCard, Building2, Users } from 'lucide-react';
+import { Plus, Edit, Trash2, Activity, Package, CreditCard, Building2, Users, Gift } from 'lucide-react';
 import Sidebar from '@/lib/components/Sidebar';
 import Header from '@/lib/components/Header';
 import Button from '@/lib/components/Button';
@@ -132,6 +132,7 @@ function PlansManagementContent({ userEmail }: { userEmail: string }) {
     { href: '/super-admin/plans', label: 'الخطط', icon: Package },
     { href: '/super-admin/subscriptions', label: 'الاشتراكات', icon: CreditCard },
     { href: '/super-admin/clients', label: 'العملاء', icon: Building2 },
+    { href: '/super-admin/referrals', label: 'الإحالات والمكافآت', icon: Gift },
   ];
 
   return (
