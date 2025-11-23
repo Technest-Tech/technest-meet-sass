@@ -162,8 +162,8 @@ export async function GET(request: NextRequest) {
     // They are invisible participants that can only subscribe, not publish
     const isObserver = participantType === 'observer';
 
-    // Check host access: Only one host can be active at a time per room
-    if (participantType === 'host' && isHostLink && !isObserver) {
+    // Check host access: Only one host can be active at a time per room (unless allowMultipleHosts is enabled)
+    if (participantType === 'host' && isHostLink && !isObserver && !room.allowMultipleHosts) {
       // Normalize participant name (remove any "host" suffix and trim whitespace)
       // Ensure participantName is a string
       const safeParticipantName = String(participantName || '').trim();

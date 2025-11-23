@@ -26,14 +26,21 @@ export function FileSharing({
   const { localParticipant } = useLocalParticipant();
   const [files, setFiles] = useState<RoomFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [mounted, setMounted] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadRequestRef = useRef<XMLHttpRequest | null>(null);
 
   // Ensure component is mounted on client-side
   useEffect(() => {
     setMounted(true);
-    return () => setMounted(false);
+    return () => {
+      setMounted(false);
+      if (uploadRequestRef.current) {
+        uploadRequestRef.current.abort();
+      }
+    };
   }, []);
 
   // Load files function
@@ -104,6 +111,69 @@ export function FileSharing({
     };
   }, [room, localParticipant]);
 
+  const uploadFileWithProgress = useCallback(
+    (file: File, targetRoomName: string, uploaderIdentity: string) => {
+      return new Promise<RoomFile>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        uploadRequestRef.current = xhr;
+
+        xhr.open('POST', '/api/room-files/upload');
+        xhr.responseType = 'json';
+
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const percent = Math.min(100, Math.round((event.loaded / event.total) * 100));
+            setUploadProgress(percent);
+          } else {
+            setUploadProgress(null);
+          }
+        };
+
+        const cleanup = () => {
+          uploadRequestRef.current = null;
+        };
+
+        xhr.onload = () => {
+          cleanup();
+          const status = xhr.status;
+          let response: any = xhr.response ?? null;
+
+          if (!response && xhr.responseText) {
+            try {
+              response = JSON.parse(xhr.responseText);
+            } catch {
+              response = null;
+            }
+          }
+
+          if (status >= 200 && status < 300 && response?.file) {
+            resolve(response.file as RoomFile);
+          } else {
+            reject(new Error(response?.error || 'Upload failed'));
+          }
+        };
+
+        xhr.onerror = () => {
+          cleanup();
+          reject(new Error('Network error while uploading file'));
+        };
+
+        xhr.onabort = () => {
+          cleanup();
+          reject(new Error('Upload aborted'));
+        };
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('roomName', targetRoomName);
+        formData.append('uploadedBy', uploaderIdentity);
+
+        xhr.send(formData);
+      });
+    },
+    []
+  );
+
   const handleFileUpload = async (file: File) => {
     if (!localParticipant) {
       toast.error('Not connected to room');
@@ -111,25 +181,14 @@ export function FileSharing({
     }
 
     setIsUploading(true);
+    setUploadProgress(0);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('roomName', roomName);
-      formData.append('uploadedBy', localParticipant.identity);
-
-      const response = await fetch('/api/room-files/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Upload failed');
-      }
-
-      const data = await response.json();
-      const uploadedFile = data.file as RoomFile;
+      const uploadedFile = await uploadFileWithProgress(
+        file,
+        roomName,
+        localParticipant.identity
+      );
 
       // Add to local state
       setFiles(prev => [...prev, uploadedFile]);
@@ -146,11 +205,13 @@ export function FileSharing({
       await room.localParticipant.publishData(encodedData, { topic: 'file-sharing' });
 
       toast.success(`Uploaded ${file.name}`);
+      setUploadProgress(100);
     } catch (error) {
       console.error('Upload error:', error);
       toast.error(error instanceof Error ? error.message : 'Upload failed');
     } finally {
       setIsUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -308,7 +369,17 @@ export function FileSharing({
             {isUploading ? (
               <div className={styles.uploadingState}>
                 <div className={styles.spinner}></div>
-                <span>Uploading...</span>
+                <span>
+                  {uploadProgress !== null ? `Uploading ${uploadProgress}%` : 'Uploading...'}
+                </span>
+                {uploadProgress !== null && (
+                  <div className={styles.progressBar}>
+                    <div
+                      className={styles.progressFill}
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                )}
               </div>
             ) : (
               <>

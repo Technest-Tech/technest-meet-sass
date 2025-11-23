@@ -27,6 +27,8 @@ export function WaitingList({ isHost, roomName }: WaitingListProps) {
   const room = useRoomContext();
   const previousCountRef = useRef<number>(0);
   const hasPlayedInitialSound = useRef(false);
+  const consecutiveErrorsRef = useRef<number>(0); // Track consecutive errors
+  const isServerAvailableRef = useRef<boolean>(true); // Track server availability
 
   // Fetch waiting participants
   const fetchWaitingParticipants = useCallback(async () => {
@@ -38,6 +40,10 @@ export function WaitingList({ isHost, roomName }: WaitingListProps) {
       );
       
       if (response.ok) {
+        // Reset error counter on success
+        consecutiveErrorsRef.current = 0;
+        isServerAvailableRef.current = true;
+        
         const data = await response.json();
         const newParticipants = data.waitingParticipants || [];
         const newCount = newParticipants.length;
@@ -84,17 +90,51 @@ export function WaitingList({ isHost, roomName }: WaitingListProps) {
           hasPlayedInitialSound.current = true;
         }
       }
-    } catch (error) {
-      console.error('Error fetching waiting participants:', error);
+    } catch (error: any) {
+      consecutiveErrorsRef.current++;
+      
+      // Check if it's a connection error
+      const isConnectionError = error?.message?.includes('Failed to fetch') || 
+                                 error?.message?.includes('ERR_CONNECTION_REFUSED') ||
+                                 error?.name === 'TypeError';
+      
+      if (isConnectionError) {
+        isServerAvailableRef.current = false;
+        
+        // Only log the first few connection errors, then suppress
+        if (consecutiveErrorsRef.current <= 3) {
+          console.warn('Server not available, waiting room polling paused:', error.message);
+        }
+        // Don't log subsequent connection errors to avoid console spam
+      } else {
+        // Log other types of errors
+        console.error('Error fetching waiting participants:', error);
+      }
     }
   }, [isHost, roomName]);
 
-  // Poll for updates
+  // Poll for updates with smart retry logic
   useEffect(() => {
     if (!isHost) return;
 
     fetchWaitingParticipants();
-    const interval = setInterval(fetchWaitingParticipants, 3000);
+    
+    // Use longer interval if server is not available
+    const getPollInterval = () => {
+      if (!isServerAvailableRef.current) {
+        // If server is down, poll less frequently (every 10 seconds)
+        return 10000;
+      }
+      // Normal polling interval (3 seconds)
+      return 3000;
+    };
+    
+    const interval = setInterval(() => {
+      // Only poll if server was available or we haven't tried in a while
+      if (isServerAvailableRef.current || consecutiveErrorsRef.current < 10) {
+        fetchWaitingParticipants();
+      }
+    }, getPollInterval());
 
     return () => clearInterval(interval);
   }, [isHost, fetchWaitingParticipants]);

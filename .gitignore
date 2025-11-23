@@ -4,6 +4,7 @@
 /node_modules
 /newmeet_mobile
 /newmeet_mobile/node_modules
+/desktop-app
 
 # pnpm
 /.pnp
