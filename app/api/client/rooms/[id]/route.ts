@@ -124,6 +124,7 @@ export async function PUT(
       name: body.name,
       description: body.description !== undefined ? body.description : existingRoom.description,
       hostApproval: body.hostApproval !== undefined ? body.hostApproval : existingRoom.hostApproval,
+      allowMultipleHosts: body.allowMultipleHosts !== undefined ? body.allowMultipleHosts : (existingRoom.allowMultipleHosts ?? false),
       maxParticipants: body.maxParticipants !== undefined ? body.maxParticipants : existingRoom.maxParticipants,
       isActive: body.isActive !== undefined ? body.isActive : existingRoom.isActive,
       canRecord: body.canRecord !== undefined ? (enabledFeatures.includes('RECORDING') && body.canRecord) : existingRoom.canRecord,

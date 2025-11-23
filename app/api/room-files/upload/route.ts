@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile } from 'fs/promises';
+import { createWriteStream } from 'node:fs';
+import { mkdtemp, rename, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { Readable } from 'node:stream';
+import Busboy from 'busboy';
 import { PrismaClient } from '@prisma/client';
 import { ensureRoomUploadPath, getRoomFilePath } from '@/lib/utils/storage';
+
+export const runtime = 'nodejs';
 
 const prisma = new PrismaClient();
 
@@ -22,37 +29,54 @@ const ALLOWED_TYPES = [
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 
+type ParsedUpload = {
+  roomLink?: string;
+  uploadedBy?: string;
+  file?: {
+    tmpPath: string;
+    originalName: string;
+    mimeType: string;
+    size: number;
+  };
+};
+
 export async function POST(req: NextRequest) {
+  let tmpDir: string | null = null;
+
   try {
-    const formData = await req.formData();
-    const file = formData.get('file') as File;
-    const roomLink = formData.get('roomName') as string; // Actually roomLink (hostLink, guestLink, or observerLink)
-    const uploadedBy = formData.get('uploadedBy') as string;
+    tmpDir = await mkdtemp(path.join(tmpdir(), 'room-file-upload-'));
+    const parsed = await parseMultipartRequest(req, tmpDir);
+
+    const file = parsed.file;
+    const roomLink = parsed.roomLink;
+    const uploadedBy = parsed.uploadedBy;
 
     if (!file || !roomLink || !uploadedBy) {
+      if (file?.tmpPath) {
+        await rm(file.tmpPath, { force: true });
+      }
       return NextResponse.json(
         { error: 'Missing required fields: file, roomName, or uploadedBy' },
         { status: 400 }
       );
     }
 
-    // Validate file type
-    if (!ALLOWED_TYPES.includes(file.type)) {
+    if (!ALLOWED_TYPES.includes(file.mimeType)) {
+      await rm(file.tmpPath, { force: true });
       return NextResponse.json(
         { error: `File type not allowed. Allowed types: PDF, images, Word, PowerPoint, text` },
         { status: 400 }
       );
     }
 
-    // Validate file size
     if (file.size > MAX_FILE_SIZE) {
+      await rm(file.tmpPath, { force: true });
       return NextResponse.json(
         { error: `File too large. Maximum size: ${MAX_FILE_SIZE / 1024 / 1024}MB` },
         { status: 400 }
       );
     }
 
-    // Verify room exists by link (hostLink, guestLink, or observerLink)
     const room = await prisma.room.findFirst({
       where: {
         OR: [
@@ -64,34 +88,29 @@ export async function POST(req: NextRequest) {
     });
 
     if (!room) {
+      await rm(file.tmpPath, { force: true });
       return NextResponse.json(
         { error: 'Room not found' },
         { status: 404 }
       );
     }
 
-    // Create upload directory if it doesn't exist
     const roomStorageId = room.id;
-    const uploadDir = await ensureRoomUploadPath(roomStorageId);
+    await ensureRoomUploadPath(roomStorageId);
 
-    // Generate unique filename
     const timestamp = Date.now();
-    const sanitizedOriginalName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const sanitizedOriginalName = file.originalName.replace(/[^a-zA-Z0-9.-]/g, '_');
     const filename = `${timestamp}-${sanitizedOriginalName}`;
     const filePath = getRoomFilePath(roomStorageId, filename);
 
-    // Convert file to buffer and save
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    await writeFile(filePath, buffer);
+    await rename(file.tmpPath, filePath);
 
-    // Save metadata to database
     const roomFile = await prisma.roomFile.create({
       data: {
         roomId: room.id,
         filename,
-        originalName: file.name,
-        fileType: file.type,
+        originalName: file.originalName,
+        fileType: file.mimeType,
         size: file.size,
         uploadedBy,
       },
@@ -119,6 +138,99 @@ export async function POST(req: NextRequest) {
       },
       { status: 500 }
     );
+  } finally {
+    if (tmpDir) {
+      await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    }
   }
+}
+
+async function parseMultipartRequest(req: NextRequest, tmpDir: string): Promise<ParsedUpload> {
+  if (!req.body) {
+    throw new Error('Missing request body');
+  }
+
+  const headers = Object.fromEntries(req.headers);
+  const result: ParsedUpload = {};
+  const filePromises: Promise<void>[] = [];
+
+  const busboy = Busboy({ headers, limits: { files: 1 } });
+  const requestStream = Readable.fromWeb(req.body as unknown as ReadableStream);
+
+  const parsePromise = new Promise<ParsedUpload>((resolve, reject) => {
+    busboy.on('field', (name, value) => {
+      if (name === 'roomName') {
+        result.roomLink = value;
+      } else if (name === 'uploadedBy') {
+        result.uploadedBy = value;
+      }
+    });
+
+    busboy.on('file', (fieldname, fileStream, info) => {
+      if (fieldname !== 'file') {
+        fileStream.resume();
+        return;
+      }
+
+      if (result.file) {
+        fileStream.resume();
+        reject(new Error('Only one file is allowed'));
+        return;
+      }
+
+      const originalNameRaw = info.filename || 'upload';
+      const originalName = Buffer.from(originalNameRaw, 'binary').toString('utf8');
+      const sanitizedName = originalName.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const tmpFilePath = path.join(tmpDir, `${Date.now()}-${Math.random().toString(36).slice(2)}-${sanitizedName}`);
+      const writeStream = createWriteStream(tmpFilePath);
+
+      const filePromise = new Promise<void>((resolveFile, rejectFile) => {
+        let totalBytes = 0;
+
+        fileStream.on('data', (chunk: Buffer) => {
+          totalBytes += chunk.length;
+          if (totalBytes > MAX_FILE_SIZE) {
+            fileStream.unpipe(writeStream);
+            fileStream.resume();
+            writeStream.destroy();
+            rejectFile(new Error(`File too large. Maximum size: ${MAX_FILE_SIZE / 1024 / 1024}MB`));
+          }
+        });
+
+        fileStream.on('error', (err) => {
+          writeStream.destroy();
+          rejectFile(err);
+        });
+
+        writeStream.on('error', rejectFile);
+
+        writeStream.on('finish', () => {
+          result.file = {
+            tmpPath: tmpFilePath,
+            originalName,
+            mimeType: info.mimeType,
+            size: totalBytes,
+          };
+          resolveFile();
+        });
+      });
+
+      fileStream.pipe(writeStream);
+      filePromises.push(filePromise);
+    });
+
+    busboy.on('error', reject);
+
+    busboy.on('finish', () => {
+      Promise.all(filePromises)
+        .then(() => resolve(result))
+        .catch(reject);
+    });
+
+    requestStream.on('error', reject);
+    requestStream.pipe(busboy);
+  });
+
+  return parsePromise;
 }
 

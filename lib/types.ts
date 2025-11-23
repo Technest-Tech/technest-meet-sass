@@ -88,11 +88,12 @@ export interface DrawingStroke {
   color: string;
   width: number;
   tool: 'pen' | 'eraser' | 'highlighter' | 'pointer';
+  sender?: string; // Track which participant created the stroke
 }
 
 // PDF Annotation types
 export interface PdfAnnotationData {
-  type: 'pdf_annotation_stroke' | 'pdf_annotation_clear' | 'pdf_viewer_open' | 'pdf_viewer_close' | 'pdf_page_change' | 'pdf_scroll_sync';
+  type: 'pdf_annotation_stroke' | 'pdf_annotation_clear' | 'pdf_annotation_delete_host' | 'pdf_annotation_delete_guest' | 'pdf_annotation_delete_all' | 'pdf_viewer_open' | 'pdf_viewer_close' | 'pdf_page_change' | 'pdf_scroll_sync' | 'pdf_prevent_guest_drawing';
   fileId: string;
   pageNumber: number;
   stroke?: DrawingStroke;
@@ -103,6 +104,7 @@ export interface PdfAnnotationData {
   file?: RoomFile; // For opening PDF
   scrollTop?: number; // For scroll synchronization
   scrollLeft?: number; // For horizontal scroll
+  preventGuestDrawing?: boolean; // For guest drawing restriction state
 }
 
 // Screen Annotation types

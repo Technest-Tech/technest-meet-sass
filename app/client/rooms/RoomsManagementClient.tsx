@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Plus, Copy, ExternalLink, Video, CreditCard, Settings, Trash2, Link2, Edit, Gift } from 'lucide-react';
+import { Plus, Copy, ExternalLink, Video, CreditCard, Settings, Trash2, Link2, Edit, Gift, Search } from 'lucide-react';
 import Sidebar from '@/lib/components/Sidebar';
 import Header from '@/lib/components/Header';
 import Card from '@/lib/components/Card';
@@ -41,6 +41,7 @@ function RoomsManagementContent({
   const [isLoading, setIsLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const router = useRouter();
   const { isCollapsed } = useSidebar();
 
@@ -117,6 +118,11 @@ function RoomsManagementContent({
     }
   };
 
+  // Filter rooms based on search query
+  const filteredRooms = rooms.filter((room) =>
+    room.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
 
   return (
     <div dir="rtl" className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50">
@@ -168,8 +174,42 @@ function RoomsManagementContent({
               </div>
             </Card>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {rooms.map((room) => (
+            <>
+              {/* Search Input */}
+              <div className="mb-6">
+                <div className="relative">
+                  <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                  <input
+                    type="text"
+                    placeholder="ابحث عن غرفة بالاسم..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pr-10 pl-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-gray-900 bg-white"
+                    dir="rtl"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      <span className="text-xl">×</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Rooms Grid */}
+              {filteredRooms.length === 0 ? (
+                <Card>
+                  <div className="text-center py-12">
+                    <Search className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-xl font-semibold text-gray-900 mb-2">لا توجد نتائج</h3>
+                    <p className="text-gray-600">لم يتم العثور على غرف تطابق "{searchQuery}"</p>
+                  </div>
+                </Card>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {filteredRooms.map((room) => (
                 <Card key={room.id} hover>
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex-1">
@@ -298,8 +338,10 @@ function RoomsManagementContent({
                     </div>
                   </div>
                 </Card>
-              ))}
-            </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </main>
       </div>
@@ -339,6 +381,7 @@ function CreateRoomModal({
   const [formData, setFormData] = useState({
     name: '',
     hostApproval: false,
+    allowMultipleHosts: false,
     canRecord: false,
     requireWaitingRoom: false,
     allowGuestUnmute: true,
@@ -455,6 +498,7 @@ function CreateRoomModal({
       setFormData({
         name: '',
         hostApproval: false,
+        allowMultipleHosts: false,
         canRecord: false,
         requireWaitingRoom: false,
         allowGuestUnmute: true,
@@ -510,6 +554,17 @@ function CreateRoomModal({
                 This feature requires an upgrade
               </div>
             )}
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={formData.allowMultipleHosts}
+              onChange={(e) => setFormData({ ...formData, allowMultipleHosts: e.target.checked })}
+              className="w-5 h-5 text-primary-600 rounded focus:ring-primary-500"
+            />
+            <span className="text-sm text-gray-700">
+              السماح بعدة مضيفين في نفس الوقت
+            </span>
           </label>
           <label className="flex items-center gap-3 cursor-pointer relative group">
             <input
@@ -682,6 +737,7 @@ function UpdateRoomModal({
     name: room.name,
     description: room.description || '',
     hostApproval: false,
+    allowMultipleHosts: false,
     canRecord: false,
     requireWaitingRoom: false,
     allowGuestUnmute: true,
@@ -711,6 +767,7 @@ function UpdateRoomModal({
           name: data.room.name,
           description: data.room.description || '',
           hostApproval: data.room.hostApproval || false,
+          allowMultipleHosts: data.room.allowMultipleHosts || false,
           canRecord: data.room.canRecord || false,
           requireWaitingRoom: data.room.requireWaitingRoom || false,
           allowGuestUnmute: data.room.allowGuestUnmute !== undefined ? data.room.allowGuestUnmute : true,
@@ -755,6 +812,7 @@ function UpdateRoomModal({
         name: formData.name,
         description: formData.description,
         hostApproval: formData.hostApproval,
+        allowMultipleHosts: formData.allowMultipleHosts,
         canRecord: formData.canRecord,
         requireWaitingRoom: formData.requireWaitingRoom,
         allowGuestUnmute: formData.allowGuestUnmute,
@@ -844,6 +902,18 @@ function UpdateRoomModal({
                       PRO
                     </span>
                   )}
+                </span>
+              </label>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.allowMultipleHosts}
+                  onChange={(e) => setFormData({ ...formData, allowMultipleHosts: e.target.checked })}
+                  className="w-5 h-5 text-primary-600 rounded focus:ring-primary-500"
+                />
+                <span className="text-sm text-gray-700">
+                  السماح بعدة مضيفين في نفس الوقت
                 </span>
               </label>
 

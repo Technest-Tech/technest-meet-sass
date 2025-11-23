@@ -219,6 +219,7 @@ model Room {
 
   // Room settings (inherited from plan features, but can be overridden per room)
   hostApproval                  Boolean @default(false)
+  allowMultipleHosts            Boolean @default(false) // Allow multiple hosts in the same room
   maxParticipants               Int     @default(50)
   isActive                      Boolean @default(true)
   canRecord                     Boolean @default(false)

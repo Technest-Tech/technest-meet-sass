@@ -24,7 +24,13 @@
     "livekit:stop": "docker compose -f docker-compose.local.yml down",
     "livekit:logs": "docker compose -f docker-compose.local.yml logs -f",
     "setup:local": "./scripts/dev-setup.sh",
-    "start:local": "./scripts/dev-start.sh"
+    "start:local": "./scripts/dev-start.sh",
+    "electron:dev": "cd desktop-app && npm run dev",
+    "electron:build": "cd desktop-app && npm run build:electron",
+    "electron:package": "cd desktop-app && npm run package:electron",
+    "electron:package:mac": "cd desktop-app && npm run package:mac",
+    "electron:package:win": "cd desktop-app && npm run package:win",
+    "electron:package:linux": "cd desktop-app && npm run package:linux"
   },
   "dependencies": {
     "@datadog/browser-logs": "^5.23.3",
@@ -35,6 +41,7 @@
     "@prisma/client": "^5.10.0",
     "@tanstack/react-query": "^5.90.7",
     "bcryptjs": "^2.4.3",
+    "busboy": "^1.6.0",
     "clsx": "^2.1.1",
     "immer": "^10.2.0",
     "jose": "^6.1.0",

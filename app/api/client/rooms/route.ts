@@ -34,6 +34,7 @@ const createRoomSchema = z.object({
   name: z.string().min(1, 'اسم الغرفة مطلوب'),
   description: z.string().optional(),
   hostApproval: z.boolean().optional(),
+  allowMultipleHosts: z.boolean().optional(),
   canRecord: z.boolean().optional(),
   requireWaitingRoom: z.boolean().optional(),
   allowGuestUnmute: z.boolean().optional(),
@@ -236,6 +237,7 @@ export async function POST(request: NextRequest) {
         guestLink,
         observerLink,
         hostApproval: validated.data.hostApproval ?? false,
+        allowMultipleHosts: validated.data.allowMultipleHosts ?? false,
         maxParticipants: client.maxParticipants, // Use client's maxParticipants from their plan
         isActive: true,
         canRecord: enabledFeatures.includes('RECORDING') && (validated.data.canRecord ?? false),

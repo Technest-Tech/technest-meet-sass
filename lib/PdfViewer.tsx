@@ -33,6 +33,7 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
   const annotationCanvasRef = useRef<HTMLCanvasElement>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const textLayerRef = useRef<HTMLDivElement>(null);
   
   const [pdfDocument, setPdfDocument] = useState<any>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -40,6 +41,7 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
   const [zoom, setZoom] = useState(1.0);
   const [isLoading, setIsLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [lastPageChangeTimestamp, setLastPageChangeTimestamp] = useState(0);
   
   // Drawing state
   const [isDrawing, setIsDrawing] = useState(false);
@@ -50,6 +52,10 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
   
   // Stroke storage per page
   const [strokes, setStrokes] = useState<Map<number, DrawingStroke[]>>(new Map());
+  
+  // Guest drawing restriction
+  const [preventGuestDrawing, setPreventGuestDrawing] = useState(false);
+  const [showDeleteOptions, setShowDeleteOptions] = useState(false);
   
   useEffect(() => {
     setMounted(true);
@@ -83,10 +89,15 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
             participant?.identity !== localParticipant?.identity) {
           const annotationData = messageData as PdfAnnotationData;
           if (annotationData.stroke) {
+            // Store stroke with sender information
+            const strokeWithSender = {
+              ...annotationData.stroke,
+              sender: annotationData.sender
+            };
             setStrokes(prev => {
               const newStrokes = new Map(prev);
               const pageStrokes = newStrokes.get(annotationData.pageNumber) || [];
-              newStrokes.set(annotationData.pageNumber, [...pageStrokes, annotationData.stroke!]);
+              newStrokes.set(annotationData.pageNumber, [...pageStrokes, strokeWithSender]);
               return newStrokes;
             });
           }
@@ -100,17 +111,102 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
             return newStrokes;
           });
           toast('Annotations cleared', { icon: '🧹' });
+        } else if (messageData.type === 'pdf_annotation_delete_host' && 
+                   messageData.fileId === file?.id) {
+          const annotationData = messageData as PdfAnnotationData;
+          // Only process if it's from another participant (not our own message)
+          if (participant?.identity !== localParticipant?.identity) {
+            setStrokes(prev => {
+              const newStrokes = new Map(prev);
+              const pageStrokes = newStrokes.get(annotationData.pageNumber) || [];
+              // Remove strokes where sender contains '_host_'
+              const filteredStrokes = pageStrokes.filter(stroke => 
+                !stroke.sender || !stroke.sender.toLowerCase().includes('_host_')
+              );
+              newStrokes.set(annotationData.pageNumber, filteredStrokes);
+              return newStrokes;
+            });
+            // Force redraw after state update
+            setTimeout(() => {
+              if (annotationCanvasRef.current) {
+                redrawAnnotations();
+              }
+            }, 0);
+            toast('Host drawings deleted', { icon: '🗑️' });
+          }
+        } else if (messageData.type === 'pdf_annotation_delete_guest' && 
+                   messageData.fileId === file?.id) {
+          const annotationData = messageData as PdfAnnotationData;
+          // Only process if it's from another participant (not our own message)
+          if (participant?.identity !== localParticipant?.identity) {
+            setStrokes(prev => {
+              const newStrokes = new Map(prev);
+              const pageStrokes = newStrokes.get(annotationData.pageNumber) || [];
+              // Keep only strokes where sender contains '_host_' (host strokes)
+              // Remove strokes where sender does NOT contain '_host_' (guest/student strokes)
+              const filteredStrokes = pageStrokes.filter(stroke => {
+                if (!stroke.sender) return false; // Remove strokes without sender
+                return stroke.sender.toLowerCase().includes('_host_');
+              });
+              newStrokes.set(annotationData.pageNumber, filteredStrokes);
+              return newStrokes;
+            });
+            toast('Student drawings deleted', { icon: '🗑️' });
+          }
+        } else if (messageData.type === 'pdf_annotation_delete_all' && 
+                   messageData.fileId === file?.id) {
+          const annotationData = messageData as PdfAnnotationData;
+          // Only process if it's from another participant (not our own message)
+          if (participant?.identity !== localParticipant?.identity) {
+            setStrokes(prev => {
+              const newStrokes = new Map(prev);
+              newStrokes.set(annotationData.pageNumber, []);
+              return newStrokes;
+            });
+            toast('All drawings deleted', { icon: '🗑️' });
+          }
+        } else if (messageData.type === 'pdf_prevent_guest_drawing' && 
+                   messageData.fileId === file?.id &&
+                   participant?.identity !== localParticipant?.identity) {
+          const annotationData = messageData as PdfAnnotationData;
+          if (typeof annotationData.preventGuestDrawing === 'boolean') {
+            setPreventGuestDrawing(annotationData.preventGuestDrawing);
+          }
         } else if (messageData.type === 'pdf_page_change' && 
                    messageData.fileId === file?.id &&
                    messageData.isHost &&
                    participant?.identity !== localParticipant?.identity) {
           // Host changed page - sync for guests
           const annotationData = messageData as PdfAnnotationData;
-          setCurrentPage(annotationData.pageNumber);
-          toast(`Host navigated to page ${annotationData.pageNumber}`, { 
-            icon: '📄',
-            duration: 2000 
-          });
+          
+          // Validate page number
+          if (typeof annotationData.pageNumber !== 'number' || 
+              annotationData.pageNumber < 1) {
+            console.warn('Invalid page number received:', annotationData.pageNumber);
+            return;
+          }
+          
+          // Only process if we have totalPages loaded, or if page number seems reasonable
+          if (totalPages > 0 && annotationData.pageNumber > totalPages) {
+            console.warn('Page number exceeds total pages:', annotationData.pageNumber, '>', totalPages);
+            return;
+          }
+          
+          // Handle out-of-order messages by checking timestamp
+          // Only update if this message is newer than the last one we processed
+          if (!annotationData.timestamp || annotationData.timestamp > lastPageChangeTimestamp) {
+            setLastPageChangeTimestamp(annotationData.timestamp || Date.now());
+            // Update current page - the useEffect will handle rendering
+            setCurrentPage(annotationData.pageNumber);
+            
+            toast(`Host navigated to page ${annotationData.pageNumber}`, { 
+              icon: '📄',
+              duration: 2000 
+            });
+          } else {
+            // Ignore out-of-order message
+            console.log('Ignoring out-of-order page change message:', annotationData.timestamp, '<=', lastPageChangeTimestamp);
+          }
         } else if (messageData.type === 'pdf_scroll_sync' && 
                    messageData.fileId === file?.id &&
                    messageData.isHost &&
@@ -134,7 +230,7 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
     return () => {
       room.off('dataReceived', handleDataReceived);
     };
-  }, [room, file, localParticipant]);
+  }, [room, file, localParticipant, totalPages, lastPageChangeTimestamp, pdfDocument]);
 
   // Handle scroll synchronization - Host broadcasts scroll position to guests
   useEffect(() => {
@@ -181,7 +277,21 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
     try {
       // Use the API route to serve the file, which correctly resolves room name from fileId
       const url = `/api/room-files/view/${file.id}`;
-      const loadingTask = pdfjsLib.getDocument(url);
+      const loadingTask = pdfjsLib.getDocument({
+        url: url,
+        cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/cmaps/',
+        cMapPacked: true,
+        standardFontDataUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/standard_fonts/',
+        useSystemFonts: false, // Important: use embedded fonts from PDF
+        disableFontFace: false, // Important: allow font loading
+        verbosity: 0,
+        // Additional options for better rendering
+        disableAutoFetch: false,
+        disableStream: false,
+        disableRange: false,
+        maxImageSize: 1024 * 1024 * 10, // 10MB
+        isEvalSupported: false,
+      });
       const pdf = await loadingTask.promise;
       
       setPdfDocument(pdf);
@@ -224,7 +334,7 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
   // Redraw annotations when page or strokes change
   useEffect(() => {
     redrawAnnotations();
-  }, [currentPage, strokes]);
+  }, [currentPage, strokes, preventGuestDrawing]);
 
   const renderPage = async (pageNum: number) => {
     if (!pdfDocument || !pdfCanvasRef.current) return;
@@ -245,24 +355,81 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
       const viewport = page.getViewport({ scale });
       
       const canvas = pdfCanvasRef.current;
-      const context = canvas.getContext('2d');
+      // Configure canvas context with better text rendering options
+      const context = canvas.getContext('2d', {
+        alpha: false, // Better performance and text rendering
+        desynchronized: false,
+        willReadFrequently: false,
+      });
       if (!context) return;
       
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
+      // Set canvas size with device pixel ratio for crisp rendering
+      const outputScale = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+      canvas.width = Math.floor(viewport.width * outputScale);
+      canvas.height = Math.floor(viewport.height * outputScale);
+      canvas.style.width = `${viewport.width}px`;
+      canvas.style.height = `${viewport.height}px`;
+      
+      // Scale context to match device pixel ratio
+      context.scale(outputScale, outputScale);
+      
+      // Configure context for better text rendering
+      context.textBaseline = 'bottom';
+      context.textAlign = 'left';
+      // Enable better text rendering quality
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
       
       // Also size annotation canvas
       if (annotationCanvasRef.current) {
-        annotationCanvasRef.current.width = viewport.width;
-        annotationCanvasRef.current.height = viewport.height;
+        annotationCanvasRef.current.width = Math.floor(viewport.width * outputScale);
+        annotationCanvasRef.current.height = Math.floor(viewport.height * outputScale);
+        annotationCanvasRef.current.style.width = `${viewport.width}px`;
+        annotationCanvasRef.current.style.height = `${viewport.height}px`;
+        const annotationContext = annotationCanvasRef.current.getContext('2d');
+        if (annotationContext) {
+          annotationContext.scale(outputScale, outputScale);
+        }
       }
       
       const renderContext = {
         canvasContext: context,
         viewport: viewport,
+        // Add rendering options for better text handling
+        transform: null,
+        background: null,
+        intent: 'display', // Use 'display' for better text rendering (important for Arabic)
       };
       
+      // Render the page
       await page.render(renderContext).promise;
+      
+      // Render text layer for perfect text rendering (like browser PDF viewers)
+      if (textLayerRef.current) {
+        // Clear previous text layer
+        textLayerRef.current.innerHTML = '';
+        
+        // Import text layer renderer
+        const pdfjsViewer = await import('pdfjs-dist/web/pdf_viewer');
+        
+        const textContent = await page.getTextContent();
+        const textLayerDiv = textLayerRef.current;
+        textLayerDiv.style.width = `${viewport.width}px`;
+        textLayerDiv.style.height = `${viewport.height}px`;
+        textLayerDiv.style.left = '0';
+        textLayerDiv.style.top = '0';
+        
+        // Render text layer
+        const textLayer = new pdfjsViewer.TextLayerBuilder({
+          textLayerDiv: textLayerDiv,
+          pageIndex: pageNum - 1,
+          viewport: viewport,
+        });
+        
+        textLayer.setTextContent(textContent);
+        textLayer.render();
+      }
+      
       redrawAnnotations();
     } catch (error) {
       console.error('Error rendering page:', error);
@@ -339,9 +506,11 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
     if (!annotationCanvasRef.current) return { x: 0, y: 0 };
     
     const rect = annotationCanvasRef.current.getBoundingClientRect();
-    const scaleX = annotationCanvasRef.current.width / rect.width;
-    const scaleY = annotationCanvasRef.current.height / rect.height;
     
+    // Since we scaled the context by outputScale in renderPage,
+    // we work in viewport/display coordinates (not internal canvas coordinates)
+    // The context.scale(outputScale, outputScale) automatically converts our coordinates
+    // to internal canvas coordinates, so we just use display coordinates directly
     let clientX: number;
     let clientY: number;
     
@@ -357,14 +526,23 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
       return { x: 0, y: 0 };
     }
     
-    return {
-      x: (clientX - rect.left) * scaleX,
-      y: (clientY - rect.top) * scaleY,
-    };
+    // Calculate position in display coordinates
+    // The context.scale() in renderPage handles conversion to internal coordinates
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    
+    return { x, y };
   };
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     e.preventDefault();
+    
+    // Check if guest drawing is prevented
+    if (!isHost && preventGuestDrawing) {
+      toast.error('Drawing is disabled for guests');
+      return;
+    }
+    
     setIsDrawing(true);
     const pos = getMousePos(e);
     
@@ -374,6 +552,7 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
       color: currentTool === 'eraser' ? '#FFFFFF' : currentColor,
       width: currentTool === 'highlighter' ? currentWidth * 3 : currentWidth,
       tool: currentTool,
+      sender: localParticipant?.identity || '',
     };
     
     setCurrentStroke(newStroke);
@@ -401,11 +580,17 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
     
     setIsDrawing(false);
     
+    // Ensure stroke has sender information
+    const strokeWithSender = {
+      ...currentStroke,
+      sender: localParticipant.identity
+    };
+    
     // Add stroke to current page
     setStrokes(prev => {
       const newStrokes = new Map(prev);
       const pageStrokes = newStrokes.get(currentPage) || [];
-      newStrokes.set(currentPage, [...pageStrokes, currentStroke]);
+      newStrokes.set(currentPage, [...pageStrokes, strokeWithSender]);
       return newStrokes;
     });
     
@@ -414,7 +599,7 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
       type: 'pdf_annotation_stroke',
       fileId: file!.id,
       pageNumber: currentPage,
-      stroke: currentStroke,
+      stroke: strokeWithSender,
       sender: localParticipant.identity,
       timestamp: Date.now(),
       id: currentStroke.id,
@@ -426,32 +611,133 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
     setCurrentStroke(null);
   };
 
-  const clearAnnotations = async () => {
-    if (!localParticipant) return;
+  const deleteHostDrawings = async () => {
+    if (!localParticipant || !isHost || !file) return;
     
+    // Broadcast delete to other participants FIRST
+    const annotationData: PdfAnnotationData = {
+      type: 'pdf_annotation_delete_host',
+      fileId: file.id,
+      pageNumber: currentPage,
+      sender: localParticipant.identity,
+      timestamp: Date.now(),
+      id: `delete-host-${Date.now()}`,
+    };
+    
+    const encodedData = new TextEncoder().encode(JSON.stringify(annotationData));
+    await room.localParticipant.publishData(encodedData, { topic: 'pdf-annotation' });
+    
+    // Then update local state - remove host strokes (keep only guest/student strokes)
+    setStrokes(prev => {
+      const newStrokes = new Map(prev);
+      const pageStrokes = newStrokes.get(currentPage) || [];
+      // Remove strokes where sender contains '_host_' (host strokes)
+      // Keep strokes where sender does NOT contain '_host_' (guest/student strokes)
+      const filteredStrokes = pageStrokes.filter(stroke => {
+        if (!stroke.sender) return true; // Keep strokes without sender (legacy)
+        return !stroke.sender.toLowerCase().includes('_host_');
+      });
+      newStrokes.set(currentPage, filteredStrokes);
+      return newStrokes;
+    });
+    
+    toast.success('Host drawings deleted');
+    setShowDeleteOptions(false);
+  };
+
+  const deleteGuestDrawings = async () => {
+    if (!localParticipant || !isHost || !file) return;
+    
+    // Broadcast delete to other participants FIRST
+    const annotationData: PdfAnnotationData = {
+      type: 'pdf_annotation_delete_guest',
+      fileId: file.id,
+      pageNumber: currentPage,
+      sender: localParticipant.identity,
+      timestamp: Date.now(),
+      id: `delete-guest-${Date.now()}`,
+    };
+    
+    const encodedData = new TextEncoder().encode(JSON.stringify(annotationData));
+    await room.localParticipant.publishData(encodedData, { topic: 'pdf-annotation' });
+    
+    // Then update local state - remove guest/student strokes (keep only host strokes)
+    setStrokes(prev => {
+      const newStrokes = new Map(prev);
+      const pageStrokes = newStrokes.get(currentPage) || [];
+      // Keep only strokes where sender contains '_host_' (host strokes)
+      // Remove all strokes where sender does NOT contain '_host_' (guest/student strokes)
+      const filteredStrokes = pageStrokes.filter(stroke => {
+        if (!stroke.sender) return false; // Remove strokes without sender
+        return stroke.sender.toLowerCase().includes('_host_');
+      });
+      newStrokes.set(currentPage, filteredStrokes);
+      return newStrokes;
+    });
+    
+    toast.success('Student drawings deleted');
+    setShowDeleteOptions(false);
+  };
+
+  const deleteAllDrawings = async () => {
+    if (!localParticipant || !isHost || !file) return;
+    
+    // Broadcast delete to other participants FIRST
+    const annotationData: PdfAnnotationData = {
+      type: 'pdf_annotation_delete_all',
+      fileId: file.id,
+      pageNumber: currentPage,
+      sender: localParticipant.identity,
+      timestamp: Date.now(),
+      id: `delete-all-${Date.now()}`,
+    };
+    
+    const encodedData = new TextEncoder().encode(JSON.stringify(annotationData));
+    await room.localParticipant.publishData(encodedData, { topic: 'pdf-annotation' });
+    
+    // Then update local state - remove all strokes
     setStrokes(prev => {
       const newStrokes = new Map(prev);
       newStrokes.set(currentPage, []);
       return newStrokes;
     });
     
-    // Broadcast clear to other participants
+    toast.success('All drawings deleted');
+    setShowDeleteOptions(false);
+  };
+
+  const toggleGuestDrawing = async () => {
+    if (!localParticipant || !isHost) return;
+    
+    const newState = !preventGuestDrawing;
+    setPreventGuestDrawing(newState);
+    
+    // Broadcast state change to all participants
     const annotationData: PdfAnnotationData = {
-      type: 'pdf_annotation_clear',
+      type: 'pdf_prevent_guest_drawing',
       fileId: file!.id,
       pageNumber: currentPage,
       sender: localParticipant.identity,
       timestamp: Date.now(),
-      id: `clear-${Date.now()}`,
+      id: `prevent-guest-${Date.now()}`,
+      preventGuestDrawing: newState,
     };
     
     const encodedData = new TextEncoder().encode(JSON.stringify(annotationData));
     await room.localParticipant.publishData(encodedData, { topic: 'pdf-annotation' });
     
-    toast.success('Annotations cleared');
+    toast.success(newState ? 'Guest drawing disabled' : 'Guest drawing enabled');
   };
 
   const handlePageChange = async (newPage: number) => {
+    // Validate page number
+    if (newPage < 1 || newPage > totalPages) {
+      console.warn('Invalid page number:', newPage);
+      return;
+    }
+    
+    const timestamp = Date.now();
+    setLastPageChangeTimestamp(timestamp);
     setCurrentPage(newPage);
     
     // If host, broadcast page change to all participants
@@ -461,8 +747,8 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
         fileId: file.id,
         pageNumber: newPage,
         sender: localParticipant.identity,
-        timestamp: Date.now(),
-        id: `page-change-${Date.now()}`,
+        timestamp: timestamp,
+        id: `page-change-${timestamp}`,
         isHost: true,
       };
       
@@ -579,20 +865,44 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
           {/* Drawing Tools */}
           <div className={styles.toolGroup}>
             <button
-              onClick={() => setCurrentTool('pen')}
+              onClick={() => {
+                if (!isHost && preventGuestDrawing) {
+                  toast.error('Drawing is disabled for guests');
+                  return;
+                }
+                setCurrentTool('pen');
+              }}
               className={`${styles.toolButton} ${currentTool === 'pen' ? styles.active : ''}`}
+              disabled={!isHost && preventGuestDrawing}
+              title={!isHost && preventGuestDrawing ? 'Drawing disabled' : 'Pen'}
             >
               ✏️
             </button>
             <button
-              onClick={() => setCurrentTool('highlighter')}
+              onClick={() => {
+                if (!isHost && preventGuestDrawing) {
+                  toast.error('Drawing is disabled for guests');
+                  return;
+                }
+                setCurrentTool('highlighter');
+              }}
               className={`${styles.toolButton} ${currentTool === 'highlighter' ? styles.active : ''}`}
+              disabled={!isHost && preventGuestDrawing}
+              title={!isHost && preventGuestDrawing ? 'Drawing disabled' : 'Highlighter'}
             >
               🖍️
             </button>
             <button
-              onClick={() => setCurrentTool('eraser')}
+              onClick={() => {
+                if (!isHost && preventGuestDrawing) {
+                  toast.error('Drawing is disabled for guests');
+                  return;
+                }
+                setCurrentTool('eraser');
+              }}
               className={`${styles.toolButton} ${currentTool === 'eraser' ? styles.active : ''}`}
+              disabled={!isHost && preventGuestDrawing}
+              title={!isHost && preventGuestDrawing ? 'Drawing disabled' : 'Eraser'}
             >
               🧽
             </button>
@@ -625,14 +935,100 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
 
           {/* Actions */}
           <div className={styles.toolGroup}>
-            <button onClick={clearAnnotations} className={styles.toolButton}>
-              🗑️
-            </button>
+            {isHost && (
+              <button 
+                onClick={toggleGuestDrawing} 
+                className={`${styles.toolButton} ${preventGuestDrawing ? styles.active : ''}`}
+                title={preventGuestDrawing ? 'Enable guest drawing' : 'Disable guest drawing'}
+              >
+                {preventGuestDrawing ? '🚫' : '✏️'}
+              </button>
+            )}
+            {isHost ? (
+              <button 
+                onClick={() => setShowDeleteOptions(true)} 
+                className={styles.toolButton}
+                title="Delete drawings"
+              >
+                🗑️
+              </button>
+            ) : (
+              <button 
+                onClick={() => {
+                  if (!preventGuestDrawing) {
+                    setStrokes(prev => {
+                      const newStrokes = new Map(prev);
+                      newStrokes.set(currentPage, []);
+                      return newStrokes;
+                    });
+                    toast.success('Annotations cleared');
+                  } else {
+                    toast.error('Drawing is disabled for guests');
+                  }
+                }}
+                className={styles.toolButton}
+                disabled={preventGuestDrawing}
+                title="Clear annotations"
+              >
+                🗑️
+              </button>
+            )}
             <button onClick={downloadAnnotatedPage} className={styles.toolButton}>
               💾
             </button>
           </div>
         </div>
+
+        {/* Delete Options Modal */}
+        {showDeleteOptions && isHost && (
+          <div className={styles.modalOverlay} onClick={() => setShowDeleteOptions(false)}>
+            <div className={styles.deleteModal} onClick={(e) => e.stopPropagation()}>
+              <div className={styles.modalHeader}>
+                <h3>Delete Drawings</h3>
+                <button 
+                  className={styles.modalCloseButton}
+                  onClick={() => setShowDeleteOptions(false)}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className={styles.modalContent}>
+                <button 
+                  className={styles.deleteOption}
+                  onClick={deleteHostDrawings}
+                  title="Delete only your drawings"
+                >
+                  <span className={styles.deleteIcon}>👤</span>
+                  <span>My Drawings Only</span>
+                </button>
+                <button 
+                  className={styles.deleteOption}
+                  onClick={deleteHostDrawings}
+                  title="Delete host drawings, keep student drawings"
+                >
+                  <span className={styles.deleteIcon}>👤</span>
+                  <span>Keep Student Drawings</span>
+                </button>
+                <button 
+                  className={styles.deleteOption}
+                  onClick={deleteGuestDrawings}
+                  title="Delete only student/guest drawings"
+                >
+                  <span className={styles.deleteIcon}>👥</span>
+                  <span>Student Drawings Only</span>
+                </button>
+                <button 
+                  className={styles.deleteOption}
+                  onClick={deleteAllDrawings}
+                  title="Delete all drawings"
+                >
+                  <span className={styles.deleteIcon}>🗑️</span>
+                  <span>All Drawings</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* PDF Canvas */}
         <div className={styles.canvasContainer} ref={canvasContainerRef}>
@@ -644,6 +1040,24 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
           ) : (
             <div className={styles.canvasWrapper}>
               <canvas ref={pdfCanvasRef} className={styles.pdfCanvas} />
+              {/* Text layer for perfect text rendering */}
+              <div 
+                ref={textLayerRef} 
+                className={styles.textLayer}
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: 0,
+                  right: 0,
+                  bottom: 0,
+                  overflow: 'hidden',
+                  opacity: 1,
+                  lineHeight: 1,
+                  textSizeAdjust: '100%',
+                  forcedColorAdjust: 'none',
+                  transformOrigin: '0% 0%',
+                }}
+              />
               <canvas
                 ref={annotationCanvasRef}
                 className={styles.annotationCanvas}
