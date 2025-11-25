@@ -47,30 +47,6 @@ export default async function ObserverPage({ params, searchParams }: ObserverPag
           enableVirtualBackground: false,
         }}
       />
-      
-      {/* Observer Mode Indicator - Only visible to the observer */}
-      <div style={{
-        position: 'fixed',
-        top: '80px',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        zIndex: 10000,
-        padding: '12px 24px',
-        backgroundColor: 'rgba(220, 38, 38, 0.95)',
-        color: 'white',
-        borderRadius: '8px',
-        fontSize: '14px',
-        fontWeight: '600',
-        backdropFilter: 'blur(10px)',
-        border: '2px solid rgba(255, 255, 255, 0.2)',
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-      }}>
-        <span style={{ fontSize: '18px' }}>👁️</span>
-        <span>Observer Mode - You are invisible to all participants</span>
-      </div>
     </main>
   );
 }
