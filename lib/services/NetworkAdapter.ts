@@ -108,23 +108,30 @@ export class NetworkAdapter {
     if (!this.room) return;
 
     const localParticipant = this.room.localParticipant;
-    
-    // Get camera track
+
+    // Respect the user's current camera preference. If the camera is off we
+    // should not turn it back on just to update quality settings.
+    if (!localParticipant.isCameraEnabled) {
+      logger.debug('Skipping video settings update because camera is disabled', {
+        settings,
+      });
+      return;
+    }
+
     const cameraPublication = localParticipant.getTrackPublication('camera');
-    
+
     if (cameraPublication && cameraPublication.track) {
       try {
-        // Update video encoding parameters
+        // Update video encoding parameters while keeping the camera state intact.
         await localParticipant.setCameraEnabled(true, {
           resolution: this.getVideoPreset(settings.videoQuality),
-          maxBitrate: settings.maxBitrate
+          maxBitrate: settings.maxBitrate,
         });
 
         logger.debug('Applied video settings:', {
           quality: settings.videoQuality,
-          maxBitrate: settings.maxBitrate
+          maxBitrate: settings.maxBitrate,
         });
-
       } catch (error) {
         logger.error('Failed to apply video settings:', error);
       }
@@ -230,6 +237,7 @@ export class NetworkAdapter {
     return this.currentQuality;
   }
 }
+
 
 
 

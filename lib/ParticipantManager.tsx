@@ -80,16 +80,16 @@ export function ParticipantManager({ isHost, roomName }: ParticipantManagerProps
         let audioEnabled = false;
         let videoEnabled = false;
         
-        // Check audio tracks
+        // Check audio tracks (publication state is enough to reflect host control)
         p.audioTrackPublications.forEach((publication) => {
-          if (!publication.isMuted && publication.track) {
+          if (!publication.isMuted) {
             audioEnabled = true;
           }
         });
         
-        // Check video tracks
+        // Check video tracks (publication is the source of truth for LiveKit state)
         p.videoTrackPublications.forEach((publication) => {
-          if (!publication.isMuted && publication.track) {
+          if (!publication.isMuted) {
             videoEnabled = true;
           }
         });

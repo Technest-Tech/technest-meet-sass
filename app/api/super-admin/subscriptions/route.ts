@@ -19,6 +19,10 @@ const createSubscriptionSchema = z.object({
   status: z.enum(['ACTIVE', 'INACTIVE', 'EXPIRED', 'TRIAL', 'TRIAL_EXPIRED']).default('INACTIVE'),
   isTrial: z.boolean().optional(),
   trialDays: z.number().int().min(1).max(365).optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  amountEGP: z.number().int().min(0).optional(),
+  sourceId: z.string().optional(),
   referral: referralInfoSchema.optional(),
 });
 
@@ -27,25 +31,155 @@ export async function GET(request: NextRequest) {
   try {
     await requireSuperAdmin();
 
-    const subscriptions = await prisma.subscription.findMany({
-      include: {
+    const sourceId = request.nextUrl.searchParams.get('sourceId') || undefined;
+
+    const [subscriptions, activeRoomsByClient] = await Promise.all([
+      prisma.subscription.findMany({
+        where: {
+          ...(sourceId ? { sourceId } : {}),
+        },
+        include: {
+          client: {
+            include: {
+              account: true,
+              rooms: {
+                select: {
+                  id: true,
+                  isActive: true,
+                  maxParticipants: true,
+                  createdAt: true,
+                },
+              },
+            },
+          },
+          plan: {
+            include: {
+              features: true,
+            },
+          },
+          source: true,
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      }),
+      prisma.room.groupBy({
+        by: ['clientId'],
+        where: {
+          isActive: true,
+        },
+        _count: {
+          _all: true,
+        },
+      }),
+    ]);
+
+    const now = new Date();
+    const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const activeRoomsLookup = activeRoomsByClient.reduce<Record<string, number>>((acc, curr) => {
+      acc[curr.clientId] = curr._count._all;
+      return acc;
+    }, {});
+
+    const formattedSubscriptions = subscriptions.map((subscription) => {
+      const { rooms, ...clientWithoutRooms } = subscription.client;
+      const totalRooms = rooms.length;
+      const activeRooms = rooms.filter((room) => room.isActive).length;
+      const avgRoomCapacity = rooms.length
+        ? Math.round(
+            rooms.reduce((sum, room) => sum + room.maxParticipants, 0) / rooms.length
+          )
+        : 0;
+      const trialDaysRemaining =
+        subscription.trialEndDate && subscription.trialDays
+          ? Math.max(
+              0,
+              Math.ceil(
+                (subscription.trialEndDate.getTime() - now.getTime()) /
+                  (24 * 60 * 60 * 1000)
+              )
+            )
+          : null;
+      const trialProgress =
+        subscription.trialDays && trialDaysRemaining !== null
+          ? Math.min(
+              100,
+              Math.max(
+                0,
+                Math.round(
+                  ((subscription.trialDays - trialDaysRemaining) / subscription.trialDays) *
+                    100
+                )
+              )
+            )
+          : null;
+
+      return {
+        ...subscription,
         client: {
-          include: {
-            account: true,
+          ...clientWithoutRooms,
+          roomStats: {
+            totalRooms,
+            activeRooms,
+            avgRoomCapacity,
+            activeNow: activeRoomsLookup[subscription.clientId] || 0,
+            capacityUtilization:
+              clientWithoutRooms.maxRooms > 0
+                ? Math.min(1, totalRooms / clientWithoutRooms.maxRooms)
+                : 0,
           },
         },
-        plan: {
-          include: {
-            features: true,
-          },
+        metrics: {
+          trialDaysRemaining,
+          trialProgress,
+          hasTrialEnded: trialDaysRemaining === 0,
+          isExpiringSoon:
+            !!subscription.trialEndDate &&
+            subscription.trialEndDate <= sevenDaysFromNow &&
+            subscription.status === 'TRIAL',
+          lastRoomCreatedAt: rooms[0]?.createdAt ?? null,
         },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
+      };
     });
 
-    return NextResponse.json({ subscriptions });
+    const overview = formattedSubscriptions.reduce(
+      (acc, sub) => {
+        acc.total += 1;
+        if (sub.status === 'ACTIVE') acc.active += 1;
+        if (sub.status === 'TRIAL') acc.trials += 1;
+        if (sub.metrics?.isExpiringSoon) acc.expiringTrials += 1;
+        if (['EXPIRED', 'TRIAL_EXPIRED', 'INACTIVE'].includes(sub.status)) {
+          acc.atRisk += 1;
+        }
+        if (sub.status === 'ACTIVE' && sub.metrics?.hasTrialEnded) {
+          acc.renewalsDue += 1;
+        }
+        return acc;
+      },
+      {
+        total: 0,
+        active: 0,
+        trials: 0,
+        expiringTrials: 0,
+        renewalsDue: 0,
+        atRisk: 0,
+      }
+    );
+
+    const planDistribution = formattedSubscriptions.reduce<Record<string, number>>(
+      (acc, sub) => {
+        const planName = sub.plan?.name ?? 'غير محدد';
+        acc[planName] = (acc[planName] || 0) + 1;
+        return acc;
+      },
+      {}
+    );
+
+    return NextResponse.json({
+      subscriptions: formattedSubscriptions,
+      overview,
+      planDistribution,
+    });
   } catch (error) {
     console.error('Get subscriptions error:', error);
     return NextResponse.json(
@@ -70,7 +204,35 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { clientId, planId, status, isTrial, trialDays, referral } = validated.data;
+    const {
+      clientId,
+      planId,
+      status,
+      isTrial,
+      trialDays,
+      startDate,
+      endDate,
+      amountEGP,
+      sourceId,
+      referral,
+    } =
+      validated.data;
+
+    const parsedStartDate = startDate ? new Date(startDate) : undefined;
+    if (parsedStartDate && isNaN(parsedStartDate.getTime())) {
+      return NextResponse.json(
+        { error: 'تاريخ بداية الاشتراك غير صالح' },
+        { status: 400 }
+      );
+    }
+
+    const parsedEndDate = endDate ? new Date(endDate) : undefined;
+    if (parsedEndDate && isNaN(parsedEndDate.getTime())) {
+      return NextResponse.json(
+        { error: 'تاريخ انتهاء الاشتراك غير صالح' },
+        { status: 400 }
+      );
+    }
 
     // Check if client exists
     const client = await prisma.client.findUnique({
@@ -111,9 +273,10 @@ export async function POST(request: NextRequest) {
     // Prepare trial data if isTrial is true
     const trialDaysValue = trialDays || 3;
     const now = new Date();
-    const trialEndDate = isTrial 
+    const trialEndDate = isTrial
       ? new Date(now.getTime() + trialDaysValue * 24 * 60 * 60 * 1000)
       : null;
+    const defaultEndDate = parsedEndDate ?? trialEndDate ?? new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     
     // Determine status: if isTrial is true, set status to TRIAL
     const finalStatus = isTrial ? 'TRIAL' : status;
@@ -130,6 +293,22 @@ export async function POST(request: NextRequest) {
       isTrial: isTrial ?? false,
     };
 
+    if (parsedStartDate) {
+      updateData.startDate = parsedStartDate;
+    }
+
+    if (parsedEndDate) {
+      updateData.endDate = parsedEndDate;
+    }
+
+    if (typeof amountEGP === 'number') {
+      updateData.amountEGP = amountEGP;
+    }
+
+    if (typeof sourceId !== 'undefined') {
+      updateData.sourceId = sourceId || null;
+    }
+
     if (isTrial) {
       // Set trial dates only if creating new trial or if it doesn't exist
       if (!existingSubscription?.trialStartDate) {
@@ -137,6 +316,9 @@ export async function POST(request: NextRequest) {
       }
       updateData.trialEndDate = trialEndDate;
       updateData.trialDays = trialDaysValue;
+      if (trialEndDate) {
+        updateData.endDate = trialEndDate;
+      }
     } else {
       // Clear trial fields if converting from trial to paid
       updateData.trialStartDate = null;
@@ -156,6 +338,10 @@ export async function POST(request: NextRequest) {
         trialStartDate: isTrial ? now : null,
         trialEndDate: isTrial ? trialEndDate : null,
         trialDays: isTrial ? trialDaysValue : null,
+        startDate: parsedStartDate ?? now,
+        endDate: defaultEndDate,
+        amountEGP: typeof amountEGP === 'number' ? amountEGP : 0,
+        sourceId,
       },
       include: {
         client: {
@@ -168,6 +354,7 @@ export async function POST(request: NextRequest) {
             features: true,
           },
         },
+        source: true,
       },
     });
 

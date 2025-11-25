@@ -50,6 +50,7 @@ import {
   VideoCaptureOptions,
   DisconnectReason,
   Track,
+  ParticipantEvent,
 } from 'livekit-client';
 import { useRouter } from 'next/navigation';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
@@ -745,6 +746,35 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
       setIsCameraEnabled(localParticipant.isCameraEnabled);
       setIsScreenSharing(localParticipant.isScreenShareEnabled);
     }
+  }, [localParticipant]);
+
+  // Listen for remote mute/unmute commands to keep UI synced
+  React.useEffect(() => {
+    if (!localParticipant) return;
+
+    const handleTrackMuted = (publication: { kind?: Track.Kind }) => {
+      if (publication.kind === Track.Kind.Audio) {
+        setIsMicEnabled(false);
+      } else if (publication.kind === Track.Kind.Video) {
+        setIsCameraEnabled(false);
+      }
+    };
+
+    const handleTrackUnmuted = (publication: { kind?: Track.Kind }) => {
+      if (publication.kind === Track.Kind.Audio) {
+        setIsMicEnabled(true);
+      } else if (publication.kind === Track.Kind.Video) {
+        setIsCameraEnabled(true);
+      }
+    };
+
+    localParticipant.on(ParticipantEvent.TrackMuted, handleTrackMuted);
+    localParticipant.on(ParticipantEvent.TrackUnmuted, handleTrackUnmuted);
+
+    return () => {
+      localParticipant.off(ParticipantEvent.TrackMuted, handleTrackMuted);
+      localParticipant.off(ParticipantEvent.TrackUnmuted, handleTrackUnmuted);
+    };
   }, [localParticipant]);
 
   // Toggle microphone

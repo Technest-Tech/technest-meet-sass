@@ -49,6 +49,7 @@
     "livekit-client": "2.15.6",
     "livekit-server-sdk": "2.13.3",
     "lucide-react": "^0.344.0",
+    "luxon": "^3.4.4",
     "next": "15.2.4",
     "node-fetch": "^3.3.2",
     "pdfjs-dist": "^4.10.38",

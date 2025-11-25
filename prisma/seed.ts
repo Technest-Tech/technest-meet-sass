@@ -1,7 +1,10 @@
-import { PrismaClient, AccountRole, AccountStatus, SubscriptionStatus, FeatureType, RewardType, Prisma } from '@prisma/client';
+import { PrismaClient, AccountRole, AccountStatus, SubscriptionStatus, FeatureType, RewardType, Prisma, ActivityEventType, InvoiceStatus } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 
 const prisma = new PrismaClient();
+
+const randomLink = () => crypto.randomBytes(6).toString('hex');
 
 async function main() {
   console.log('🌱 Starting database seed...');
@@ -213,11 +216,16 @@ async function main() {
     });
 
     if (!existingSubscription) {
+      const subscriptionStartDate = new Date();
+      const subscriptionEndDate = new Date(subscriptionStartDate.getTime() + 30 * 24 * 60 * 60 * 1000);
       await prisma.subscription.create({
         data: {
           clientId: clientAccountWithClient.client.id,
           planId: premiumPlan.id,
           status: SubscriptionStatus.ACTIVE,
+          startDate: subscriptionStartDate,
+          endDate: subscriptionEndDate,
+          amountEGP: 0,
         },
       });
 
@@ -226,6 +234,152 @@ async function main() {
       console.log('   Plan: Premium Plan (all features enabled)');
       console.log('   Subscription: ACTIVE');
     }
+
+    const subscription = await prisma.subscription.findUnique({
+      where: { clientId: clientAccountWithClient.client.id },
+    });
+
+    let demoRoom = await prisma.room.findFirst({
+      where: { clientId: clientAccountWithClient.client.id },
+    });
+
+    if (!demoRoom) {
+      demoRoom = await prisma.room.create({
+        data: {
+          name: 'Demo Classroom',
+          description: 'Seeded room for analytics previews',
+          clientId: clientAccountWithClient.client.id,
+          hostLink: randomLink(),
+          guestLink: randomLink(),
+          enableFileSharing: true,
+          enablePdfViewer: true,
+          isActive: true,
+        },
+      });
+    }
+
+    const existingFiles = await prisma.roomFile.count({
+      where: { roomId: demoRoom.id },
+    });
+
+    if (existingFiles === 0) {
+      await prisma.roomFile.createMany({
+        data: [
+          {
+            roomId: demoRoom.id,
+            filename: 'lesson-plan.pdf',
+            originalName: 'lesson-plan.pdf',
+            fileType: 'application/pdf',
+            size: 4_200_000,
+            uploadedBy: 'Teacher A',
+          },
+          {
+            roomId: demoRoom.id,
+            filename: 'class-recording.mp4',
+            originalName: 'class-recording.mp4',
+            fileType: 'video/mp4',
+            size: 120_000_000,
+            uploadedBy: 'Teacher A',
+          },
+        ],
+      });
+    }
+
+    const noteExists = await prisma.accountNote.findFirst({
+      where: { accountId: clientAccountWithClient.id },
+    });
+
+    if (!noteExists) {
+      await prisma.accountNote.create({
+        data: {
+          accountId: clientAccountWithClient.id,
+          content: 'Seed note — this tenant is used for demo dashboards.',
+          tags: ['demo', 'priority-low'],
+        },
+      });
+    }
+
+    const activityCount = await prisma.roomActivityLog.count({
+      where: { roomId: demoRoom.id },
+    });
+
+    if (activityCount === 0) {
+      await prisma.roomActivityLog.createMany({
+        data: [
+          {
+            clientId: clientAccountWithClient.client.id,
+            roomId: demoRoom.id,
+            event: ActivityEventType.ROOM_CREATED,
+            description: 'Room created via seed script',
+          },
+          {
+            clientId: clientAccountWithClient.client.id,
+            roomId: demoRoom.id,
+            event: ActivityEventType.FILE_UPLOADED,
+            description: 'lesson-plan.pdf uploaded',
+            metadata: { filename: 'lesson-plan.pdf', size: 4200000 },
+          },
+        ],
+      });
+    }
+
+    const invoiceExists = await prisma.billingInvoice.count({
+      where: { clientId: clientAccountWithClient.client.id },
+    });
+
+    if (invoiceExists === 0) {
+      await prisma.billingInvoice.create({
+        data: {
+          clientId: clientAccountWithClient.client.id,
+          subscriptionId: subscription?.id,
+          status: InvoiceStatus.PAID,
+          amountCents: 75000,
+          currency: 'EGP',
+          description: 'Seeded invoice for dashboard previews',
+          periodStart: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+          periodEnd: new Date(),
+          paidAt: new Date(),
+        },
+      });
+    }
+
+    const snapshotExists = await prisma.storageSnapshot.count({
+      where: { clientId: clientAccountWithClient.client.id },
+    });
+
+    if (snapshotExists === 0) {
+      await prisma.storageSnapshot.create({
+        data: {
+          clientId: clientAccountWithClient.client.id,
+          totalBytes: BigInt(124_200_000),
+          totalFiles: 2,
+          totalRooms: 1,
+          activeRooms: 1,
+          breakdown: {
+            video: 120_000_000,
+            documents: 4_200_000,
+          },
+        },
+      });
+    }
+  }
+
+  // Initialize default subscription sources if none exist
+  const defaultSources = [
+    { label: 'التسويق الرقمي', description: 'حملات رقمية وإعلانات' },
+    { label: 'المبيعات المباشرة', description: 'تواصل مباشر مع العملاء' },
+    { label: 'الشراكات', description: 'قنوات الشركاء' },
+  ];
+
+  for (const source of defaultSources) {
+    await prisma.subscriptionSource.upsert({
+      where: { label: source.label },
+      update: {
+        description: source.description,
+        isActive: true,
+      },
+      create: source,
+    });
   }
 
   // Referral defaults
