@@ -30,6 +30,9 @@
   - [x] Create account
   - [x] Reset password
   - [x] Activate/Deactivate account
+  - [x] Advanced filters, storage tiers, and usage analytics
+  - [x] Account profile workspace (rooms, storage, billing, notes)
+  - [x] Edit, archive, and delete flows with audit notes
 - [x] Plans Management (`/super-admin/plans`)
   - [x] List all plans
   - [x] Create plan

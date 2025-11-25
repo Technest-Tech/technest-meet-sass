@@ -93,6 +93,28 @@ enum ProspectStatus {
   ARCHIVED
 }
 
+enum ActivityEventType {
+  ROOM_CREATED
+  ROOM_UPDATED
+  ROOM_STARTED
+  ROOM_ENDED
+  PARTICIPANT_JOINED
+  PARTICIPANT_LEFT
+  FILE_UPLOADED
+  FILE_DELETED
+  SYSTEM_ALERT
+}
+
+enum InvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  VOID
+  UNCOLLECTIBLE
+  PAST_DUE
+  REFUNDED
+}
+
 // Super Admin - Single super admin account
 model SuperAdmin {
   id                   String                 @id @default(cuid())
@@ -103,6 +125,7 @@ model SuperAdmin {
   ProspectRegistration ProspectRegistration[]
   RewardCatalog        RewardCatalog[]
   RedeemRequest        RedeemRequest[]
+  accountNotes         AccountNote[]
 
   @@map("super_admins")
 }
@@ -118,6 +141,8 @@ model Account {
   client    Client?
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
+  notes     AccountNote[]
+  activityLogs RoomActivityLog[]
 
   @@index([clientId])
   @@index([role, status])
@@ -129,6 +154,7 @@ model Client {
   id        String  @id @default(cuid())
   name      String
   email     String  @unique
+  whatsappNumber String?
   accountId String  @unique // Link to Account
   account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
@@ -146,6 +172,9 @@ model Client {
   guestAccounts  GuestAccount[]
   referralLink   ReferralLink?
   redeemRequests RedeemRequest[]
+  activityLogs   RoomActivityLog[]
+  invoices       BillingInvoice[]
+  storageSnapshots StorageSnapshot[]
 
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
@@ -193,6 +222,13 @@ model Subscription {
   planId   String
   plan     Plan               @relation(fields: [planId], references: [id])
   status   SubscriptionStatus @default(INACTIVE)
+  invoices BillingInvoice[]
+  sourceId String?
+  source   SubscriptionSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  startDate DateTime? @default(now())
+  endDate   DateTime?
+  amountEGP Int?      @default(0)
 
   // Trial fields
   isTrial        Boolean   @default(false)
@@ -205,8 +241,22 @@ model Subscription {
 
   @@index([status])
   @@index([clientId])
+  @@index([sourceId])
   @@index([isTrial, trialEndDate]) // For querying active trials
   @@map("subscriptions")
+}
+
+model SubscriptionSource {
+  id          String          @id @default(cuid())
+  label       String
+  description String?
+  isActive    Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  subscriptions Subscription[]
+
+  @@index([isActive])
+  @@map("subscription_sources")
 }
 
 // Room - Meeting rooms (belongs to client)
@@ -259,6 +309,7 @@ model Room {
   waitingParticipants WaitingParticipant[]
   hostAccounts        HostAccount[]
   guestAccounts       GuestAccount[]
+  activityLogs        RoomActivityLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -346,6 +397,82 @@ model GuestAccount {
   @@index([clientId])
   @@index([roomId])
   @@map("guest_accounts")
+}
+
+model AccountNote {
+  id        String      @id @default(cuid())
+  accountId String
+  account   Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  authorId  String?
+  author    SuperAdmin? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  content   String
+  tags      String[]    @default([])
+  isPinned  Boolean     @default(false)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([accountId, isPinned])
+  @@map("account_notes")
+}
+
+model RoomActivityLog {
+  id             String            @id @default(cuid())
+  clientId       String
+  client         Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  roomId         String
+  room           Room              @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  event          ActivityEventType
+  description    String?
+  metadata       Json?
+  occurredAt     DateTime          @default(now())
+  actorAccountId String?
+  actorAccount   Account?          @relation(fields: [actorAccountId], references: [id], onDelete: SetNull)
+  createdAt      DateTime          @default(now())
+
+  @@index([clientId, occurredAt])
+  @@index([roomId, occurredAt])
+  @@map("room_activity_logs")
+}
+
+model BillingInvoice {
+  id              String        @id @default(cuid())
+  clientId        String
+  client          Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  subscriptionId  String?
+  subscription    Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  status          InvoiceStatus @default(OPEN)
+  amountCents     Int
+  currency        String        @default("EGP")
+  issuedAt        DateTime      @default(now())
+  dueAt           DateTime?
+  paidAt          DateTime?
+  periodStart     DateTime?
+  periodEnd       DateTime?
+  description     String?
+  metadata        Json?
+  pdfUrl          String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([clientId, status])
+  @@index([subscriptionId])
+  @@map("billing_invoices")
+}
+
+model StorageSnapshot {
+  id            String   @id @default(cuid())
+  clientId      String
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  totalBytes    BigInt   @default(0)
+  totalFiles    Int      @default(0)
+  totalRooms    Int      @default(0)
+  activeRooms   Int      @default(0)
+  capturedAt    DateTime @default(now())
+  breakdown     Json?
+  createdAt     DateTime @default(now())
+
+  @@index([clientId, capturedAt])
+  @@map("storage_snapshots")
 }
 
 model ReferralSetting {
