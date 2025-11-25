@@ -51,6 +51,7 @@ import {
   DisconnectReason,
   Track,
   ParticipantEvent,
+  TrackPublication,
 } from 'livekit-client';
 import { useRouter } from 'next/navigation';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
@@ -752,28 +753,58 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
   React.useEffect(() => {
     if (!localParticipant) return;
 
-    const handleTrackMuted = (publication: { kind?: Track.Kind }) => {
-      if (publication.kind === Track.Kind.Audio) {
+    const handleTrackMuted = (publication: TrackPublication) => {
+      const isScreenShareVideo = publication.source === Track.Source.ScreenShare;
+      const isScreenShareAudio = publication.source === Track.Source.ScreenShareAudio;
+
+      if (publication.kind === Track.Kind.Audio && !isScreenShareAudio) {
         setIsMicEnabled(false);
-      } else if (publication.kind === Track.Kind.Video) {
+      } else if (publication.kind === Track.Kind.Video && !isScreenShareVideo) {
         setIsCameraEnabled(false);
+      }
+
+      if (isScreenShareVideo || isScreenShareAudio) {
+        setIsScreenSharing(false);
       }
     };
 
-    const handleTrackUnmuted = (publication: { kind?: Track.Kind }) => {
-      if (publication.kind === Track.Kind.Audio) {
+    const handleTrackUnmuted = (publication: TrackPublication) => {
+      const isScreenShareVideo = publication.source === Track.Source.ScreenShare;
+      const isScreenShareAudio = publication.source === Track.Source.ScreenShareAudio;
+
+      if (publication.kind === Track.Kind.Audio && !isScreenShareAudio) {
         setIsMicEnabled(true);
-      } else if (publication.kind === Track.Kind.Video) {
+      } else if (publication.kind === Track.Kind.Video && !isScreenShareVideo) {
         setIsCameraEnabled(true);
+      }
+
+      if (isScreenShareVideo || isScreenShareAudio) {
+        setIsScreenSharing(true);
+      }
+    };
+
+    const handleTrackPublished = (publication: TrackPublication) => {
+      if (publication.source === Track.Source.ScreenShare) {
+        setIsScreenSharing(true);
+      }
+    };
+
+    const handleTrackUnpublished = (publication: TrackPublication) => {
+      if (publication.source === Track.Source.ScreenShare) {
+        setIsScreenSharing(false);
       }
     };
 
     localParticipant.on(ParticipantEvent.TrackMuted, handleTrackMuted);
     localParticipant.on(ParticipantEvent.TrackUnmuted, handleTrackUnmuted);
+    localParticipant.on(ParticipantEvent.LocalTrackPublished, handleTrackPublished);
+    localParticipant.on(ParticipantEvent.LocalTrackUnpublished, handleTrackUnpublished);
 
     return () => {
       localParticipant.off(ParticipantEvent.TrackMuted, handleTrackMuted);
       localParticipant.off(ParticipantEvent.TrackUnmuted, handleTrackUnmuted);
+      localParticipant.off(ParticipantEvent.LocalTrackPublished, handleTrackPublished);
+      localParticipant.off(ParticipantEvent.LocalTrackUnpublished, handleTrackUnpublished);
     };
   }, [localParticipant]);
 
@@ -1438,6 +1469,7 @@ function VideoConferenceComponent(props: {
     hasConnectionDetails: !!props.connectionDetails,
     connectionDetails: props.connectionDetails
   });
+  const isObserverView = props.participantType === 'observer';
   
   const router = useRouter();
   const keyProvider = new ExternalE2EEKeyProvider();
@@ -1531,6 +1563,45 @@ function VideoConferenceComponent(props: {
       autoSubscribe: true,
     };
   }, []);
+
+  // Ensure observer never sees their own tile even if LiveKit updates DOM structure
+  React.useEffect(() => {
+    if (!isObserverView || typeof window === 'undefined') {
+      return;
+    }
+
+    const hideObserverTiles = () => {
+      const selectors = [
+        '[data-lk-participant-identity*="_observer_"]',
+        '[data-lk-participant-name="Observer"]',
+        '[data-lk-participant-name*="observer"]',
+      ];
+
+      selectors.forEach((selector) => {
+        document.querySelectorAll(selector).forEach((node) => {
+          const element = node instanceof HTMLElement ? node : (node as Element).parentElement;
+          if (!element) return;
+
+          const tile = element.closest('.lk-participant-tile');
+          const target = (tile as HTMLElement) || element;
+          target.style.display = 'none';
+        });
+      });
+    };
+
+    hideObserverTiles();
+
+    const observer = new MutationObserver(() => {
+      hideObserverTiles();
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+
+    return () => observer.disconnect();
+  }, [isObserverView]);
 
   // Track connection states
   const [isConnected, setIsConnected] = React.useState(false);
@@ -2190,10 +2261,14 @@ The meeting has been terminated for all participants and the room has been delet
   }
 
   return (
-    <div className="lk-room-container" dir="ltr">
+    <div
+      className="lk-room-container"
+      dir="ltr"
+      data-observer-view={isObserverView ? 'true' : 'false'}
+    >
       <RoomContext.Provider value={room}>
         {/* Show participant type indicator - Positioned below timer to avoid overlap */}
-        {props.participantType && (
+        {props.participantType && props.participantType !== 'observer' && (
           <div 
             className="participant-type-indicator"
             style={{
@@ -2214,6 +2289,34 @@ The meeting has been terminated for all participants and the room has been delet
             {props.participantType === 'host' ? '👑 Host' : '👤 Guest'}
           </div>
         )}
+        {props.participantType === 'observer' && (
+          <div
+            className="observer-indicator"
+            style={{
+              position: 'fixed',
+              top: '70px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 1000,
+              padding: '10px 18px',
+              backgroundColor: 'rgba(15, 23, 42, 0.92)',
+              color: 'white',
+              borderRadius: '999px',
+              fontSize: '13px',
+              fontWeight: 600,
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              letterSpacing: '0.02em',
+              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.25)',
+            }}
+          >
+            <span style={{ fontSize: '16px', lineHeight: 1 }}>👁</span>
+            <span>Observer Mode</span>
+          </div>
+        )}
         <style jsx global>{`
           /* Responsive adjustments for participant type indicator */
           @media (max-width: 768px) {
@@ -2232,6 +2335,26 @@ The meeting has been terminated for all participants and the room has been delet
               font-size: 11px !important;
               padding: 5px 10px !important;
             }
+          }
+          @media (max-width: 768px) {
+            .observer-indicator {
+              top: 60px !important;
+              padding: 8px 14px !important;
+              font-size: 12px !important;
+            }
+          }
+          @media (max-width: 480px) {
+            .observer-indicator {
+              top: 55px !important;
+              padding: 6px 12px !important;
+              font-size: 11px !important;
+            }
+          }
+        `}</style>
+        <style jsx global>{`
+          [data-observer-view="true"] .lk-participant-tile[data-lk-participant-identity*="_observer_"],
+          [data-observer-view="true"] .lk-participant-tile[data-lk-participant-name="Observer"] {
+            display: none !important;
           }
         `}</style>
         
