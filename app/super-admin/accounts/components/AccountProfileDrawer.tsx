@@ -6,6 +6,7 @@ import Button from '@/lib/components/Button';
 import FormInput from '@/lib/components/FormInput';
 import { formatBytes, formatDate } from '../utils';
 import toast from 'react-hot-toast';
+import RoomLogsViewer from './RoomLogsViewer';
 
 interface AccountProfileDrawerProps {
   accountId: string | null;
@@ -95,6 +96,10 @@ type RoomsResponse = {
       storageBytes: number;
       participantSlots: number;
     };
+    sessionStatus?: {
+      isRunning: boolean;
+      currentSessionStart: string | null;
+    };
     recentFiles: Array<{
       id: string;
       filename: string;
@@ -180,6 +185,8 @@ export default function AccountProfileDrawer({
   const [isNotesLoading, setIsNotesLoading] = useState(false);
   const [newNote, setNewNote] = useState('');
   const [isAddingNote, setIsAddingNote] = useState(false);
+  const [isLogsViewerOpen, setIsLogsViewerOpen] = useState(false);
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
 
 useEffect(() => {
   if (!accountId || !isOpen) return;
@@ -200,6 +207,13 @@ useEffect(() => {
     loadNotes(accountId);
   }
 }, [activeTab, accountId, isOpen, rooms, billing, notes.length]);
+
+useEffect(() => {
+  if (!isOpen) {
+    setIsLogsViewerOpen(false);
+    setSelectedRoomId(null);
+  }
+}, [isOpen]);
 
   const loadOverview = async (id: string) => {
     setIsLoading(true);
@@ -313,9 +327,10 @@ useEffect(() => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex justify-end">
-      <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-[61] h-full w-full max-w-4xl bg-white shadow-2xl flex flex-col">
+    <>
+      <div className="fixed inset-0 z-[60] flex justify-end">
+        <div className="absolute inset-0 bg-gray-900/50 backdrop-blur-sm" onClick={onClose} />
+        <div className="relative z-[61] h-full w-full max-w-4xl bg-white shadow-2xl flex flex-col">
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
           <div>
             <p className="text-xs text-gray-500">معرف الحساب</p>
@@ -378,7 +393,15 @@ useEffect(() => {
           )}
 
           {activeTab === 'rooms' && (
-            <RoomsTab isLoading={isRoomsLoading} rooms={rooms} onRefresh={() => accountId && loadRooms(accountId)} />
+            <RoomsTab
+              isLoading={isRoomsLoading}
+              rooms={rooms}
+              onRefresh={() => accountId && loadRooms(accountId)}
+              onViewLogs={(roomId) => {
+                setSelectedRoomId(roomId);
+                setIsLogsViewerOpen(true);
+              }}
+            />
           )}
 
           {activeTab === 'storage' && (
@@ -404,8 +427,20 @@ useEffect(() => {
             />
           )}
         </div>
+        </div>
       </div>
-    </div>
+      {accountId && selectedRoomId && (
+        <RoomLogsViewer
+          accountId={accountId}
+          roomId={selectedRoomId}
+          isOpen={isLogsViewerOpen}
+          onClose={() => {
+            setIsLogsViewerOpen(false);
+            setSelectedRoomId(null);
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -507,10 +542,12 @@ function RoomsTab({
   isLoading,
   rooms,
   onRefresh,
+  onViewLogs,
 }: {
   isLoading: boolean;
   rooms: RoomsResponse | null;
   onRefresh: () => void;
+  onViewLogs: (roomId: string) => void;
 }) {
   if (isLoading) {
     return (
@@ -546,6 +583,11 @@ function RoomsTab({
         <div>
           <p className="text-base font-semibold text-gray-900">{room.name}</p>
           <p className="text-xs text-gray-500">أُنشئ في {formatDate(room.createdAt)}</p>
+          {room.sessionStatus?.isRunning && room.sessionStatus.currentSessionStart && (
+            <p className="text-xs font-semibold text-green-600">
+              جلسة نشطة منذ {formatDate(room.sessionStatus.currentSessionStart)}
+            </p>
+          )}
         </div>
         <span
           className={`px-3 py-1 rounded-full text-xs font-semibold ${
@@ -600,6 +642,11 @@ function RoomsTab({
             <p className="text-xs text-gray-500">لا يوجد نشاط حديث</p>
           )}
         </div>
+      </div>
+      <div className="flex justify-end">
+        <Button variant="ghost" size="sm" onClick={() => onViewLogs(room.id)}>
+          عرض السجل الكامل
+        </Button>
       </div>
     </div>
   );

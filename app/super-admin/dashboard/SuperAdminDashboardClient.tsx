@@ -13,6 +13,7 @@ import {
   ArrowDownRight,
   Plus,
   Gift,
+  BarChart3,
 } from 'lucide-react';
 import Sidebar from '@/lib/components/Sidebar';
 import Header from '@/lib/components/Header';
@@ -22,12 +23,38 @@ import Button from '@/lib/components/Button';
 import { SidebarProvider, useSidebar } from '@/lib/components/SidebarContext';
 import { logout } from '@/lib/auth/client-auth';
 import toast from 'react-hot-toast';
+import SessionStatsCards from './components/SessionStatsCards';
+import SessionActivityChart from './components/SessionActivityChart';
+import SystemStatusCard from './components/SystemStatusCard';
+import AlertsPanel from './components/AlertsPanel';
+
+interface SessionStats {
+  active: number;
+  today: number;
+  totalParticipants: number;
+  averageDuration: number;
+  peakHours: { hour: number; count: number }[];
+}
+
+interface SessionActivityData {
+  time: string;
+  hour: number;
+  started: number;
+  ended: number;
+  active: number;
+}
 
 interface DashboardStats {
   totalAccounts: number;
   totalClients: number;
   totalPlans: number;
   activeSubscriptions: number;
+  sessions: SessionStats;
+  rooms: { total: number; active: number; utilization: number };
+  charts: {
+    sessionActivity: SessionActivityData[];
+    participantActivity: { joined: number; left: number; net: number };
+  };
 }
 
 function SuperAdminDashboardContent({ userEmail }: { userEmail: string }) {
@@ -36,6 +63,22 @@ function SuperAdminDashboardContent({ userEmail }: { userEmail: string }) {
     totalClients: 0,
     totalPlans: 0,
     activeSubscriptions: 0,
+    sessions: {
+      active: 0,
+      today: 0,
+      totalParticipants: 0,
+      averageDuration: 0,
+      peakHours: [],
+    },
+    rooms: {
+      total: 0,
+      active: 0,
+      utilization: 0,
+    },
+    charts: {
+      sessionActivity: [],
+      participantActivity: { joined: 0, left: 0, net: 0 },
+    },
   });
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
@@ -77,6 +120,7 @@ function SuperAdminDashboardContent({ userEmail }: { userEmail: string }) {
     { href: '/super-admin/subscriptions', label: 'الاشتراكات', icon: CreditCard },
     { href: '/super-admin/clients', label: 'العملاء', icon: Building2 },
     { href: '/super-admin/referrals', label: 'الإحالات والمكافآت', icon: Gift },
+    { href: '/super-admin/analytics', label: 'التحليلات', icon: BarChart3 },
   ];
 
   return (
@@ -164,6 +208,22 @@ function SuperAdminDashboardContent({ userEmail }: { userEmail: string }) {
             </div>
           )}
 
+          {/* Session Statistics Cards */}
+          {!isLoading && stats.sessions && (
+            <SessionStatsCards stats={stats.sessions} roomsUtilization={stats.rooms.utilization} />
+          )}
+
+          {/* Charts, Alerts and System Status */}
+          {!isLoading && stats.charts && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+              <SessionActivityChart data={stats.charts.sessionActivity} />
+              <div className="space-y-6">
+                <AlertsPanel />
+                <SystemStatusCard />
+              </div>
+            </div>
+          )}
+
           {/* Quick Actions & Recent Activity */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Quick Actions */}
@@ -206,34 +266,6 @@ function SuperAdminDashboardContent({ userEmail }: { userEmail: string }) {
                   </div>
                   <ArrowUpRight className="w-5 h-5 text-gray-400 group-hover:text-indigo-600 transition-colors" />
                 </button>
-              </div>
-            </Card>
-
-            {/* System Status */}
-            <Card>
-              <h3 className="text-lg font-bold text-gray-900 mb-4">حالة النظام</h3>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 bg-green-50 rounded-xl border border-green-200">
-                  <div className="flex items-center gap-3">
-                    <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
-                    <span className="font-medium text-gray-900">قاعدة البيانات</span>
-                  </div>
-                  <span className="text-sm text-green-600 font-medium">متصل</span>
-                </div>
-                <div className="flex items-center justify-between p-4 bg-green-50 rounded-xl border border-green-200">
-                  <div className="flex items-center gap-3">
-                    <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
-                    <span className="font-medium text-gray-900">الخادم</span>
-                  </div>
-                  <span className="text-sm text-green-600 font-medium">يعمل</span>
-                </div>
-                <div className="flex items-center justify-between p-4 bg-blue-50 rounded-xl border border-blue-200">
-                  <div className="flex items-center gap-3">
-                    <div className="w-3 h-3 bg-blue-500 rounded-full" />
-                    <span className="font-medium text-gray-900">LiveKit</span>
-                  </div>
-                  <span className="text-sm text-blue-600 font-medium">نشط</span>
-                </div>
               </div>
             </Card>
           </div>

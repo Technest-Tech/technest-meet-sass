@@ -23,6 +23,7 @@ interface MediaState {
   
   // Media quality
   videoQuality: 'low' | 'medium' | 'high' | 'auto';
+  screenShareQuality: 'low' | 'medium' | 'high' | 'auto';
   
   // Actions - Toggle
   toggleVideo: () => void;
@@ -50,9 +51,24 @@ interface MediaState {
   
   // Actions - Quality
   setVideoQuality: (quality: 'low' | 'medium' | 'high' | 'auto') => void;
+  setScreenShareQuality: (quality: 'low' | 'medium' | 'high' | 'auto') => void;
   
   reset: () => void;
 }
+
+// Load preferences from localStorage
+const loadQualityPreference = (key: string, defaultValue: 'low' | 'medium' | 'high' | 'auto'): 'low' | 'medium' | 'high' | 'auto' => {
+  if (typeof window === 'undefined') return defaultValue;
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored && ['low', 'medium', 'high', 'auto'].includes(stored)) {
+      return stored as 'low' | 'medium' | 'high' | 'auto';
+    }
+  } catch (error) {
+    console.warn('Failed to load quality preference from localStorage:', error);
+  }
+  return defaultValue;
+};
 
 const initialState = {
   videoEnabled: false,
@@ -67,7 +83,8 @@ const initialState = {
   hasVideoPermission: false,
   hasAudioPermission: false,
   permissionError: null,
-  videoQuality: 'auto' as const,
+  videoQuality: loadQualityPreference('videoQuality', 'auto'),
+  screenShareQuality: loadQualityPreference('screenShareQuality', 'medium'),
 };
 
 export const useMediaStore = create<MediaState>((set) => ({
@@ -109,7 +126,28 @@ export const useMediaStore = create<MediaState>((set) => ({
   setPermissionError: (error) => set({ permissionError: error }),
   
   // Quality
-  setVideoQuality: (quality) => set({ videoQuality: quality }),
+  setVideoQuality: (quality) => {
+    set({ videoQuality: quality });
+    // Persist to localStorage
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('videoQuality', quality);
+      } catch (error) {
+        console.warn('Failed to save videoQuality to localStorage:', error);
+      }
+    }
+  },
+  setScreenShareQuality: (quality) => {
+    set({ screenShareQuality: quality });
+    // Persist to localStorage
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('screenShareQuality', quality);
+      } catch (error) {
+        console.warn('Failed to save screenShareQuality to localStorage:', error);
+      }
+    }
+  },
   
   reset: () => set(initialState),
 }));

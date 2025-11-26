@@ -47,6 +47,8 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
   final _participantNameController = TextEditingController();
   bool _isLoading = false;
   String? _error;
+  String _selectedRole = 'host'; // Default to Teacher (host)
+  String? _linkRole; // Role extracted from the link (h/g/o)
 
   @override
   void initState() {
@@ -64,9 +66,10 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
     super.dispose();
   }
 
-  /// Extract room name from link or return as-is
+  /// Extract room name and role from link or return as-is
   String _extractRoomName(String input) {
     final trimmed = input.trim();
+    String? extractedRole;
     
     // Check if it's a URL
     if (trimmed.contains('://') || trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
@@ -79,9 +82,16 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
           path = path.substring(1);
         }
         
-        // Remove trailing /h or /g
-        if (path.endsWith('/h') || path.endsWith('/g')) {
-          path = path.substring(0, path.length - 2);
+        // Extract role from path (h/g/o)
+        if (path.endsWith('/h') || path.endsWith('/host')) {
+          extractedRole = 'host'; // Teacher
+          path = path.replaceAll(RegExp(r'/(h|host)$'), '');
+        } else if (path.endsWith('/g') || path.endsWith('/guest')) {
+          extractedRole = 'guest'; // Student
+          path = path.replaceAll(RegExp(r'/(g|guest)$'), '');
+        } else if (path.endsWith('/o') || path.endsWith('/observer')) {
+          extractedRole = 'observer'; // Observer
+          path = path.replaceAll(RegExp(r'/(o|observer)$'), '');
         }
         
         // Remove trailing slash if present
@@ -89,15 +99,34 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
           path = path.substring(0, path.length - 1);
         }
         
-        Logger.debug(' RoomEntry: Extracted room name from link: $path', 'room_entry_screen');
+        // Store the role from link and update selected role
+        if (extractedRole != null) {
+          setState(() {
+            _linkRole = extractedRole;
+            _selectedRole = extractedRole!; // Override user selection with link role
+          });
+          Logger.debug(' RoomEntry: Extracted room name from link: $path, role from link: $extractedRole', 'room_entry_screen');
+        } else {
+          setState(() {
+            _linkRole = null; // No role in link, user can select freely
+          });
+          Logger.debug(' RoomEntry: Extracted room name from link: $path, no role in link', 'room_entry_screen');
+        }
+        
         return path;
       } catch (e) {
         Logger.warning(' RoomEntry: Failed to parse URL, using as-is: $e', 'room_entry_screen');
+        setState(() {
+          _linkRole = null;
+        });
         return trimmed;
       }
     }
     
-    // Not a URL, return as-is
+    // Not a URL, clear link role
+    setState(() {
+      _linkRole = null;
+    });
     return trimmed;
   }
 
@@ -121,51 +150,85 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
       final inputText = _roomNameController.text.trim();
       final roomName = _extractRoomName(inputText);
       
-      // Always join as host
-      const participantType = 'host';
+      // Use role from link if present, otherwise use selected role
+      // If link has a role, it overrides user selection
+      final participantType = _linkRole ?? _selectedRole;
+      
+      Logger.debug(' RoomEntry: Using participant type: $participantType (from link: $_linkRole, selected: $_selectedRole)', 'room_entry_screen');
+      
+      // Set default participant name based on role
+      String defaultName;
+      if (participantType == 'host') {
+        defaultName = 'Teacher';
+      } else if (participantType == 'observer') {
+        defaultName = 'Observer';
+      } else {
+        defaultName = 'Student';
+      }
+      
       final participantName = _participantNameController.text.trim().isEmpty
-          ? 'Host'
+          ? defaultName
           : _participantNameController.text.trim();
 
       print('📝 RoomEntry: Room details - Name: $roomName, Participant: $participantName, Type: $participantType');
 
-      // Request permissions first
-      print('📱 RoomEntry: Requesting permissions...');
-      await _requestPermissions();
-      Logger.debug(' RoomEntry: Permissions granted', 'room_entry_screen');
-
-      // Validate room exists
-      Logger.debug(' RoomEntry: Validating room existence...', 'room_entry_screen');
-      final validation = await ApiService.validateRoom(roomName, participantType);
-      Logger.debug(' RoomEntry: Room validation result - Exists: ${validation.exists}', 'room_entry_screen');
-      
-      if (!validation.exists) {
-        Logger.error(' RoomEntry: Room not found', null, null, 'room_entry_screen');
-        setState(() {
-          _error = 'Room not found. Please check the room name or create it through the admin dashboard.';
-          _isLoading = false;
-        });
-        return;
+      // Request permissions first (skip for observers)
+      if (participantType != 'observer') {
+        print('📱 RoomEntry: Requesting permissions...');
+        await _requestPermissions();
+        Logger.debug(' RoomEntry: Permissions granted', 'room_entry_screen');
+      } else {
+        Logger.debug(' RoomEntry: Skipping permissions for observer', 'room_entry_screen');
       }
 
-      if (validation.room != null && !validation.room!.isActive) {
-        Logger.error(' RoomEntry: Room is inactive', null, null, 'room_entry_screen');
-        setState(() {
-          _error = 'This room is currently inactive. Please contact the administrator.';
-          _isLoading = false;
-        });
-        return;
-      }
-
-      Logger.debug(' RoomEntry: Room validation passed', 'room_entry_screen');
-
-      // Extract features from validation
-      final features = validation.features;
-      print('🎯 RoomEntry: Room features - Chat: ${features?.enablePrivateChat}, Reactions: ${features?.enableReactions}, RaiseHand: ${features?.enableRaiseHand}, NoiseCancellation: ${features?.enableNoiseCancellation}');
-      print('🎯 RoomEntry: Full room features JSON: ${features?.toJson()}');
+      // Validate room exists (skip validation for observers - connection-details API will handle it)
+      RoomFeatures? features;
+      bool? passwordRequired;
+      String? passwordFor;
       
-      // Debug password fields
-      Logger.debug(' RoomEntry: Password fields - passwordRequired: ${validation.room?.passwordRequired}, passwordFor: ${validation.room?.passwordFor}, participantType: $participantType', 'room_entry_screen');
+      if (participantType == 'observer') {
+        Logger.debug(' RoomEntry: Skipping validation for observer - will be validated by connection-details API', 'room_entry_screen');
+        // For observers, skip validation since the API doesn't support observer type
+        // The connection-details API will handle validation when connecting
+        features = null; // Will be handled by connection-details API
+        passwordRequired = false; // Observers don't need passwords
+        passwordFor = null;
+      } else {
+        Logger.debug(' RoomEntry: Validating room existence...', 'room_entry_screen');
+        final validation = await ApiService.validateRoom(roomName, participantType);
+        Logger.debug(' RoomEntry: Room validation result - Exists: ${validation.exists}', 'room_entry_screen');
+        
+        if (!validation.exists) {
+          Logger.error(' RoomEntry: Room not found', null, null, 'room_entry_screen');
+          setState(() {
+            _error = 'Room not found. Please check the room name or create it through the admin dashboard.';
+            _isLoading = false;
+          });
+          return;
+        }
+
+        if (validation.room != null && !validation.room!.isActive) {
+          Logger.error(' RoomEntry: Room is inactive', null, null, 'room_entry_screen');
+          setState(() {
+            _error = 'This room is currently inactive. Please contact the administrator.';
+            _isLoading = false;
+          });
+          return;
+        }
+
+        Logger.debug(' RoomEntry: Room validation passed', 'room_entry_screen');
+
+        // Extract features from validation
+        features = validation.features;
+        passwordRequired = validation.room?.passwordRequired;
+        passwordFor = validation.room?.passwordFor;
+        
+        print('🎯 RoomEntry: Room features - Chat: ${features?.enablePrivateChat}, Reactions: ${features?.enableReactions}, RaiseHand: ${features?.enableRaiseHand}, NoiseCancellation: ${features?.enableNoiseCancellation}');
+        print('🎯 RoomEntry: Full room features JSON: ${features?.toJson()}');
+        
+        // Debug password fields
+        Logger.debug(' RoomEntry: Password fields - passwordRequired: $passwordRequired, passwordFor: $passwordFor, participantType: $participantType', 'room_entry_screen');
+      }
 
       // Navigate to video conference
       print('🎬 RoomEntry: Navigating to video conference screen');
@@ -178,8 +241,8 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
               participantName: participantName,
               participantType: participantType,
               roomFeatures: features,
-              passwordRequired: validation.room?.passwordRequired,
-              passwordFor: validation.room?.passwordFor,
+              passwordRequired: passwordRequired,
+              passwordFor: passwordFor,
               roomLink: roomName,
             ),
           ),
@@ -560,6 +623,8 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
             ),
           ),
           const SizedBox(height: 24),
+          _buildRoleSelection(theme),
+          const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
@@ -783,7 +848,63 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
 
   void _handleInputChange() {
     if (mounted) {
-      setState(() {});
+      // Extract role from link if present when user types
+      final inputText = _roomNameController.text.trim();
+      if (inputText.isNotEmpty) {
+        // Check if it's a URL with role indicator
+        if (inputText.contains('://') || inputText.startsWith('http://') || inputText.startsWith('https://')) {
+          try {
+            final uri = Uri.parse(inputText);
+            var path = uri.path;
+            
+            if (path.startsWith('/')) {
+              path = path.substring(1);
+            }
+            
+            String? extractedRole;
+            if (path.endsWith('/h') || path.endsWith('/host')) {
+              extractedRole = 'host';
+            } else if (path.endsWith('/g') || path.endsWith('/guest')) {
+              extractedRole = 'guest';
+            } else if (path.endsWith('/o') || path.endsWith('/observer')) {
+              extractedRole = 'observer';
+            }
+            
+            if (extractedRole != null && extractedRole != _linkRole) {
+              setState(() {
+                _linkRole = extractedRole;
+                _selectedRole = extractedRole!; // Update dropdown to match link
+              });
+            } else if (extractedRole == null && _linkRole != null) {
+              // Link no longer has role, allow user selection
+              setState(() {
+                _linkRole = null;
+              });
+            }
+          } catch (e) {
+            // Invalid URL, clear link role
+            if (_linkRole != null) {
+              setState(() {
+                _linkRole = null;
+              });
+            }
+          }
+        } else {
+          // Not a URL, clear link role
+          if (_linkRole != null) {
+            setState(() {
+              _linkRole = null;
+            });
+          }
+        }
+      } else {
+        // Input is empty, clear link role
+        if (_linkRole != null) {
+          setState(() {
+            _linkRole = null;
+          });
+        }
+      }
     }
   }
 
@@ -819,6 +940,115 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
       ),
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
+    );
+  }
+
+  Widget _buildRoleSelection(ThemeData theme) {
+    // Map role values to display labels
+    final roleOptions = [
+      {'value': 'host', 'label': 'Teacher'},
+      {'value': 'guest', 'label': 'Student'},
+      {'value': 'observer', 'label': 'Observer'},
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'Join as',
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: _EntryColors.textPrimary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: _EntryColors.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: _EntryColors.border,
+              width: 1,
+            ),
+          ),
+          child: DropdownButtonFormField<String>(
+            value: _selectedRole,
+            isExpanded: true,
+            decoration: InputDecoration(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              filled: true,
+              fillColor: Colors.transparent,
+              isDense: false,
+              constraints: const BoxConstraints(
+                minHeight: 60,
+              ),
+            ),
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: _EntryColors.textPrimary,
+              fontWeight: FontWeight.w600,
+              height: 1.5,
+            ),
+            dropdownColor: _EntryColors.surface,
+            borderRadius: BorderRadius.circular(16),
+            menuMaxHeight: 300,
+            icon: Icon(
+              Icons.arrow_drop_down,
+              color: _EntryColors.active,
+            ),
+            selectedItemBuilder: (BuildContext context) {
+              return roleOptions.map((option) {
+                return Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    option['label'] as String,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: _EntryColors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      height: 1.5,
+                    ),
+                    textAlign: TextAlign.left,
+                  ),
+                );
+              }).toList();
+            },
+            items: roleOptions.map((option) {
+              final isDisabled = _linkRole != null && _linkRole != option['value'];
+              return DropdownMenuItem<String>(
+                value: option['value'] as String,
+                enabled: !isDisabled,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  child: Opacity(
+                    opacity: isDisabled ? 0.5 : 1.0,
+                    child: Text(
+                      option['label'] as String,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: isDisabled 
+                            ? _EntryColors.textSecondary 
+                            : _EntryColors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+            onChanged: _linkRole != null 
+                ? null // Disable changes if role is from link
+                : (String? newValue) {
+                    if (newValue != null) {
+                      setState(() {
+                        _selectedRole = newValue;
+                      });
+                    }
+                  },
+          ),
+        ),
+      ],
     );
   }
 }

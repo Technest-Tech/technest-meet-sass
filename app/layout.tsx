@@ -4,6 +4,7 @@ import '@livekit/components-styles/prefabs';
 import type { Metadata, Viewport } from 'next';
 import { Toaster } from 'react-hot-toast';
 import { Almarai } from 'next/font/google';
+import { GlobalErrorHandler } from '@/lib/components/GlobalErrorHandler';
 
 const almarai = Almarai({
   subsets: ['arabic', 'latin'],
@@ -59,18 +60,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ar" dir="rtl" className={almarai.variable}>
       <body data-lk-theme="default" className={almarai.className}>
-        <Toaster 
-          position="top-left"
-          toastOptions={{
-            style: {
+        <GlobalErrorHandler>
+          <Toaster 
+            position="top-left"
+            toastOptions={{
+              style: {
+                zIndex: 9999999,
+              },
+            }}
+            containerStyle={{
               zIndex: 9999999,
-            },
-          }}
-          containerStyle={{
-            zIndex: 9999999,
-          }}
-        />
-        {children}
+            }}
+          />
+          {children}
+        </GlobalErrorHandler>
       </body>
     </html>
   );

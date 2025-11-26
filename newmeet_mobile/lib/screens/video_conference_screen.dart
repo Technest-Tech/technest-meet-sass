@@ -23,6 +23,7 @@ import '../widgets/waiting_list_widget.dart';
 import '../services/reaction_sound_service.dart';
 import '../services/api_service.dart';
 import '../models/room.dart';
+import '../utils/observer_filter.dart';
 
 class VideoConferenceScreen extends StatefulWidget {
   final String roomName;
@@ -404,8 +405,17 @@ class _VideoConferenceScreenState extends State<VideoConferenceScreen>
                   return _buildReconnectState(context);
                 }
 
-                final participantCount = liveKitService.participants.length +
-                    (liveKitService.localParticipant != null ? 1 : 0);
+                // Count visible participants (excluding observers)
+                final allParticipants = <dynamic>[];
+                final isObserver = widget.participantType.toLowerCase() == 'observer';
+                if (liveKitService.localParticipant != null) {
+                  // Always hide observer's own video tile
+                  if (!isObserver && !ObserverFilter.isObserver(liveKitService.localParticipant!)) {
+                    allParticipants.add(liveKitService.localParticipant);
+                  }
+                }
+                allParticipants.addAll(ObserverFilter.filterObservers(liveKitService.participants));
+                final participantCount = allParticipants.length;
 
                 return Stack(
                   children: [
@@ -496,6 +506,8 @@ class _VideoConferenceScreenState extends State<VideoConferenceScreen>
                 final micEnabled = state['micEnabled'] as bool;
                 final participantCount = state['participantCount'] as int;
                 final liveKitService = Provider.of<LiveKitService>(context, listen: false);
+                final isObserver = widget.participantType.toLowerCase() == 'observer';
+                final isHost = widget.participantType.toLowerCase() == 'host';
 
                 return MeetingControlDock(
                   cameraEnabled: cameraEnabled,
@@ -503,12 +515,14 @@ class _VideoConferenceScreenState extends State<VideoConferenceScreen>
                   participantCount: participantCount,
                   chatUnread: _unreadChatCount,
                   handRaised: _handRaised,
-                  chatEnabled: widget.roomFeatures?.enablePrivateChat == true,
-                  raiseHandEnabled: widget.roomFeatures?.enableRaiseHand == true,
+                  chatEnabled: !isObserver && (widget.roomFeatures?.enablePrivateChat == true),
+                  raiseHandEnabled: !isObserver && (widget.roomFeatures?.enableRaiseHand == true),
+                  isObserver: isObserver,
                   quickActions: _buildQuickActions(context, liveKitService),
-                  onToggleCamera: () => liveKitService.toggleCamera(),
-                  onToggleMicrophone: () => liveKitService.toggleMicrophone(),
+                  onToggleCamera: isObserver ? null : () => liveKitService.toggleCamera(),
+                  onToggleMicrophone: isObserver ? null : () => liveKitService.toggleMicrophone(),
                   onToggleChat: () {
+                    if (isObserver) return;
                     if (widget.roomFeatures?.enablePrivateChat == true) {
                       setState(() {
                         _isChatVisible = !_isChatVisible;
@@ -521,6 +535,7 @@ class _VideoConferenceScreenState extends State<VideoConferenceScreen>
                     }
                   },
                   onToggleHand: () async {
+                    if (widget.participantType.toLowerCase() == 'observer') return;
                     if (widget.roomFeatures?.enableRaiseHand != true) {
                       _showProFeatureDialog(context, 'Raise Hand');
                       return;
@@ -630,14 +645,21 @@ class _VideoConferenceScreenState extends State<VideoConferenceScreen>
   Widget _buildVideoGrid(LiveKitService liveKitService) {
     // Create a combined list of all participants (local + remote)
     final List<dynamic> allParticipants = [];
+    final isObserver = widget.participantType.toLowerCase() == 'observer';
     
-    // Add local participant first if it exists
+    // Add local participant first if it exists (but skip if observer)
     if (liveKitService.localParticipant != null) {
-      allParticipants.add(liveKitService.localParticipant);
+      // For observers, always hide their own video tile
+      if (!isObserver && !ObserverFilter.isObserver(liveKitService.localParticipant!)) {
+        allParticipants.add(liveKitService.localParticipant);
+      }
     }
     
-    // Add remote participants
-    allParticipants.addAll(liveKitService.participants);
+    // Add remote participants (filter out observers)
+    final allRemoteParticipants = liveKitService.participants;
+    final visibleRemoteParticipants = ObserverFilter.filterObservers(allRemoteParticipants);
+    Logger.debug(' VideoConferenceScreen: _buildVideoGrid - Total remote participants: ${allRemoteParticipants.length}, Visible (after filter): ${visibleRemoteParticipants.length}, isObserver: $isObserver', 'video_conference_screen');
+    allParticipants.addAll(visibleRemoteParticipants);
     
     if (allParticipants.isEmpty) {
       return const Center(
@@ -707,8 +729,18 @@ class _VideoConferenceScreenState extends State<VideoConferenceScreen>
 
   Widget _buildParticipantStage(LiveKitService liveKitService) {
     final spacing = Theme.of(context).extension<AppSpacing>()!;
-    final participantCount = liveKitService.participants.length +
-        (liveKitService.localParticipant != null ? 1 : 0);
+    final isObserver = widget.participantType.toLowerCase() == 'observer';
+    
+    // Count visible participants (excluding observers)
+    final allParticipants = <dynamic>[];
+    if (liveKitService.localParticipant != null) {
+      // Don't count observer's own tile - always hide if user is observer
+      if (!isObserver && !ObserverFilter.isObserver(liveKitService.localParticipant!)) {
+        allParticipants.add(liveKitService.localParticipant);
+      }
+    }
+    allParticipants.addAll(ObserverFilter.filterObservers(liveKitService.participants));
+    final participantCount = allParticipants.length;
 
     final stageChildren = <Widget>[
       Padding(
@@ -722,6 +754,7 @@ class _VideoConferenceScreenState extends State<VideoConferenceScreen>
           duration: _callDuration,
           participantCount: participantCount,
           isSpeakerOn: liveKitService.speakerEnabled,
+          showObserverBadge: isObserver,
           onSpeakerTap: () {
             liveKitService.toggleSpeaker();
           },
@@ -747,11 +780,22 @@ class _VideoConferenceScreenState extends State<VideoConferenceScreen>
   }
 
   Widget _buildParticipantBody(LiveKitService liveKitService) {
+    final isObserver = widget.participantType.toLowerCase() == 'observer';
     final participants = <dynamic>[];
+    
+    // Add local participant (but skip if observer)
     if (liveKitService.localParticipant != null) {
-      participants.add(liveKitService.localParticipant);
+      // Always hide observer's own video tile
+      if (!isObserver && !ObserverFilter.isObserver(liveKitService.localParticipant!)) {
+        participants.add(liveKitService.localParticipant);
+      }
     }
-    participants.addAll(liveKitService.participants);
+    
+    // Add remote participants (filter out observers)
+    final allRemoteParticipants = liveKitService.participants;
+    final visibleRemoteParticipants = ObserverFilter.filterObservers(allRemoteParticipants);
+    Logger.debug(' VideoConferenceScreen: _buildParticipantBody - Total remote participants: ${allRemoteParticipants.length}, Visible (after filter): ${visibleRemoteParticipants.length}, isObserver: $isObserver', 'video_conference_screen');
+    participants.addAll(visibleRemoteParticipants);
 
     // Check if anyone is screen sharing
     final screenSharingParticipant = liveKitService.screenSharingParticipant;
@@ -1073,108 +1117,125 @@ class _VideoConferenceScreenState extends State<VideoConferenceScreen>
     LiveKitService liveKitService,
   ) {
     final actions = <MeetingQuickAction>[];
+    final isObserver = widget.participantType.toLowerCase() == 'observer';
+    final isHost = widget.participantType.toLowerCase() == 'host';
     
-    // Manage Participants - show with pro badge if disabled
-    final canManageParticipants = widget.roomFeatures?.enableManageParticipants == true;
-    actions.add(
-      MeetingQuickAction(
-        icon: Icons.group,
-        title: 'Manage Participants',
-        showProBadge: !canManageParticipants,
-        isDisabled: !canManageParticipants,
-        onTap: canManageParticipants
-            ? () {
-                _showParticipantsModal(context, liveKitService);
-              }
-            : () {
-                _showProFeatureDialog(context, 'Manage Participants');
-              },
-      ),
-    );
+    // For observers, no quick actions
+    if (isObserver) {
+      return actions;
+    }
     
-    // Screen Sharing - always available
-    actions.add(
-      MeetingQuickAction(
-        icon: liveKitService.isScreenSharing
-            ? Icons.stop_screen_share
-            : Icons.screen_share,
-        title: liveKitService.isScreenSharing
-            ? 'Stop screen share'
-            : 'Start screen share',
-        onTap: () {
-          if (liveKitService.isScreenSharing) {
-            liveKitService.stopScreenSharing();
-          } else {
-            liveKitService.startScreenSharing();
-          }
-        },
-      ),
-    );
+    // Manage Participants - only for hosts, show with pro badge if disabled
+    if (isHost) {
+      final canManageParticipants = widget.roomFeatures?.enableManageParticipants == true;
+      actions.add(
+        MeetingQuickAction(
+          icon: Icons.group,
+          title: 'Manage Participants',
+          showProBadge: !canManageParticipants,
+          isDisabled: !canManageParticipants,
+          onTap: canManageParticipants
+              ? () {
+                  _showParticipantsModal(context, liveKitService);
+                }
+              : () {
+                  _showProFeatureDialog(context, 'Manage Participants');
+                },
+        ),
+      );
+    }
     
-    // Whiteboard - only works if collaborative whiteboard is enabled (PRO feature)
-    final canUseWhiteboard = widget.roomFeatures?.enableCollaborativeWhiteboard == true;
-    actions.add(
-      MeetingQuickAction(
-        icon: Icons.draw,
-        title: liveKitService.isWhiteboardOpen
-            ? 'Close whiteboard'
-            : 'Open whiteboard',
-        showProBadge: !canUseWhiteboard,
-        isDisabled: !canUseWhiteboard,
-        onTap: canUseWhiteboard
-            ? () => liveKitService.toggleWhiteboard()
-            : () {
-                _showProFeatureDialog(context, 'Collaborative Whiteboard');
-              },
-      ),
-    );
+    // Screen Sharing - not available for observers
+    if (!isObserver) {
+      actions.add(
+        MeetingQuickAction(
+          icon: liveKitService.isScreenSharing
+              ? Icons.stop_screen_share
+              : Icons.screen_share,
+          title: liveKitService.isScreenSharing
+              ? 'Stop screen share'
+              : 'Start screen share',
+          onTap: () {
+            if (liveKitService.isScreenSharing) {
+              liveKitService.stopScreenSharing();
+            } else {
+              liveKitService.startScreenSharing();
+            }
+          },
+        ),
+      );
+    }
     
-    // Reactions - show with pro badge if disabled
-    final canUseReactions = widget.roomFeatures?.enableReactions == true;
-    actions.add(
-      MeetingQuickAction(
-        icon: Icons.sentiment_satisfied_alt,
-        title: 'Send Reaction',
-        showProBadge: !canUseReactions,
-        isDisabled: !canUseReactions,
-        onTap: canUseReactions
-            ? () {
-                _showReactionPicker(context);
-              }
-            : () {
-                _showProFeatureDialog(context, 'Reactions');
-              },
-      ),
-    );
+    // Whiteboard - only works if collaborative whiteboard is enabled (PRO feature), not for observers
+    if (!isObserver) {
+      final canUseWhiteboard = widget.roomFeatures?.enableCollaborativeWhiteboard == true;
+      actions.add(
+        MeetingQuickAction(
+          icon: Icons.draw,
+          title: liveKitService.isWhiteboardOpen
+              ? 'Close whiteboard'
+              : 'Open whiteboard',
+          showProBadge: !canUseWhiteboard,
+          isDisabled: !canUseWhiteboard,
+          onTap: canUseWhiteboard
+              ? () => liveKitService.toggleWhiteboard()
+              : () {
+                  _showProFeatureDialog(context, 'Collaborative Whiteboard');
+                },
+        ),
+      );
+    }
     
-    // Noise Cancellation - show with pro badge if disabled
-    final canUseNoiseCancellation = widget.roomFeatures?.enableNoiseCancellation == true;
-    actions.add(
-      MeetingQuickAction(
-        icon: liveKitService.isNoiseCancellationEnabled
-            ? Icons.hearing_disabled
-            : Icons.hearing,
-        title: liveKitService.isNoiseCancellationEnabled
-            ? 'Disable Noise Cancellation'
-            : 'Enable Noise Cancellation',
-        showProBadge: !canUseNoiseCancellation,
-        isDisabled: !canUseNoiseCancellation,
-        isHighlighted: liveKitService.isNoiseCancellationEnabled,
-        onTap: canUseNoiseCancellation
-            ? () async {
-                Logger.debug(' VideoConference: Toggling noise cancellation from quick actions...', 'video_conference_screen');
-                await liveKitService.toggleNoiseCancellation();
-                Logger.debug(' VideoConference: Noise cancellation toggled, new state: ${liveKitService.isNoiseCancellationEnabled}', 'video_conference_screen');
-                // UI will update via Consumer/Selector automatically
-              }
-            : () {
-                _showProFeatureDialog(context, 'Noise Cancellation');
-              },
-      ),
-    );
+    // Reactions - show with pro badge if disabled, not for observers
+    if (!isObserver) {
+      final canUseReactions = widget.roomFeatures?.enableReactions == true;
+      actions.add(
+        MeetingQuickAction(
+          icon: Icons.sentiment_satisfied_alt,
+          title: 'Send Reaction',
+          showProBadge: !canUseReactions,
+          isDisabled: !canUseReactions,
+          onTap: canUseReactions
+              ? () {
+                  _showReactionPicker(context);
+                }
+              : () {
+                  _showProFeatureDialog(context, 'Reactions');
+                },
+        ),
+      );
+    }
+    
+    // Noise Cancellation - show with pro badge if disabled, not for observers
+    if (!isObserver) {
+      final canUseNoiseCancellation = widget.roomFeatures?.enableNoiseCancellation == true;
+      actions.add(
+        MeetingQuickAction(
+          icon: liveKitService.isNoiseCancellationEnabled
+              ? Icons.hearing_disabled
+              : Icons.hearing,
+          title: liveKitService.isNoiseCancellationEnabled
+              ? 'Disable Noise Cancellation'
+              : 'Enable Noise Cancellation',
+          showProBadge: !canUseNoiseCancellation,
+          isDisabled: !canUseNoiseCancellation,
+          isHighlighted: liveKitService.isNoiseCancellationEnabled,
+          onTap: canUseNoiseCancellation
+              ? () async {
+                  Logger.debug(' VideoConference: Toggling noise cancellation from quick actions...', 'video_conference_screen');
+                  await liveKitService.toggleNoiseCancellation();
+                  Logger.debug(' VideoConference: Noise cancellation toggled, new state: ${liveKitService.isNoiseCancellationEnabled}', 'video_conference_screen');
+                  // UI will update via Consumer/Selector automatically
+                }
+              : () {
+                  _showProFeatureDialog(context, 'Noise Cancellation');
+                },
+        ),
+      );
+    }
     
     // Recording - show with pro badge if disabled (host only)
-    if (widget.participantType.toLowerCase() == 'host') {
+    if (isHost) {
       final canRecord = widget.roomFeatures?.canRecord == true;
       actions.add(
         MeetingQuickAction(

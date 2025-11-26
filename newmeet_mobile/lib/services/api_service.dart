@@ -97,35 +97,75 @@ class ApiService {
     try {
       Logger.debug('Getting LiveKit token', 'ApiService');
       Logger.debug('Room: $roomName, Participant: $participantName, Type: $participantType', 'ApiService');
-      Logger.debug('Request URL: $baseUrl/api/livekit/token', 'ApiService');
       
-      final requestBody = {
-        'roomName': roomName,
-        'participantName': participantName,
-        'participantType': participantType,
-      };
-      Logger.debug('Request body: $requestBody', 'ApiService');
+      // For observers, use connection-details endpoint which properly handles observer permissions
+      // For others, we can use the simpler token endpoint or connection-details
+      final bool useConnectionDetails = participantType.toLowerCase() == 'observer';
       
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/livekit/token'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode(requestBody),
-      );
-
-      Logger.debug('Token response - Status: ${response.statusCode}', 'ApiService');
-      Logger.debug('Token response - Body: ${response.body}', 'ApiService');
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body) as Map<String, dynamic>;
-        Logger.debug('Parsed token data: ${data.toString().substring(0, 100)}...', 'ApiService');
-        final tokenResponse = LiveKitTokenResponse.fromJson(data);
-        Logger.debug('Token received - URL: ${tokenResponse.livekitUrl}', 'ApiService');
-        Logger.debug('Token received - Room: ${tokenResponse.roomName}', 'ApiService');
-        return tokenResponse;
+      if (useConnectionDetails) {
+        Logger.debug('Using connection-details endpoint for observer', 'ApiService');
+        final url = Uri.parse('$baseUrl/api/connection-details').replace(queryParameters: {
+          'roomName': roomName,
+          'participantName': participantName,
+          'participantType': participantType.toLowerCase(), // Ensure lowercase
+        });
+        
+        Logger.debug('Request URL: $url', 'ApiService');
+        
+        final response = await http.get(url, headers: {'Content-Type': 'application/json'});
+        
+        Logger.debug('Connection details response - Status: ${response.statusCode}', 'ApiService');
+        Logger.debug('Connection details response - Body: ${response.body}', 'ApiService');
+        
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body) as Map<String, dynamic>;
+          Logger.debug('Parsed connection details: ${data.toString().substring(0, 100)}...', 'ApiService');
+          
+          // Map connection-details response to LiveKitTokenResponse format
+          return LiveKitTokenResponse(
+            token: data['participantToken'] as String,
+            livekitUrl: data['serverUrl'] as String,
+            roomName: data['roomName'] as String,
+            participantName: data['participantName'] as String,
+            participantType: participantType,
+          );
+        } else {
+          Logger.error('Connection details request failed with status: ${response.statusCode}', null, null, 'ApiService');
+          Logger.error('Response body: ${response.body}', null, null, 'ApiService');
+          throw Exception('Failed to get connection details: ${response.statusCode}');
+        }
       } else {
-        Logger.error('Token request failed with status: ${response.statusCode}', null, null, 'ApiService');
-        Logger.error('Response body: ${response.body}', null, null, 'ApiService');
-        throw Exception('Failed to get token: ${response.statusCode}');
+        // Use the existing token endpoint for host/guest
+        Logger.debug('Request URL: $baseUrl/api/livekit/token', 'ApiService');
+        
+        final requestBody = {
+          'roomName': roomName,
+          'participantName': participantName,
+          'participantType': participantType,
+        };
+        Logger.debug('Request body: $requestBody', 'ApiService');
+        
+        final response = await http.post(
+          Uri.parse('$baseUrl/api/livekit/token'),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode(requestBody),
+        );
+
+        Logger.debug('Token response - Status: ${response.statusCode}', 'ApiService');
+        Logger.debug('Token response - Body: ${response.body}', 'ApiService');
+
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body) as Map<String, dynamic>;
+          Logger.debug('Parsed token data: ${data.toString().substring(0, 100)}...', 'ApiService');
+          final tokenResponse = LiveKitTokenResponse.fromJson(data);
+          Logger.debug('Token received - URL: ${tokenResponse.livekitUrl}', 'ApiService');
+          Logger.debug('Token received - Room: ${tokenResponse.roomName}', 'ApiService');
+          return tokenResponse;
+        } else {
+          Logger.error('Token request failed with status: ${response.statusCode}', null, null, 'ApiService');
+          Logger.error('Response body: ${response.body}', null, null, 'ApiService');
+          throw Exception('Failed to get token: ${response.statusCode}');
+        }
       }
     } catch (e) {
       Logger.error('Token request error: $e', e, null, 'ApiService');

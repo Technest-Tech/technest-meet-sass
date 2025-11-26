@@ -1,0 +1,12 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.newmeet.app.newmeet_mobile",
+    "sha256_cert_fingerprints": [
+      "31:54:96:36:52:E6:2A:F5:9F:AE:1D:F6:BA:61:CD:99:5E:1D:E5:4D:11:2C:4B:66:AB:43:6C:76:F4:A4:83:92"
+    ]
+  }
+}]
+
+

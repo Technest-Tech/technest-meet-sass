@@ -46,6 +46,7 @@ class LiveKitService extends ChangeNotifier {
   
   // Data listener for whiteboard collaboration
   lk.EventsListener<lk.RoomEvent>? _dataListener;
+  lk.EventsListener<lk.RoomEvent>? _participantListener;
   
   // Debouncer for notifyListeners to prevent excessive rebuilds
   final Debouncer _notifyDebouncer = Debouncer(delay: const Duration(milliseconds: 100));
@@ -277,6 +278,26 @@ class LiveKitService extends ChangeNotifier {
       Logger.debug('Adding event listeners...', 'LiveKitService');
       _room!.addListener(_onRoomChanged);
       
+      // Add explicit participant event listeners to catch participants joining/leaving
+      // This is especially important for observers joining rooms already in progress
+      _participantListener = _room!.createListener();
+      _participantListener!.on<lk.ParticipantConnectedEvent>((event) {
+        Logger.debug('LiveKit: Participant connected - ${event.participant.identity}, metadata: ${event.participant.metadata}', 'LiveKitService');
+        _onRoomChanged(); // Trigger immediate update
+      });
+
+      _participantListener!.on<lk.ParticipantDisconnectedEvent>((event) {
+        Logger.debug('LiveKit: Participant disconnected - ${event.participant.identity}', 'LiveKitService');
+        _onRoomChanged(); // Trigger immediate update
+      });
+
+      // Track subscription events to ensure observers can see participants
+      _participantListener!.on<lk.TrackSubscribedEvent>((event) {
+        final trackName = event.publication.name ?? event.publication.sid ?? 'unknown';
+        Logger.debug('LiveKit: Track subscribed - participant: ${event.participant.identity}, track: $trackName', 'LiveKitService');
+        _onRoomChanged(); // Trigger update when tracks are subscribed
+      });
+      
       // Add data received listener for whiteboard collaboration
       _dataListener = _room!.createListener();
       _dataListener!.on<lk.DataReceivedEvent>(_onDataReceived);
@@ -330,6 +351,61 @@ class LiveKitService extends ChangeNotifier {
         }
       }
       Logger.debug('Connected to room successfully', 'LiveKitService');
+
+      // Immediately check for existing participants (don't wait)
+      if (_room != null) {
+        final immediateParticipants = _room!.remoteParticipants.values.toList();
+        Logger.debug('LiveKit: Immediate check - Remote participants count: ${immediateParticipants.length}', 'LiveKitService');
+        Logger.debug('LiveKit: Room connection state: ${_room!.connectionState}', 'LiveKitService');
+        Logger.debug('LiveKit: Local participant: ${_room!.localParticipant?.identity}', 'LiveKitService');
+        
+        for (final participant in immediateParticipants) {
+          Logger.debug('LiveKit: Immediate participant - identity: ${participant.identity}, metadata: ${participant.metadata}', 'LiveKitService');
+        }
+        
+        // Force an immediate update
+        _onRoomChanged();
+      }
+
+      // For observers joining rooms already in progress, ensure we can see existing participants
+      // Wait a bit for the room state to fully initialize
+      Future.delayed(const Duration(milliseconds: 500), () async {
+        if (_room != null && _room!.connectionState == lk.ConnectionState.connected) {
+          // Force an initial room state update to get existing participants
+          _onRoomChanged();
+          
+          // Log current participants for debugging
+          final existingParticipants = _room!.remoteParticipants.values.toList();
+          Logger.debug('LiveKit: Existing remote participants after connection: ${existingParticipants.length}', 'LiveKitService');
+          
+          for (final participant in existingParticipants) {
+            Logger.debug('LiveKit: Existing participant - identity: ${participant.identity}, metadata: ${participant.metadata}', 'LiveKitService');
+            
+            // For observers, ensure subscriptions are active for all existing participants
+            // This handles the case where observer joins a room already in progress
+            if (participantType == 'observer') {
+              // Ensure all track publications are subscribed
+              // With autoSubscribe: true, subscriptions should happen automatically,
+              // but we verify and log the state
+              for (final publication in participant.trackPublications.values) {
+                final trackName = publication.name ?? publication.sid ?? 'unknown';
+                Logger.debug('Observer: Checking track - participant: ${participant.identity}, track: $trackName, subscribed: ${publication.subscribed}, kind: ${publication.kind}', 'LiveKitService');
+                
+                // If not subscribed and autoSubscribe didn't work, try to subscribe
+                // Note: With autoSubscribe: true, this should rarely be needed
+                if (!publication.subscribed) {
+                  Logger.debug('Observer: Track not subscribed, waiting for auto-subscribe...', 'LiveKitService');
+                  // The autoSubscribe option should handle this, but we log for debugging
+                }
+              }
+            }
+          }
+          
+          // Trigger another update after ensuring subscriptions
+          _onRoomChanged();
+          notifyListeners();
+        }
+      });
 
       _isConnected = true;
       _isConnecting = false;
@@ -407,6 +483,8 @@ class LiveKitService extends ChangeNotifier {
       _lastToken = null;
       _dataListener?.dispose();
       _dataListener = null;
+      _participantListener?.dispose();
+      _participantListener = null;
       
       Logger.debug('LiveKit: State reset completed', 'LiveKitService');
       notifyListeners();
@@ -936,8 +1014,22 @@ class LiveKitService extends ChangeNotifier {
   // Room event handler - optimized to reduce excessive logging and rebuilds
   void _onRoomChanged() {
     if (_room != null) {
+      final previousCount = _participants.length;
       _participants = _room!.remoteParticipants.values.toList();
       _localParticipant = _room!.localParticipant;
+      
+      // Always log for debugging (especially important for observers)
+      Logger.debug('LiveKit: _onRoomChanged called - Remote: ${_participants.length} (was $previousCount), Local: ${_localParticipant?.identity}', 'LiveKitService');
+      
+      // Debug logging for participant tracking (especially important for observers)
+      if (_participants.length != previousCount || _participants.length > 0) {
+        Logger.debug('LiveKit: Participant count changed - Remote: ${_participants.length} (was $previousCount), Local: ${_localParticipant?.identity}', 'LiveKitService');
+        
+        // Log each participant for debugging
+        for (final participant in _participants) {
+          Logger.debug('LiveKit: Remote participant - identity: ${participant.identity}, metadata: ${participant.metadata}, tracks: ${participant.trackPublications.length}', 'LiveKitService');
+        }
+      }
       
       // Check connection state
       final connectionState = _room!.connectionState;
@@ -1330,6 +1422,7 @@ class LiveKitService extends ChangeNotifier {
     _notifyDebouncer.dispose();
     _room?.removeListener(_onRoomChanged);
     _dataListener?.dispose();
+    _participantListener?.dispose();
     disconnect();
     super.dispose();
   }

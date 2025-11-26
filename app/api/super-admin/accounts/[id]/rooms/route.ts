@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/database';
 import { requireSuperAdmin } from '@/lib/auth/server-auth';
-import { Prisma } from '@prisma/client';
+import { ActivityEventType, Prisma } from '@prisma/client';
 
 const DEFAULT_ROOMS_PAGE_SIZE = 10;
 
@@ -91,6 +91,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       return acc;
     }, {});
 
+    const sessionStatusMap = await buildSessionStatusMap(roomIds);
+
     const payload = rooms.map((room) => ({
       id: room.id,
       name: room.name,
@@ -108,6 +110,10 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       },
       recentFiles: room.files,
       recentActivity: room.activityLogs,
+      sessionStatus: {
+        isRunning: sessionStatusMap[room.id]?.isRunning ?? false,
+        currentSessionStart: sessionStatusMap[room.id]?.currentSessionStart ?? null,
+      },
     }));
 
     return NextResponse.json({
@@ -120,5 +126,41 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     console.error('Get account rooms error:', error);
     return NextResponse.json({ error: 'تعذر تحميل الغرف' }, { status: 500 });
   }
+}
+
+async function buildSessionStatusMap(roomIds: string[]) {
+  if (!roomIds.length) {
+    return {};
+  }
+
+  const events = await prisma.roomActivityLog.findMany({
+    where: {
+      roomId: { in: roomIds },
+      event: {
+        in: [ActivityEventType.ROOM_STARTED, ActivityEventType.ROOM_ENDED],
+      },
+    },
+    orderBy: { occurredAt: 'desc' },
+  });
+
+  return events.reduce<Record<string, { isRunning: boolean; currentSessionStart: string | null }>>((acc, event) => {
+    if (acc[event.roomId]) {
+      return acc;
+    }
+
+    if (event.event === ActivityEventType.ROOM_STARTED) {
+      acc[event.roomId] = {
+        isRunning: true,
+        currentSessionStart: event.occurredAt.toISOString(),
+      };
+    } else {
+      acc[event.roomId] = {
+        isRunning: false,
+        currentSessionStart: null,
+      };
+    }
+
+    return acc;
+  }, {});
 }
 

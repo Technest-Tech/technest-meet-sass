@@ -77,6 +77,9 @@ dependencies:
   
   # URL launcher for opening WhatsApp, phone, and email
   url_launcher: ^6.2.5
+  
+  # Deep linking support
+  app_links: ^6.3.1
 
 dev_dependencies:
   flutter_test:
