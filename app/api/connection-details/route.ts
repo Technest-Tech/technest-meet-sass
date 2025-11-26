@@ -5,6 +5,8 @@ import { AccessToken, AccessTokenOptions, VideoGrant, RoomServiceClient } from '
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/database';
 import { checkTrialExpiration, isSubscriptionActive } from '@/lib/utils/trial-check';
+import { extractDeviceInfo } from '@/lib/utils/deviceDetection';
+import { logParticipantJoined } from '@/lib/services/roomActivityLogger';
 
 const API_KEY = process.env.LIVEKIT_API_KEY || 'devkey';
 const API_SECRET = process.env.LIVEKIT_API_SECRET || 'secret';
@@ -29,6 +31,9 @@ export async function GET(request: NextRequest) {
     const participantType = request.nextUrl.searchParams.get('participantType') || 'guest'; // 'host' or 'guest'
     const metadata = request.nextUrl.searchParams.get('metadata') ?? '';
     const region = request.nextUrl.searchParams.get('region');
+    const metadataPayload = safeParseMetadata(metadata);
+    const deviceInfo = extractDeviceInfo(request);
+    const participantRole = participantType as 'host' | 'guest' | 'observer';
     
     console.log('📋 Request params:', { roomName, participantName, participantType, metadata, region });
     
@@ -65,7 +70,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Validate participant type
-    if (participantType !== 'host' && participantType !== 'guest' && participantType !== 'observer') {
+    if (participantRole !== 'host' && participantRole !== 'guest' && participantRole !== 'observer') {
       return NextResponse.json({ error: 'Invalid participant type. Must be "host", "guest", or "observer"' }, { status: 400 });
     }
 
@@ -160,10 +165,10 @@ export async function GET(request: NextRequest) {
 
     // Observers bypass all access control checks (no limits, no waiting room)
     // They are invisible participants that can only subscribe, not publish
-    const isObserver = participantType === 'observer';
+    const isObserver = participantRole === 'observer';
 
     // Check host access: Only one host can be active at a time per room (unless allowMultipleHosts is enabled)
-    if (participantType === 'host' && isHostLink && !isObserver && !room.allowMultipleHosts) {
+    if (participantRole === 'host' && isHostLink && !isObserver && !room.allowMultipleHosts) {
       // Normalize participant name (remove any "host" suffix and trim whitespace)
       // Ensure participantName is a string
       const safeParticipantName = String(participantName || '').trim();
@@ -324,7 +329,7 @@ export async function GET(request: NextRequest) {
     // Check guest access: Verify room hasn't reached max participants
     // Use the guestLink as the LiveKit room name (or hostLink if they're the same)
     // Observers bypass participant limits
-    if (participantType === 'guest' && (isGuestLink || (isHostLink && isGuestLink)) && !isObserver) {
+    if (participantRole === 'guest' && (isGuestLink || (isHostLink && isGuestLink)) && !isObserver) {
       try {
         const roomService = new RoomServiceClient(LIVEKIT_URL, API_KEY, API_SECRET);
         // Use actual room name for LiveKit operations
@@ -356,12 +361,12 @@ export async function GET(request: NextRequest) {
     // For observers, use a random identity to allow multiple observers
     // Use room name and participant type to ensure uniqueness while maintaining stability
     let uniqueIdentity: string;
-    if (participantType === 'host') {
+    if (participantRole === 'host') {
       // Normalize the name the same way we did in the host check above
       const safeName = String(participantName || '').trim();
       const normalizedName = safeName.toLowerCase().replace(/\s+host\s*$/i, '').trim();
       uniqueIdentity = `${normalizedName}_host_${actualRoomName}`.toLowerCase();
-    } else if (participantType === 'observer') {
+    } else if (participantRole === 'observer') {
       // Observers use a random identity to allow multiple observers
       // Add timestamp to ensure uniqueness
       const safeName = String(participantName || 'Observer').trim();
@@ -375,16 +380,30 @@ export async function GET(request: NextRequest) {
       {
         identity: uniqueIdentity,
         name: participantName,
-        metadata: JSON.stringify({ type: participantType, ...JSON.parse(metadata || '{}') }),
+        metadata: JSON.stringify({ type: participantRole, ...metadataPayload }),
       },
       actualRoomName, // Use actual room name so all participants join the same LiveKit room
-      participantType,
+      participantRole,
       serverLivekitUrl,
     );
 
     console.log('✅ Token generated successfully, length:', participantToken ? participantToken.length : 0);
     
     // Return connection details
+    try {
+      await logParticipantJoined({
+        roomId: room.id,
+        clientId: room.clientId ?? room.client?.id,
+        participantName,
+        participantType: participantRole,
+        identity: uniqueIdentity,
+        device: deviceInfo,
+        metadata: metadataPayload,
+      });
+    } catch (logError) {
+      console.error('Failed to log participant join event', logError);
+    }
+
     const data: ConnectionDetails = {
       serverUrl: clientLivekitUrl,
       roomName: actualRoomName, // Use actual room name for consistency
@@ -500,5 +519,14 @@ function getCookieExpirationTime(): string {
   var expireTime = time + 60 * 120 * 1000;
   now.setTime(expireTime);
   return now.toUTCString();
+}
+
+function safeParseMetadata(raw: string | null): Record<string, unknown> {
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
 }
 

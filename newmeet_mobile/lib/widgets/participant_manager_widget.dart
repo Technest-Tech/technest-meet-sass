@@ -14,6 +14,7 @@ import '../theme/app_colors.dart';
 import '../utils/logger.dart';
 import '../theme/app_theme.dart';
 import '../utils/logger.dart';
+import '../utils/observer_filter.dart';
 
 class ParticipantManagerWidget extends StatefulWidget {
   final String participantType;
@@ -60,7 +61,10 @@ class _ParticipantManagerWidgetState extends State<ParticipantManagerWidget> {
     
     final newStatuses = <String, ParticipantStatus>{};
     
-    for (final participant in liveKitService.participants) {
+    // Filter out observers from participant list
+    final visibleParticipants = ObserverFilter.filterObservers(liveKitService.participants);
+    
+    for (final participant in visibleParticipants) {
       bool audioEnabled = false;
       bool videoEnabled = false;
       
@@ -147,9 +151,9 @@ class _ParticipantManagerWidgetState extends State<ParticipantManagerWidget> {
 
     return Consumer<LiveKitService>(
       builder: (context, liveKitService, child) {
-        final allParticipants = <dynamic>[];
-        allParticipants.addAll(liveKitService.participants);
-        final otherParticipants = allParticipants
+        // Filter out observers from participant list
+        final visibleParticipants = ObserverFilter.filterObservers(liveKitService.participants);
+        final otherParticipants = visibleParticipants
             .where(
               (p) => p.identity != liveKitService.localParticipant?.identity,
             )

@@ -738,6 +738,7 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
   const [isMicEnabled, setIsMicEnabled] = React.useState(false);
   const [isCameraEnabled, setIsCameraEnabled] = React.useState(false);
   const [isScreenSharing, setIsScreenSharing] = React.useState(false);
+  const [isTogglingScreenShare, setIsTogglingScreenShare] = React.useState(false);
   const [showLeaveDialog, setShowLeaveDialog] = React.useState(false);
 
   // Track participant state changes
@@ -785,13 +786,41 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
 
     const handleTrackPublished = (publication: TrackPublication) => {
       if (publication.source === Track.Source.ScreenShare) {
-        setIsScreenSharing(true);
+        try {
+          // Verify state matches actual screen share status
+          const actualState = localParticipant.isScreenShareEnabled;
+          setIsScreenSharing(actualState);
+          
+          if (!actualState) {
+            logger.debug('Screen share track published but isScreenShareEnabled is false', {
+              trackSid: publication.trackSid,
+            });
+          }
+        } catch (error) {
+          logger.error('Error in handleTrackPublished for screen share:', error);
+          // Fallback to setting true if we can't verify
+          setIsScreenSharing(true);
+        }
       }
     };
 
     const handleTrackUnpublished = (publication: TrackPublication) => {
       if (publication.source === Track.Source.ScreenShare) {
-        setIsScreenSharing(false);
+        try {
+          // Verify state matches actual screen share status
+          const actualState = localParticipant.isScreenShareEnabled;
+          setIsScreenSharing(actualState);
+          
+          if (actualState) {
+            logger.debug('Screen share track unpublished but isScreenShareEnabled is true', {
+              trackSid: publication.trackSid,
+            });
+          }
+        } catch (error) {
+          logger.error('Error in handleTrackUnpublished for screen share:', error);
+          // Fallback to setting false if we can't verify
+          setIsScreenSharing(false);
+        }
       }
     };
 
@@ -828,10 +857,54 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
 
   // Toggle screen share
   const toggleScreenShare = async () => {
-    if (localParticipant) {
-      const enabled = localParticipant.isScreenShareEnabled;
-      await localParticipant.setScreenShareEnabled(!enabled);
-      setIsScreenSharing(!enabled);
+    if (!localParticipant || isTogglingScreenShare) return;
+    
+    const enabled = localParticipant.isScreenShareEnabled;
+    const newState = !enabled;
+    
+    setIsTogglingScreenShare(true);
+    
+    try {
+      // Optimistic update - will be reverted if operation fails
+      setIsScreenSharing(newState);
+      
+      await localParticipant.setScreenShareEnabled(newState);
+      
+      // Verify the actual state after operation completes
+      const actualState = localParticipant.isScreenShareEnabled;
+      if (actualState !== newState) {
+        setIsScreenSharing(actualState);
+        logger.debug('Screen share state mismatch after operation', {
+          expected: newState,
+          actual: actualState,
+        });
+      }
+    } catch (error) {
+      // Revert optimistic update on failure
+      setIsScreenSharing(enabled);
+      
+      logger.error('Failed to toggle screen share:', error);
+      
+      // Handle specific error types with user-friendly messages
+      if (error instanceof Error) {
+        if (error.name === 'NotAllowedError' || error.message.includes('Permission denied') || error.message.includes('permission')) {
+          toast.error('Screen sharing permission was denied. Please allow screen sharing when prompted.');
+        } else if (error.name === 'NotReadableError' || error.message.includes('NotReadableError') || error.message.includes('not readable')) {
+          toast.error('Screen sharing is not available. Another application may be using it.');
+        } else if (error.name === 'NotFoundError' || error.message.includes('NotFoundError') || error.message.includes('not found')) {
+          toast.error('No screen sharing source found. Please check your display settings.');
+        } else if (error.message.includes('getDisplayMedia') || error.message.includes('Screen Capture API')) {
+          toast.error('Screen sharing is not supported in this browser. Please use a modern browser.');
+        } else if (error.message.includes('network') || error.message.includes('connection')) {
+          toast.error('Network error while starting screen share. Please check your connection and try again.');
+        } else {
+          toast.error('Failed to start screen sharing. Please try again.');
+        }
+      } else {
+        toast.error('An unexpected error occurred. Please try again.');
+      }
+    } finally {
+      setIsTogglingScreenShare(false);
     }
   };
 
@@ -1318,16 +1391,21 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
       <div style={{ position: 'relative' }} className="group">
         <button
           onClick={toggleScreenShare}
-          style={getButtonStyle(isScreenSharing, false, false)}
+          disabled={isTogglingScreenShare}
+          style={getButtonStyle(isScreenSharing, isTogglingScreenShare, false)}
           onMouseEnter={(e) => {
-            handleMouseEnter(e, isScreenSharing);
-            setHoveredButton('screen');
+            if (!isTogglingScreenShare) {
+              handleMouseEnter(e, isScreenSharing);
+              setHoveredButton('screen');
+            }
           }}
           onMouseLeave={(e) => {
-            handleMouseLeave(e, isScreenSharing);
-            setHoveredButton(null);
+            if (!isTogglingScreenShare) {
+              handleMouseLeave(e, isScreenSharing);
+              setHoveredButton(null);
+            }
           }}
-          title={isScreenSharing ? 'Stop sharing' : 'Share screen'}
+          title={isTogglingScreenShare ? 'Processing...' : (isScreenSharing ? 'Stop sharing' : 'Share screen')}
         >
           <span style={{ fontSize: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {isScreenSharing ? '⏹️' : '🖥️'}
@@ -1794,9 +1872,31 @@ function VideoConferenceComponent(props: {
       return;
     }
     
-    // Handle screen sharing permission cancellation gracefully
+    // Handle screen sharing errors gracefully without disconnecting room
+    const isScreenShareError = 
+      error.message.includes('ScreenShare') ||
+      error.message.includes('screen share') ||
+      error.message.includes('screen sharing') ||
+      error.message.includes('getDisplayMedia') ||
+      error.message.includes('Screen Capture API') ||
+      error.message.includes('NotAllowedError') && (error.message.includes('screen') || error.message.includes('display')) ||
+      error.message.includes('NotReadableError') && (error.message.includes('screen') || error.message.includes('display')) ||
+      error.message.includes('NotFoundError') && (error.message.includes('screen') || error.message.includes('display'));
+    
+    if (isScreenShareError) {
+      logger.warn('Screen sharing error detected - handling gracefully without disconnecting room', {
+        error: error.message,
+        name: error.name,
+      });
+      
+      // Don't disconnect room for screen share errors - they're non-critical
+      // The toggleScreenShare function already handles these errors with user-friendly messages
+      return;
+    }
+    
+    // Handle screen sharing permission cancellation gracefully (legacy check for compatibility)
     if (error.message.includes('Permission denied by user') || error.message.includes('NotAllowedError')) {
-      logger.debug('Screen sharing permission was denied by user - this is expected behavior');
+      logger.debug('Permission was denied by user - this is expected behavior');
       // Don't show alert for permission cancellation, just log it
       return;
     }

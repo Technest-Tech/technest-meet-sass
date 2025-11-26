@@ -89,3 +89,4 @@ interface SuperAdminMetricsResponse {
 - Activity feed from `RoomActivityLog` (limit 8 recent events).
 - At-risk detection uses `Subscription` combinations (trial ending in ≤7 days, inactive >10 days, expired).  
 
+

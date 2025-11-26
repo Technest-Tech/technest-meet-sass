@@ -114,7 +114,7 @@ export class ConnectionMonitor {
       case ConnectionQuality.Lost:
         return 'poor';
       default:
-        return 'good';
+        return 'poor'; // Changed from 'good' to be conservative and consistent
     }
   }
 
@@ -163,8 +163,23 @@ export class ConnectionMonitor {
         // Outbound RTP stats
         if (report.type === 'outbound-rtp') {
           if (report.bytesSent) {
-            const bytesPerSecond = report.bytesSent / (Date.now() - this.stats.lastUpdated) * 1000;
+            // Validate time difference before calculating bitrate
+            const timeDiff = Date.now() - this.stats.lastUpdated;
+            const MIN_TIME_THRESHOLD_MS = 100; // Minimum 100ms for valid calculation
+            
+            if (timeDiff >= MIN_TIME_THRESHOLD_MS && timeDiff < 60000) {
+              // Only calculate if time difference is reasonable (between 100ms and 60 seconds)
+              const bytesPerSecond = report.bytesSent / timeDiff * 1000;
             totalBitrate += bytesPerSecond * 8; // Convert to bits per second
+            } else {
+              // Use previous bitrate if time difference is invalid
+              totalBitrate += this.stats.bitrate;
+              logger.debug('Using previous bitrate due to invalid time difference', {
+                timeDiff,
+                lastUpdated: this.stats.lastUpdated,
+                now: Date.now(),
+              });
+            }
           }
           
           if (report.fractionLost !== undefined) {
