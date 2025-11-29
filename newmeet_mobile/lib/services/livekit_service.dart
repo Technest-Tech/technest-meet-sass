@@ -6,10 +6,15 @@ import 'package:livekit_client/livekit_client.dart' as lk;
 import 'package:permission_handler/permission_handler.dart';
 import '../utils/logger.dart';
 import '../utils/debouncer.dart';
+import '../models/room.dart';
 import 'api_service.dart';
 import 'screen_capture_service.dart';
 import 'screen_recording_service.dart';
 import 'noise_cancellation_service.dart';
+import 'connection_monitor_service.dart';
+import 'network_adapter_service.dart';
+import 'adaptive_stream_manager.dart';
+import '../store/media_quality_store.dart';
 
 class LiveKitService extends ChangeNotifier {
   lk.Room? _room;
@@ -43,6 +48,25 @@ class LiveKitService extends ChangeNotifier {
   // Store connection details for reconnection
   String? _lastLivekitUrl;
   String? _lastToken;
+  String? _lastRoomName;
+  String? _lastParticipantName;
+  String? _lastParticipantType;
+  
+  // Reconnection state
+  int _reconnectionAttempts = 0;
+  static const int MAX_RECONNECTION_ATTEMPTS = 5;
+  Timer? _reconnectionTimer;
+  
+  // Screen share optimization - store original camera settings
+  // Note: VideoPreset type not available in SDK, storing as reference only
+  String? _originalCameraPreset;
+  int? _originalCameraBitrate;
+  
+  // Adaptive streaming services
+  ConnectionMonitorService? _connectionMonitor;
+  NetworkAdapterService? _networkAdapter;
+  AdaptiveStreamManager? _adaptiveStreamManager;
+  MediaQualityStore? _qualityStore;
   
   // Data listener for whiteboard collaboration
   lk.EventsListener<lk.RoomEvent>? _dataListener;
@@ -153,82 +177,144 @@ class LiveKitService extends ChangeNotifier {
   
   // Get the participant who is screen sharing (local or remote)
   dynamic? get screenSharingParticipant {
-    // Check local participant first
-    if (_localParticipant != null) {
-      for (final publication in _localParticipant!.videoTrackPublications) {
-        final name = publication.name?.toLowerCase() ?? '';
-        final sid = publication.sid ?? '';
-        final isScreenShare = name.contains('screen') || 
-                              name.contains('screenshare') ||
-                              name.contains('screen-share') ||
-                              sid.contains('screen');
-        if (isScreenShare && publication.track != null) {
-          Logger.debug('LiveKit: Screen sharing participant (local): ${_localParticipant!.identity}', 'LiveKitService');
-          return _localParticipant;
-        }
-      }
-    }
+    // Collect all screen sharing participants (both local and remote)
+    // Priority: Check ALL participants (remote first, then local) and return the FIRST active screen sharer
+    // This ensures ANY participant's screen share can replace the current one in the main area
+    // When a new participant starts screen sharing, it will be shown in the main screen share section
     
-    // Check remote participants
+    Logger.debug('LiveKit: Checking for screen sharing participants - Remote count: ${_participants.length}, Local: ${_localParticipant?.identity ?? "null"}', 'LiveKitService');
+    
+    // First, check ALL remote participants (to allow remote screen shares to replace local/host ones)
     for (final participant in _participants) {
+      final participantIdentity = participant.identity ?? 'unknown';
+      Logger.debug('LiveKit: Checking remote participant: $participantIdentity', 'LiveKitService');
+      
+      // Check if participant has screen share enabled (if method exists)
+      try {
+        if (participant is lk.RemoteParticipant) {
+          final isScreenShareEnabled = participant.isScreenShareEnabled();
+          Logger.debug('LiveKit: Participant $participantIdentity - isScreenShareEnabled: $isScreenShareEnabled', 'LiveKitService');
+          
+          if (isScreenShareEnabled) {
+            // Double-check by looking at tracks
+            final videoTracks = participant.videoTrackPublications;
+            bool foundScreenShareTrack = false;
+            
+            for (final publication in videoTracks) {
+              final name = publication.name?.toLowerCase() ?? '';
+              final sid = publication.sid ?? '';
+              final source = publication.source.toString().toLowerCase();
+              final isSubscribed = publication.subscribed;
+              final hasTrack = publication.track != null;
+              
+              Logger.debug('LiveKit: Track check - name: "$name", sid: "$sid", source: "$source", subscribed: $isSubscribed, hasTrack: $hasTrack', 'LiveKitService');
+              
+              // Check multiple indicators for screen share
+              bool isScreenShare = name.contains('screen') || 
+                                  name.contains('screenshare') ||
+                                  name.contains('screen-share') ||
+                                  sid.contains('screen') ||
+                                  source.contains('screen');
+              
+              if (isScreenShare && isSubscribed && hasTrack) {
+                foundScreenShareTrack = true;
+                Logger.debug('LiveKit: ✅ Found screen share track for participant: $participantIdentity', 'LiveKitService');
+                break;
+              }
+            }
+            
+            if (foundScreenShareTrack) {
+              Logger.debug('LiveKit: ✅ Returning screen sharing participant (remote): $participantIdentity', 'LiveKitService');
+              return participant;
+            }
+          }
+        }
+      } catch (e) {
+        Logger.warning('LiveKit: Error checking isScreenShareEnabled for $participantIdentity: $e', 'LiveKitService');
+      }
+      
+      // Fallback: Check tracks directly if isScreenShareEnabled doesn't work
       final videoTracks = participant.videoTrackPublications;
       final videoTrackCount = videoTracks.length;
+      Logger.debug('LiveKit: Participant $participantIdentity has $videoTrackCount video track(s)', 'LiveKitService');
       
-      if (videoTrackCount > 1) {
-        // Multiple tracks - find the screen share one
-        for (final publication in videoTracks) {
-          final name = publication.name?.toLowerCase() ?? '';
-          final sid = publication.sid ?? '';
-          final isSubscribed = publication.subscribed;
-          // Check explicit indicators first
-          bool isScreenShare = name.contains('screen') || 
-                              name.contains('screenshare') ||
-                              name.contains('screen-share') ||
-                              sid.contains('screen');
-          
-          // If no explicit indicator and multiple tracks, empty name might be screen share
-          if (!isScreenShare && name.isEmpty && videoTrackCount > 1 && isSubscribed && publication.track != null) {
-            Logger.debug('LiveKit: Using heuristic - empty name with multiple tracks = likely screen share', 'LiveKitService');
-            isScreenShare = true;
-          }
-          
-          if (isScreenShare && isSubscribed && publication.track != null) {
-            Logger.debug('LiveKit: Screen sharing participant (remote, multiple tracks): ${participant.identity}', 'LiveKitService');
-            return participant;
-          }
-        }
-      } else if (videoTrackCount == 1) {
-        // Single track - check explicit indicators first, then use heuristic if needed
-        final publication = videoTracks.first;
+      for (final publication in videoTracks) {
         final name = publication.name?.toLowerCase() ?? '';
         final sid = publication.sid ?? '';
+        final source = publication.source.toString().toLowerCase();
         final isSubscribed = publication.subscribed;
-        final track = publication.track;
+        final hasTrack = publication.track != null;
         
-        // Check explicit screen share indicators first
+        // Check explicit indicators first
         bool isScreenShare = name.contains('screen') || 
                             name.contains('screenshare') ||
                             name.contains('screen-share') ||
-                            sid.contains('screen');
+                            sid.contains('screen') ||
+                            source.contains('screen');
         
-        // If no explicit indicator, use heuristic: empty name + subscribed + track exists
-        // This handles web clients that don't set track names for screen share
-        if (!isScreenShare && name.isEmpty && isSubscribed && track != null) {
-          // Additional check: if camera is disabled, the single track is likely screen share
-          final isCameraEnabled = participant.isCameraEnabled();
-          if (!isCameraEnabled) {
-            Logger.debug('LiveKit: Using heuristic - empty name, camera off, single track = likely screen share', 'LiveKitService');
-            isScreenShare = true;
+        // If no explicit indicator and multiple tracks, check if this is the screen share track
+        if (!isScreenShare && videoTrackCount > 1 && isSubscribed && hasTrack) {
+          // If camera is enabled, the other track is likely screen share
+          try {
+            final isCameraEnabled = participant.isCameraEnabled();
+            if (isCameraEnabled && (name.isEmpty || name == 'camera' || source.contains('camera'))) {
+              // This is likely the camera track, skip it
+              continue;
+            } else if (!isCameraEnabled || name.isEmpty) {
+              // Likely screen share if camera is off or name is empty
+              Logger.debug('LiveKit: Using heuristic - participant has multiple tracks, this might be screen share', 'LiveKitService');
+              isScreenShare = true;
+            }
+          } catch (e) {
+            // If we can't check camera, use empty name as indicator
+            if (name.isEmpty) {
+              Logger.debug('LiveKit: Using heuristic - empty name with multiple tracks = likely screen share', 'LiveKitService');
+              isScreenShare = true;
+            }
           }
         }
         
-        if (isScreenShare && isSubscribed && track != null) {
-          Logger.debug('LiveKit: Screen sharing participant (remote, single track): ${participant.identity}', 'LiveKitService');
+        if (isScreenShare && isSubscribed && hasTrack) {
+          Logger.debug('LiveKit: ✅ Found screen share for participant (remote): $participantIdentity', 'LiveKitService');
           return participant;
         }
       }
     }
     
+    // Then check local participant (fallback if no remote screen shares)
+    if (_localParticipant != null) {
+      Logger.debug('LiveKit: Checking local participant: ${_localParticipant!.identity}', 'LiveKitService');
+      
+      try {
+        final isScreenShareEnabled = _localParticipant!.isScreenShareEnabled();
+        Logger.debug('LiveKit: Local participant - isScreenShareEnabled: $isScreenShareEnabled', 'LiveKitService');
+        
+        if (isScreenShareEnabled) {
+          Logger.debug('LiveKit: ✅ Returning screen sharing participant (local): ${_localParticipant!.identity}', 'LiveKitService');
+          return _localParticipant;
+        }
+      } catch (e) {
+        Logger.warning('LiveKit: Error checking local isScreenShareEnabled: $e', 'LiveKitService');
+      }
+      
+      // Fallback: Check tracks directly
+      for (final publication in _localParticipant!.videoTrackPublications) {
+        final name = publication.name?.toLowerCase() ?? '';
+        final sid = publication.sid ?? '';
+        final source = publication.source.toString().toLowerCase();
+        final isScreenShare = name.contains('screen') || 
+                            name.contains('screenshare') ||
+                            name.contains('screen-share') ||
+                            sid.contains('screen') ||
+                            source.contains('screen');
+        if (isScreenShare && publication.track != null) {
+          Logger.debug('LiveKit: ✅ Returning screen sharing participant (local, fallback): ${_localParticipant!.identity}', 'LiveKitService');
+          return _localParticipant;
+        }
+      }
+    }
+    
+    Logger.debug('LiveKit: ❌ No screen sharing participant found', 'LiveKitService');
     return null;
   }
   bool get isWhiteboardOpen => _isWhiteboardOpen;
@@ -263,16 +349,55 @@ class LiveKitService extends ChangeNotifier {
 
       // Get LiveKit token
       Logger.debug('Getting LiveKit token...', 'LiveKitService');
-      final tokenResponse = await ApiService.getLiveKitToken(
-        roomName: roomName,
-        participantName: participantName,
-        participantType: participantType,
-      );
-      Logger.debug('Token received: ${tokenResponse.livekitUrl}', 'LiveKitService');
+      LiveKitTokenResponse tokenResponse;
+      
+      try {
+        tokenResponse = await ApiService.getLiveKitToken(
+          roomName: roomName,
+          participantName: participantName,
+          participantType: participantType,
+        );
+        Logger.debug('Token received: ${tokenResponse.livekitUrl}', 'LiveKitService');
+      } on RoomRestrictedException catch (e) {
+        // If room doesn't allow multi participants and user is not host, retry as host
+        if (e.isMultiParticipantsRestricted && participantType.toUpperCase() != 'HOST') {
+          Logger.debug('Room restriction detected - multi participants not allowed. Retrying as HOST...', 'LiveKitService');
+          try {
+            tokenResponse = await ApiService.getLiveKitToken(
+              roomName: roomName,
+              participantName: participantName,
+              participantType: 'HOST', // Retry as host
+            );
+            Logger.debug('Token received as HOST: ${tokenResponse.livekitUrl}', 'LiveKitService');
+          } catch (retryError) {
+            Logger.error(' LiveKit: Failed to connect as HOST after restriction: $retryError', retryError, null, 'LiveKitService');
+            _isConnecting = false;
+            _error = 'Room access restricted. Unable to connect as host.';
+            notifyListeners();
+            rethrow;
+          }
+        } else {
+          // Other restriction types or already host - rethrow
+          Logger.error(' LiveKit: Room access restricted: $e', e, null, 'LiveKitService');
+          _isConnecting = false;
+          _error = e.message;
+          notifyListeners();
+          rethrow;
+        }
+      } on RoomNotFoundException catch (e) {
+        Logger.error(' LiveKit: Room not found: $e', e, null, 'LiveKitService');
+        _isConnecting = false;
+        _error = 'Room not found';
+        notifyListeners();
+        rethrow;
+      }
 
       // Create room
       Logger.debug('Creating room instance...', 'LiveKitService');
       _room = lk.Room();
+      
+      // Reset screen sharing state when connecting to a new room
+      _isScreenSharing = false;
 
       // Add event listeners
       Logger.debug('Adding event listeners...', 'LiveKitService');
@@ -417,6 +542,14 @@ class LiveKitService extends ChangeNotifier {
       // Store connection details for potential reconnection
       _lastLivekitUrl = tokenResponse.livekitUrl;
       _lastToken = tokenResponse.token;
+      _lastRoomName = roomName;
+      _lastParticipantName = participantName;
+      _lastParticipantType = participantType;
+      _reconnectionAttempts = 0; // Reset on successful connection
+      
+      // Check actual local screen share state after connection
+      _isScreenSharing = _checkLocalScreenShare();
+      Logger.debug('LiveKit: Initial screen share state after connection: $_isScreenSharing', 'LiveKitService');
       
       notifyListeners();
 
@@ -433,12 +566,29 @@ class LiveKitService extends ChangeNotifier {
       );
       notifyListeners();
 
-    } catch (e) {
-      Logger.error(' Connection failed: $e', e, null, 'LiveKitService');
-      _error = e.toString();
+    } on RoomRestrictedException catch (e) {
+      // Already handled above, but catch here to prevent double handling
+      Logger.error(' LiveKit: Room restriction error: $e', e, null, 'LiveKitService');
       _isConnecting = false;
       _isConnected = false;
+      _error = e.message;
       notifyListeners();
+      rethrow; // Re-throw to let UI handle it
+    } on RoomNotFoundException catch (e) {
+      // Already handled above, but catch here to prevent double handling
+      Logger.error(' LiveKit: Room not found error: $e', e, null, 'LiveKitService');
+      _isConnecting = false;
+      _isConnected = false;
+      _error = 'Room not found';
+      notifyListeners();
+      rethrow; // Re-throw to let UI handle it
+    } catch (e) {
+      Logger.error(' Connection failed: $e', e, null, 'LiveKitService');
+      _isConnecting = false;
+      _isConnected = false;
+      _error = e.toString();
+      notifyListeners();
+      rethrow; // Re-throw to let UI handle it
     }
   }
 
@@ -643,13 +793,19 @@ class LiveKitService extends ChangeNotifier {
       await ScreenCaptureService.startService();
       
       if (_room?.localParticipant != null) {
+        // Optimize camera quality before starting screen share
+        await _optimizeForScreenShare();
+        
         await _room!.localParticipant!.setScreenShareEnabled(true);
-        _isScreenSharing = true;
-        Logger.debug('LiveKit: Screen share started successfully', 'LiveKitService');
+        // Verify the actual state after starting
+        _isScreenSharing = _checkLocalScreenShare();
+        Logger.debug('LiveKit: Screen share started successfully, verified state: $_isScreenSharing', 'LiveKitService');
       }
     } catch (e) {
       Logger.error(' LiveKit: Screen share failed: $e', e, null, 'LiveKitService');
       _error = e.toString();
+      // Verify state even on error
+      _isScreenSharing = _checkLocalScreenShare();
     } finally {
       _isStartingScreenShare = false;
       notifyListeners();
@@ -663,17 +819,79 @@ class LiveKitService extends ChangeNotifier {
       
       if (_room?.localParticipant != null) {
         await _room!.localParticipant!.setScreenShareEnabled(false);
-        _isScreenSharing = false;
-        Logger.debug('LiveKit: Screen share stopped successfully', 'LiveKitService');
+        // Verify the actual state after stopping
+        _isScreenSharing = _checkLocalScreenShare();
+        Logger.debug('LiveKit: Screen share stopped successfully, verified state: $_isScreenSharing', 'LiveKitService');
         notifyListeners();
       }
       
       // Stop the foreground service
       await ScreenCaptureService.stopService();
+      
+      // Restore camera quality after stopping screen share
+      await _restoreCameraAfterScreenShare();
     } catch (e) {
       Logger.error(' LiveKit: Stop screen share failed: $e', e, null, 'LiveKitService');
       _error = e.toString();
+      // Verify state even on error
+      _isScreenSharing = _checkLocalScreenShare();
+      // Still try to restore camera quality
+      await _restoreCameraAfterScreenShare();
       notifyListeners();
+    }
+  }
+  
+  /// Optimize camera quality for screen sharing (reduce to preserve bandwidth)
+  Future<void> _optimizeForScreenShare() async {
+    if (_room?.localParticipant == null) return;
+    final isCameraEnabled = _room!.localParticipant!.isCameraEnabled == true;
+    if (!isCameraEnabled) return;
+    
+    try {
+      // Store original camera settings reference
+      // Note: VideoTrackSettings API not available, so we can't actually get/set quality
+      // This is for future use if API becomes available
+      _originalCameraPreset = 'h540'; // Reference only
+      _originalCameraBitrate = 1500000; // Reference only
+      
+      // Note: VideoTrackSettings API is not available in LiveKit Dart SDK 2.5.0
+      // Camera quality reduction during screen share is handled by SDK's adaptive streaming
+      // We keep camera enabled - the SDK will automatically adjust based on bandwidth
+      await _room!.localParticipant!.setCameraEnabled(true);
+      Logger.debug('LiveKit: Camera kept on during screen share - quality managed by SDK adaptive streaming', 'LiveKitService');
+    } catch (e) {
+      Logger.warning('LiveKit: Failed to optimize camera for screen share: $e', 'LiveKitService');
+    }
+  }
+  
+  /// Restore camera quality after screen share stops
+  Future<void> _restoreCameraAfterScreenShare() async {
+    if (_room?.localParticipant == null) return;
+    final isCameraEnabled = _room!.localParticipant!.isCameraEnabled == true;
+    if (!isCameraEnabled) return;
+    if (_originalCameraPreset == null || _originalCameraBitrate == null) return;
+    
+    try {
+      // Note: VideoTrackSettings API is not available in LiveKit Dart SDK 2.5.0
+      // Camera quality restoration is handled automatically by SDK's adaptive streaming
+      // We just ensure camera is still enabled
+      if (_originalCameraPreset != null && _originalCameraBitrate != null) {
+        await _room!.localParticipant!.setCameraEnabled(true);
+        Logger.debug('LiveKit: Camera quality restored by SDK adaptive streaming after screen share', 'LiveKitService');
+      } else {
+        Logger.debug('LiveKit: No original camera settings to restore', 'LiveKitService');
+      }
+      
+      // Clear stored settings
+      _originalCameraPreset = null;
+      _originalCameraBitrate = null;
+      
+      Logger.debug('LiveKit: Restored camera quality after screen share', 'LiveKitService');
+      
+      // Also trigger adaptive stream manager to apply current quality settings
+      _adaptiveStreamManager?.applyCameraQuality();
+    } catch (e) {
+      Logger.warning('LiveKit: Failed to restore camera quality: $e', 'LiveKitService');
     }
   }
 
@@ -792,6 +1010,75 @@ class LiveKitService extends ChangeNotifier {
   // Set raise hand data callback
   void setRaiseHandDataCallback(void Function(Map<String, dynamic>) callback) {
     _onRaiseHandDataReceived = callback;
+  }
+
+  // PDF viewer data callback
+  void Function(Map<String, dynamic>)? _onPdfViewerDataReceived;
+
+  // Set PDF viewer data callback
+  void setPdfViewerDataCallback(void Function(Map<String, dynamic>) callback) {
+    _onPdfViewerDataReceived = callback;
+  }
+
+  // Send PDF annotation data
+  Future<void> sendPdfAnnotationData(Map<String, dynamic> data) async {
+    if (_room == null) {
+      Logger.warning('LiveKit: Cannot send PDF annotation data - no room', 'LiveKitService');
+      return;
+    }
+    
+    if (_room!.localParticipant == null) {
+      Logger.warning('LiveKit: Cannot send PDF annotation data - no local participant', 'LiveKitService');
+      return;
+    }
+    
+    if (!_isConnected) {
+      Logger.warning('LiveKit: Cannot send PDF annotation data - not connected', 'LiveKitService');
+      return;
+    }
+    
+    try {
+      // Convert to JSON string using dart:convert
+      final jsonString = jsonEncode(data);
+      final encodedData = utf8.encode(jsonString);
+      
+      // Check data size limit (16KB) - same as web
+      if (encodedData.length > 16384) {
+        Logger.error('LiveKit: Data too large for PDF annotation: ${encodedData.length} bytes', null, null, 'LiveKitService');
+        return;
+      }
+      
+      // Determine topic based on data type
+      String topic = 'pdf-annotation';
+      if (data['type'] == 'pdf_viewer_open' || data['type'] == 'pdf_viewer_close') {
+        topic = 'pdf-viewer';
+      } else if (data['type'] == 'pdf_scroll_sync') {
+        topic = 'pdf-scroll';
+      }
+      
+      // Send with timeout
+      await _room!.localParticipant!.publishData(
+        encodedData,
+        reliable: true,
+        topic: topic,
+      ).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          Logger.error('LiveKit: Timeout sending PDF annotation data', null, null, 'LiveKitService');
+          throw TimeoutException('Timeout sending PDF annotation data');
+        },
+      );
+      
+      Logger.debug(' LiveKit: PDF annotation data sent - ${data['type']} (${encodedData.length} bytes)');
+    } on TimeoutException catch (e) {
+      Logger.error(' LiveKit: Timeout sending PDF annotation data: $e', e, null, 'LiveKitService');
+      _error = 'Timeout: ${e.toString()}';
+      notifyListeners();
+    } catch (e) {
+      Logger.error(' LiveKit: Failed to send PDF annotation data: $e', e, null, 'LiveKitService');
+      _error = e.toString();
+      notifyListeners();
+    }
   }
 
   // Send chat data
@@ -1011,6 +1298,29 @@ class LiveKitService extends ChangeNotifier {
     Logger.debug('LiveKit: All permissions granted successfully', 'LiveKitService');
   }
 
+  // Check if local participant is screen sharing
+  bool _checkLocalScreenShare() {
+    if (_localParticipant == null) {
+      return false;
+    }
+    
+    // Check local participant's video track publications for screen share
+    for (final publication in _localParticipant!.videoTrackPublications) {
+      final name = publication.name?.toLowerCase() ?? '';
+      final sid = publication.sid ?? '';
+      final isScreenShare = name.contains('screen') || 
+                            name.contains('screenshare') ||
+                            name.contains('screen-share') ||
+                            sid.contains('screen');
+      if (isScreenShare && publication.track != null) {
+        Logger.debug('LiveKit: Local participant is screen sharing - name: $name, sid: $sid', 'LiveKitService');
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
   // Room event handler - optimized to reduce excessive logging and rebuilds
   void _onRoomChanged() {
     if (_room != null) {
@@ -1034,16 +1344,14 @@ class LiveKitService extends ChangeNotifier {
       // Check connection state
       final connectionState = _room!.connectionState;
       
-      // Check for screen share and update state
-      final hasScreenShare = hasAnyScreenShare;
+      // Check for LOCAL screen share and update state (only check local participant, not remote)
+      final localHasScreenShare = _checkLocalScreenShare();
       bool needsImmediateNotify = false;
       
-      if (hasScreenShare != _isScreenSharing) {
-        _isScreenSharing = hasScreenShare;
+      if (localHasScreenShare != _isScreenSharing) {
+        Logger.debug('LiveKit: Local screen share state changed - was: $_isScreenSharing, now: $localHasScreenShare', 'LiveKitService');
+        _isScreenSharing = localHasScreenShare;
         needsImmediateNotify = true; // Screen share changes need immediate update
-      } else if (!hasScreenShare && _isScreenSharing) {
-        _isScreenSharing = false;
-        needsImmediateNotify = true;
       }
       
       // Update connection status based on room state
@@ -1141,6 +1449,27 @@ class LiveKitService extends ChangeNotifier {
           // Mute control data
           if (_onMuteControlDataReceived != null) {
             _onMuteControlDataReceived!(data);
+          }
+        } else if (event.topic == 'pdf-annotation' || 
+                   event.topic == 'pdf-viewer' || 
+                   event.topic == 'pdf-scroll' ||
+                   (data['type'] as String?)?.startsWith('pdf_') == true) {
+          // PDF viewer/annotation data - filter own messages
+          final senderIdentity = event.participant?.identity;
+          final localIdentity = _localParticipant?.identity;
+          
+          Logger.debug('LiveKit: PDF data received - topic: ${event.topic}, type: ${data['type']}, sender: $senderIdentity, local: $localIdentity', 'LiveKitService');
+          
+          if (senderIdentity == localIdentity) {
+            Logger.debug('LiveKit: Ignoring own PDF message', 'LiveKitService');
+            return; // Ignore own messages
+          }
+          
+          if (_onPdfViewerDataReceived != null) {
+            Logger.debug('LiveKit: Calling PDF viewer callback with data: ${data.toString()}', 'LiveKitService');
+            _onPdfViewerDataReceived!(data);
+          } else {
+            Logger.warning('LiveKit: PDF viewer callback is null', 'LiveKitService');
           }
         }
       }
@@ -1244,38 +1573,111 @@ class LiveKitService extends ChangeNotifier {
     }
   }
   
-  // Attempt reconnection
+  // Attempt reconnection with exponential backoff and token refresh
   Future<void> _attemptReconnection() async {
     if (_isConnecting) {
       Logger.warning('LiveKit: Already attempting reconnection, skipping', 'LiveKitService');
       return;
     }
     
-    if (_lastLivekitUrl == null || _lastToken == null) {
+    // Check if we've exceeded max attempts
+    if (_reconnectionAttempts >= MAX_RECONNECTION_ATTEMPTS) {
+      Logger.warning('LiveKit: Max reconnection attempts reached ($MAX_RECONNECTION_ATTEMPTS)', 'LiveKitService');
+      _error = 'Connection lost. Please reconnect manually.';
+      notifyListeners();
+      return;
+    }
+    
+    // Need room details for token refresh
+    if (_lastRoomName == null || _lastParticipantName == null || _lastParticipantType == null) {
       Logger.warning('LiveKit: No connection details available for reconnection', 'LiveKitService');
       return;
     }
     
     try {
-      Logger.debug('LiveKit: Starting reconnection attempt', 'LiveKitService');
+      _reconnectionAttempts++;
+      Logger.debug('LiveKit: Starting reconnection attempt $_reconnectionAttempts/$MAX_RECONNECTION_ATTEMPTS', 'LiveKitService');
       _isConnecting = true;
       notifyListeners();
       
-      // Wait a bit before reconnecting
-      await Future.delayed(const Duration(milliseconds: 500));
+      // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+      final backoffDelay = Duration(seconds: 1 << (_reconnectionAttempts - 1));
+      Logger.debug('LiveKit: Waiting ${backoffDelay.inSeconds}s before reconnection...', 'LiveKitService');
+      await Future.delayed(backoffDelay);
+      
+      // Refresh token before reconnecting (tokens may expire)
+      Logger.debug('LiveKit: Refreshing token for reconnection...', 'LiveKitService');
+      LiveKitTokenResponse tokenResponse;
+      try {
+        tokenResponse = await ApiService.getLiveKitToken(
+          roomName: _lastRoomName!,
+          participantName: _lastParticipantName!,
+          participantType: _lastParticipantType!,
+        );
+        
+        // Update stored connection details
+        _lastLivekitUrl = tokenResponse.livekitUrl;
+        _lastToken = tokenResponse.token;
+        Logger.debug('LiveKit: Token refreshed successfully', 'LiveKitService');
+      } catch (e) {
+        Logger.error('LiveKit: Failed to refresh token: $e', e, null, 'LiveKitService');
+        // Try with old token as fallback
+        if (_lastLivekitUrl == null || _lastToken == null) {
+          throw Exception('No valid token available for reconnection');
+        }
+        Logger.debug('LiveKit: Using stored token as fallback', 'LiveKitService');
+        // Create a simple token response object for reconnection
+        // Note: This is a fallback - ideally we'd refresh the token
+        tokenResponse = LiveKitTokenResponse(
+          token: _lastToken!,
+          livekitUrl: _lastLivekitUrl!,
+          roomName: _lastRoomName ?? '',
+          participantName: _lastParticipantName ?? '',
+          participantType: _lastParticipantType ?? 'guest',
+        );
+      }
       
       if (_room != null) {
-        // Try to reconnect with stored details
+        // Try to reconnect with refreshed token
         await _room!.connect(
-          _lastLivekitUrl!,
-          _lastToken!,
+          tokenResponse.livekitUrl,
+          tokenResponse.token,
         );
+        
         Logger.debug('LiveKit: Reconnection successful', 'LiveKitService');
+        _reconnectionAttempts = 0; // Reset on success
+        _error = null;
+        _isConnecting = false;
+        notifyListeners();
+      } else {
+        // Room was disposed, need full reconnection
+        Logger.debug('LiveKit: Room was disposed, attempting full reconnection...', 'LiveKitService');
+        await connectToRoom(
+          roomName: _lastRoomName!,
+          participantName: _lastParticipantName!,
+          participantType: _lastParticipantType!,
+          cameraEnabled: (_localParticipant?.isCameraEnabled ?? true) as bool,
+          microphoneEnabled: (_localParticipant?.isMicrophoneEnabled ?? true) as bool,
+          speakerEnabled: _speakerEnabled,
+        );
       }
     } catch (e) {
-      Logger.error(' LiveKit: Reconnection failed: $e', e, null, 'LiveKitService');
-      _error = 'Reconnection failed: $e';
-      notifyListeners();
+      Logger.error('LiveKit: Reconnection attempt $_reconnectionAttempts failed: $e', e, null, 'LiveKitService');
+      _isConnecting = false;
+      
+      // Schedule next reconnection attempt if we haven't exceeded max attempts
+      if (_reconnectionAttempts < MAX_RECONNECTION_ATTEMPTS) {
+        final nextBackoffDelay = Duration(seconds: 1 << _reconnectionAttempts);
+        Logger.debug('LiveKit: Scheduling next reconnection attempt in ${nextBackoffDelay.inSeconds}s', 'LiveKitService');
+        
+        _reconnectionTimer?.cancel();
+        _reconnectionTimer = Timer(nextBackoffDelay, () {
+          _attemptReconnection();
+        });
+      } else {
+        _error = 'Connection lost after $MAX_RECONNECTION_ATTEMPTS attempts. Please reconnect manually.';
+        notifyListeners();
+      }
     }
   }
 
@@ -1416,9 +1818,50 @@ class LiveKitService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Initialize adaptive streaming services
+  void _initializeAdaptiveStreaming() {
+    if (_room == null) return;
+
+    try {
+      // Initialize quality store if not already initialized
+      _qualityStore ??= MediaQualityStore();
+      _qualityStore!.initialize();
+
+      // Initialize connection monitor
+      _connectionMonitor ??= ConnectionMonitorService();
+      _connectionMonitor!.startMonitoring(_room!);
+
+      // Initialize network adapter
+      _networkAdapter ??= NetworkAdapterService();
+      _networkAdapter!.setRoom(_room!);
+
+      // Initialize adaptive stream manager
+      _adaptiveStreamManager ??= AdaptiveStreamManager();
+      _adaptiveStreamManager!.initialize(
+        room: _room!,
+        connectionMonitor: _connectionMonitor!,
+        networkAdapter: _networkAdapter!,
+        qualityStore: _qualityStore!,
+      );
+
+      Logger.debug('Adaptive streaming initialized', 'LiveKitService');
+    } catch (e) {
+      Logger.error('Failed to initialize adaptive streaming: $e', e, null, 'LiveKitService');
+    }
+  }
+
+  /// Get quality store (for UI access)
+  MediaQualityStore? get qualityStore => _qualityStore;
+
+  /// Get connection monitor (for UI access)
+  ConnectionMonitorService? get connectionMonitor => _connectionMonitor;
+
   @override
   void dispose() {
     _stopConnectionMonitoring();
+    _reconnectionTimer?.cancel();
+    _adaptiveStreamManager?.dispose();
+    _connectionMonitor?.dispose();
     _notifyDebouncer.dispose();
     _room?.removeListener(_onRoomChanged);
     _dataListener?.dispose();

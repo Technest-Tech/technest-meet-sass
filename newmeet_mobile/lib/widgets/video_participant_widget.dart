@@ -1,18 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
 import '../theme/app_colors.dart';
+import '../utils/responsive.dart';
 
 /// Optimized video participant widget with caching and performance optimizations
 class VideoParticipantWidget extends StatefulWidget {
   final dynamic participant;
   final bool isLocal;
   final bool hasRaisedHand;
+  final bool forceCameraOnly; // If true, show only camera feed (ignore screen share)
+  final bool forceScreenShareOnly; // If true, show only screen share (ignore camera)
 
   const VideoParticipantWidget({
     super.key,
     required this.participant,
     this.isLocal = false,
     this.hasRaisedHand = false,
+    this.forceCameraOnly = false,
+    this.forceScreenShareOnly = false,
   });
 
   @override
@@ -231,6 +236,16 @@ class _VideoParticipantWidgetState extends State<VideoParticipantWidget>
       }
     }
     
+    // If forceScreenShareOnly is true, return only screen share track
+    if (widget.forceScreenShareOnly) {
+      return screenShareTrack;
+    }
+    
+    // If forceCameraOnly is true, return only camera track
+    if (widget.forceCameraOnly) {
+      return cameraTrack;
+    }
+    
     // Prioritize screen share over camera
     return screenShareTrack ?? cameraTrack;
   }
@@ -323,50 +338,100 @@ class _VideoParticipantWidgetState extends State<VideoParticipantWidget>
     final micEnabled = _isMicrophoneEnabled();
     final theme = Theme.of(context);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.overlayDark,
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            micEnabled ? Icons.mic : Icons.mic_off,
-            size: 18,
-            color: micEnabled ? AppColors.success : AppColors.danger,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Adjust padding and spacing based on available width and device type
+        final availableWidth = constraints.maxWidth;
+        final isPhone = Responsive.isPhone(context);
+        final isTablet = Responsive.isTablet(context);
+        final isExtremelyNarrow = availableWidth < 70;
+        final isVeryNarrow = availableWidth < 100;
+        
+        // Responsive sizing based on device type
+        final horizontalPadding = Responsive.value(
+          context,
+          phone: isExtremelyNarrow ? 4.0 : (isVeryNarrow ? 8.0 : 12.0),
+          tablet: isExtremelyNarrow ? 6.0 : (isVeryNarrow ? 10.0 : 16.0),
+        );
+        final iconSize = Responsive.value(
+          context,
+          phone: isExtremelyNarrow ? 14.0 : (isVeryNarrow ? 16.0 : 18.0),
+          tablet: isExtremelyNarrow ? 16.0 : (isVeryNarrow ? 18.0 : 20.0),
+        );
+        final spacing = Responsive.value(
+          context,
+          phone: isExtremelyNarrow ? 2.0 : (isVeryNarrow ? 4.0 : 8.0),
+          tablet: isExtremelyNarrow ? 4.0 : (isVeryNarrow ? 6.0 : 10.0),
+        );
+        final fontSize = Responsive.value(
+          context,
+          phone: isVeryNarrow ? 12.0 : 14.0,
+          tablet: isVeryNarrow ? 13.0 : 15.0,
+        );
+        final showLocalBadge = widget.isLocal && !isExtremelyNarrow;
+        final showName = !isExtremelyNarrow;
+        
+        return Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: horizontalPadding,
+            vertical: Responsive.value(context, phone: 8.0, tablet: 10.0),
           ),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              _getParticipantName(),
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.w600,
-              ),
-              overflow: TextOverflow.ellipsis,
+          decoration: BoxDecoration(
+            color: AppColors.overlayDark,
+            borderRadius: BorderRadius.circular(
+              Responsive.value(context, phone: 16.0, tablet: 18.0),
             ),
           ),
-          if (widget.isLocal) ...[
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.18),
-                borderRadius: BorderRadius.circular(12),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: [
+              Icon(
+                micEnabled ? Icons.mic : Icons.mic_off,
+                size: iconSize,
+                color: micEnabled ? AppColors.success : AppColors.danger,
               ),
-              child: Text(
-                'You',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w700,
+              if (showName) ...[
+                SizedBox(width: spacing),
+                Flexible(
+                  child: Text(
+                    _getParticipantName(),
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: fontSize,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    softWrap: false,
+                  ),
                 ),
-              ),
-            ),
-          ],
-        ],
-      ),
+              ],
+              if (showLocalBadge) ...[
+                SizedBox(width: spacing),
+                Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: Responsive.value(context, phone: 4.0, tablet: 6.0),
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.18),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'You',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: Responsive.value(context, phone: 10.0, tablet: 11.0),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 }

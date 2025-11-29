@@ -4,12 +4,36 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:dio/dio.dart';
+import 'package:dio/dio.dart' show MultipartFile;
 import '../models/room.dart';
 import '../models/client_models.dart';
 import '../config/app_config.dart';
 import '../utils/logger.dart';
 import 'http_client_service.dart';
 import 'api_request_manager.dart';
+
+/// Custom exception for room not found errors (404)
+class RoomNotFoundException implements Exception {
+  final String message;
+  RoomNotFoundException(this.message);
+  
+  @override
+  String toString() => message;
+}
+
+/// Custom exception for room restriction errors (403)
+class RoomRestrictedException implements Exception {
+  final String message;
+  final bool isMultiParticipantsRestricted;
+  
+  RoomRestrictedException(
+    this.message, {
+    this.isMultiParticipantsRestricted = false,
+  });
+  
+  @override
+  String toString() => message;
+}
 
 class ApiService {
   // Use configuration for base URL
@@ -129,6 +153,23 @@ class ApiService {
             participantName: data['participantName'] as String,
             participantType: participantType,
           );
+        } else if (response.statusCode == 404) {
+          Logger.error('Room not found (404)', null, null, 'ApiService');
+          throw RoomNotFoundException('Room not found: $roomName');
+        } else if (response.statusCode == 403) {
+          Logger.error('Room access restricted (403)', null, null, 'ApiService');
+          final errorBody = response.body;
+          final isMultiParticipantsRestricted = errorBody.toLowerCase().contains('multi participants') ||
+                                               errorBody.toLowerCase().contains('room restriction') ||
+                                               errorBody.toLowerCase().contains('prevent');
+          final isActiveHostBlocked = errorBody.toLowerCase().contains('already an active host') ||
+                                     errorBody.toLowerCase().contains('active host in this room');
+          throw RoomRestrictedException(
+            isActiveHostBlocked 
+              ? 'There is already an active host in this room. Only one host can access at a time.'
+              : 'Room access restricted',
+            isMultiParticipantsRestricted: isMultiParticipantsRestricted || isActiveHostBlocked,
+          );
         } else {
           Logger.error('Connection details request failed with status: ${response.statusCode}', null, null, 'ApiService');
           Logger.error('Response body: ${response.body}', null, null, 'ApiService');
@@ -161,6 +202,23 @@ class ApiService {
           Logger.debug('Token received - URL: ${tokenResponse.livekitUrl}', 'ApiService');
           Logger.debug('Token received - Room: ${tokenResponse.roomName}', 'ApiService');
           return tokenResponse;
+        } else if (response.statusCode == 404) {
+          Logger.error('Room not found (404)', null, null, 'ApiService');
+          throw RoomNotFoundException('Room not found: $roomName');
+        } else if (response.statusCode == 403) {
+          Logger.error('Room access restricted (403)', null, null, 'ApiService');
+          final errorBody = response.body;
+          final isMultiParticipantsRestricted = errorBody.toLowerCase().contains('multi participants') ||
+                                               errorBody.toLowerCase().contains('room restriction') ||
+                                               errorBody.toLowerCase().contains('prevent');
+          final isActiveHostBlocked = errorBody.toLowerCase().contains('already an active host') ||
+                                     errorBody.toLowerCase().contains('active host in this room');
+          throw RoomRestrictedException(
+            isActiveHostBlocked 
+              ? 'There is already an active host in this room. Only one host can access at a time.'
+              : 'Room access restricted',
+            isMultiParticipantsRestricted: isMultiParticipantsRestricted || isActiveHostBlocked,
+          );
         } else {
           Logger.error('Token request failed with status: ${response.statusCode}', null, null, 'ApiService');
           Logger.error('Response body: ${response.body}', null, null, 'ApiService');
@@ -969,5 +1027,144 @@ class ApiService {
       Logger.error('Check name error: $e', e, null, 'ApiService');
       throw Exception('Error checking room name: $e');
     }
+  }
+
+  // Get room files
+  static Future<List<Map<String, dynamic>>> getRoomFiles(String roomName) async {
+    try {
+      Logger.debug('Getting room files - Room: $roomName', 'ApiService');
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/room-files/$roomName'),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      Logger.debug('Get room files response - Status: ${response.statusCode}', 'ApiService');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        final files = (data['files'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+        Logger.debug('Room files retrieved: ${files.length} files', 'ApiService');
+        return files;
+      } else {
+        Logger.error('Get room files failed with status: ${response.statusCode}', null, null, 'ApiService');
+        throw Exception('Failed to get room files: ${response.statusCode}');
+      }
+    } catch (e) {
+      Logger.error('Get room files error: $e', e, null, 'ApiService');
+      if (e is Exception) {
+        rethrow;
+      }
+      throw Exception('Error getting room files: $e');
+    }
+  }
+
+  // Upload room file
+  static Future<Map<String, dynamic>> uploadRoomFile({
+    required String roomName,
+    required File file,
+    required String uploadedBy,
+    Function(int, int)? onProgress,
+  }) async {
+    try {
+      Logger.debug('Uploading room file - Room: $roomName, File: ${file.path}', 'ApiService');
+
+      final dio = await HttpClientService.dio;
+      
+      final formData = FormData.fromMap({
+        'file': await MultipartFile.fromFile(
+          file.path,
+          filename: file.path.split('/').last,
+        ),
+        'roomName': roomName,
+        'uploadedBy': uploadedBy,
+      });
+
+      final response = await dio.post(
+        '/api/room-files/upload',
+        data: formData,
+        onSendProgress: onProgress != null
+            ? (sent, total) => onProgress(sent, total)
+            : null,
+      );
+
+      Logger.debug('Upload file response - Status: ${response.statusCode}', 'ApiService');
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        final uploadedFile = data['file'] as Map<String, dynamic>;
+        Logger.debug('File uploaded successfully: ${uploadedFile['originalName']}', 'ApiService');
+        return uploadedFile;
+      } else {
+        Logger.error('Upload file failed with status: ${response.statusCode}', null, null, 'ApiService');
+        final error = (response.data as Map<String, dynamic>?)?['error'] as String? ?? 'Upload failed';
+        throw Exception(error);
+      }
+    } on DioException catch (e) {
+      Logger.error('Upload file error: $e', e, null, 'ApiService');
+      final error = e.response?.data?['error'] as String? ?? 'Failed to upload file';
+      throw Exception(error);
+    } catch (e) {
+      Logger.error('Upload file error: $e', e, null, 'ApiService');
+      if (e is Exception) {
+        rethrow;
+      }
+      throw Exception('Error uploading file: $e');
+    }
+  }
+
+  // Delete room file
+  static Future<void> deleteRoomFile(String fileId, {String? requestedBy, String? participantType}) async {
+    try {
+      Logger.debug('Deleting room file - ID: $fileId, requestedBy: $requestedBy, participantType: $participantType', 'ApiService');
+
+      final dio = await HttpClientService.dio;
+      // API route is /api/room-files/delete/[fileId]
+      final url = '/api/room-files/delete/$fileId';
+      
+      // Format requestedBy to include _host_ if participantType is host
+      // The API checks if requestedBy contains "_host_" to verify host status
+      // The connection-details endpoint formats identity as "name_host_roomname"
+      // The simple token endpoint just uses participantName, so we need to add _host_
+      String formattedRequestedBy = requestedBy ?? '';
+      if (participantType != null && participantType.toUpperCase() == 'HOST') {
+        // Check if identity already contains _host_ (case insensitive)
+        if (!formattedRequestedBy.toLowerCase().contains('_host_')) {
+          // Append _host_ to the identity so API recognizes it as host
+          // The API just checks if the string contains "_host_", so this should work
+          formattedRequestedBy = '${formattedRequestedBy}_host_';
+        }
+      }
+      
+      Logger.debug('Formatted requestedBy: $formattedRequestedBy (original: $requestedBy)', 'ApiService');
+      
+      final queryParams = formattedRequestedBy.isNotEmpty ? {'requestedBy': formattedRequestedBy} : null;
+      final response = await dio.delete(url, queryParameters: queryParams);
+
+      Logger.debug('Delete file response - Status: ${response.statusCode}', 'ApiService');
+
+      if (response.statusCode == 200) {
+        Logger.debug('File deleted successfully', 'ApiService');
+      } else {
+        Logger.error('Delete file failed with status: ${response.statusCode}', null, null, 'ApiService');
+        final error = (response.data as Map<String, dynamic>?)?['error'] as String? ?? 'Delete failed';
+        throw Exception(error);
+      }
+    } on DioException catch (e) {
+      Logger.error('Delete file error: $e', e, null, 'ApiService');
+      final error = e.response?.data?['error'] as String? ?? 'Failed to delete file';
+      throw Exception(error);
+    } catch (e) {
+      Logger.error('Delete file error: $e', e, null, 'ApiService');
+      if (e is Exception) {
+        rethrow;
+      }
+      throw Exception('Error deleting file: $e');
+    }
+  }
+
+  // Get room file URL
+  static String getRoomFileUrl(String fileId) {
+    return '$baseUrl/api/room-files/view/$fileId';
   }
 }

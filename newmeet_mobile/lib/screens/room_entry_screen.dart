@@ -18,6 +18,7 @@ import 'support_screen.dart';
 import '../utils/logger.dart';
 import '../providers/auth_provider.dart';
 import '../utils/logger.dart';
+import '../utils/responsive.dart';
 import '../theme/app_colors.dart';
 import '../utils/logger.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -218,6 +219,59 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
 
         Logger.debug(' RoomEntry: Room validation passed', 'room_entry_screen');
 
+        // Check if room allows multiple hosts when joining as host
+        if (participantType == 'host' && 
+            validation.room?.allowMultipleHosts == false) {
+          Logger.debug(' RoomEntry: Room does not allow multiple hosts', 'room_entry_screen');
+          // Show warning dialog - user can still proceed, but API will block if host already exists
+          final shouldProceed = await showDialog<bool>(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => AlertDialog(
+              backgroundColor: AppColors.surfaceElevated,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+              title: Text(
+                'Host Access Restricted',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: AppColors.textPrimary,
+                    ),
+              ),
+              content: Text(
+                'This room only allows one host at a time. If there is already an active host in the room, you will not be able to join.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: Text(
+                    'Cancel',
+                    style: TextStyle(color: AppColors.textSecondary),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: AppColors.textPrimary,
+                  ),
+                  child: const Text('Continue Anyway'),
+                ),
+              ],
+            ),
+          );
+          
+          if (shouldProceed != true) {
+            setState(() {
+              _isLoading = false;
+            });
+            return;
+          }
+        }
+
         // Extract features from validation
         features = validation.features;
         passwordRequired = validation.room?.passwordRequired;
@@ -317,20 +371,30 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
         backgroundColor: _EntryColors.background,
         appBar: _buildTopAppBar(theme),
         body: SafeArea(
-          child: Form(
-            key: _formKey,
-            child: ListView(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-              children: [
-                _buildJoinCard(theme),
-                if (_error != null) ...[
-                  const SizedBox(height: 20),
-                  _buildErrorBanner(theme),
-                ],
-                const SizedBox(height: 24),
-                _buildHelpfulTips(theme),
-              ],
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: Responsive.maxContentWidth(context) ?? double.infinity,
+              ),
+              child: Form(
+                key: _formKey,
+                child: ListView(
+                  padding: Responsive.padding(
+                    context,
+                    horizontal: 24.0,
+                    vertical: 24.0,
+                  ),
+                  children: [
+                    _buildJoinCard(theme),
+                    if (_error != null) ...[
+                      SizedBox(height: Responsive.spacing(context, phone: 20.0, tablet: 24.0)),
+                      _buildErrorBanner(theme),
+                    ],
+                    SizedBox(height: Responsive.spacing(context, phone: 24.0, tablet: 32.0)),
+                    _buildHelpfulTips(theme),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -562,7 +626,7 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         return Container(
-          padding: const EdgeInsets.all(24),
+          padding: Responsive.padding(context, all: 24.0),
           decoration: BoxDecoration(
             color: _EntryColors.surface,
             borderRadius: BorderRadius.circular(24),

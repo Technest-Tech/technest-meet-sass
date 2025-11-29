@@ -11,7 +11,7 @@ export async function GET(
     const type = searchParams.get('type');
     const guestName = searchParams.get('guestName');
 
-    if (!type || (type !== 'host' && type !== 'guest')) {
+    if (!type || (type !== 'host' && type !== 'guest' && type !== 'observer')) {
       return NextResponse.json(
         { message: 'Invalid access type' },
         { status: 400 }
@@ -21,12 +21,13 @@ export async function GET(
     // Await params for Next.js 15 compatibility
     const { roomLink } = await params;
 
-    // Find room by host or guest link
+    // Find room by host, guest, or observer link
     const room = await prisma.room.findFirst({
       where: {
         OR: [
           { hostLink: roomLink },
-          { guestLink: roomLink }
+          { guestLink: roomLink },
+          { observerLink: roomLink }
         ]
       },
       include: {
@@ -143,6 +144,7 @@ export async function GET(
         name: room.name,
         isActive: room.isActive,
         hostApproval: room.hostApproval,
+        allowMultipleHosts: room.allowMultipleHosts ?? false,
         canRecord: room.canRecord && enabledFeatures.includes('RECORDING'),
         requireWaitingRoom: room.requireWaitingRoom && enabledFeatures.includes('WAITING_ROOM'),
         allowGuestUnmute: room.allowGuestUnmute && enabledFeatures.includes('GUEST_UNMUTE'),

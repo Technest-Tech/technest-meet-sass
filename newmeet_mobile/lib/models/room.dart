@@ -32,6 +32,7 @@ class RoomModel {
   final bool? enableVirtualBackground;
   final bool? enableNoiseCancellation;
   final bool? enableStudentMonitorPiP;
+  final bool? allowMultipleHosts;
   final bool? passwordRequired;
   final String? passwordFor;
 
@@ -62,6 +63,7 @@ class RoomModel {
     this.enableVirtualBackground,
     this.enableNoiseCancellation,
     this.enableStudentMonitorPiP,
+    this.allowMultipleHosts,
     this.passwordRequired,
     this.passwordFor,
   });

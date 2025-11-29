@@ -80,6 +80,12 @@ dependencies:
   
   # Deep linking support
   app_links: ^6.3.1
+  
+  # PDF viewer
+  pdfx: ^2.0.0
+  
+  # File picker for file sharing
+  file_picker: ^8.0.0
 
 dev_dependencies:
   flutter_test:
