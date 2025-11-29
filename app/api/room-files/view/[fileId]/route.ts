@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { prisma } from '@/lib/database';
-import { getRoomFilePath } from '@/lib/utils/storage';
+import { getRoomFilePath, isR2Key } from '@/lib/utils/storage';
+import { downloadFile as downloadFromR2 } from '@/lib/services/r2Storage';
 
 export async function GET(
   req: NextRequest,
@@ -30,22 +31,39 @@ export async function GET(
       );
     }
 
-    // Construct file path using stable room identifier
-    const filePath = getRoomFilePath(roomFile.roomId, roomFile.filename);
+    let fileBuffer: Buffer | null = null;
 
-    // Check if file exists on disk
-    if (!existsSync(filePath)) {
-      console.warn(
-        `[RoomFiles] File ${roomFile.id} missing on disk at ${filePath}. Verify ROOM_UPLOAD_ROOT and run scripts/migrate-room-file-folders.ts if upgrading.`,
-      );
-      return NextResponse.json(
-        { error: 'File not found on disk' },
-        { status: 404 }
-      );
+    // Check if file is stored in R2 (filename starts with "room-files/")
+    if (isR2Key(roomFile.filename)) {
+      // Try to download from R2
+      fileBuffer = await downloadFromR2(roomFile.filename);
+      if (!fileBuffer) {
+        console.warn(
+          `[RoomFiles] File ${roomFile.id} not found in R2 with key ${roomFile.filename}`,
+        );
+        return NextResponse.json(
+          { error: 'File not found in R2' },
+          { status: 404 }
+        );
+      }
+    } else {
+      // Fallback to local filesystem
+      const filePath = getRoomFilePath(roomFile.roomId, roomFile.filename);
+
+      // Check if file exists on disk
+      if (!existsSync(filePath)) {
+        console.warn(
+          `[RoomFiles] File ${roomFile.id} missing on disk at ${filePath}. Verify ROOM_UPLOAD_ROOT and run scripts/migrate-room-file-folders.ts if upgrading.`,
+        );
+        return NextResponse.json(
+          { error: 'File not found on disk' },
+          { status: 404 }
+        );
+      }
+
+      // Read file from local filesystem
+      fileBuffer = await readFile(filePath);
     }
-
-    // Read file
-    const fileBuffer = await readFile(filePath);
 
     // Encode filename for Content-Disposition header to handle special characters
     const encodedFilename = encodeURIComponent(roomFile.originalName);
