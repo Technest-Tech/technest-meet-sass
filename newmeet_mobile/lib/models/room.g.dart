@@ -36,6 +36,7 @@ RoomModel _$RoomModelFromJson(Map<String, dynamic> json) => RoomModel(
       enableVirtualBackground: json['enableVirtualBackground'] as bool?,
       enableNoiseCancellation: json['enableNoiseCancellation'] as bool?,
       enableStudentMonitorPiP: json['enableStudentMonitorPiP'] as bool?,
+      allowMultipleHosts: json['allowMultipleHosts'] as bool?,
       passwordRequired: json['passwordRequired'] as bool?,
       passwordFor: json['passwordFor'] as String?,
     );
@@ -67,6 +68,7 @@ Map<String, dynamic> _$RoomModelToJson(RoomModel instance) => <String, dynamic>{
       'enableVirtualBackground': instance.enableVirtualBackground,
       'enableNoiseCancellation': instance.enableNoiseCancellation,
       'enableStudentMonitorPiP': instance.enableStudentMonitorPiP,
+      'allowMultipleHosts': instance.allowMultipleHosts,
       'passwordRequired': instance.passwordRequired,
       'passwordFor': instance.passwordFor,
     };

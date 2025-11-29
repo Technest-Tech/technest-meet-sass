@@ -446,15 +446,32 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
+    // Get canvas display size (not internal size)
+    const displayWidth = canvas.clientWidth || canvas.width;
+    const displayHeight = canvas.clientHeight || canvas.height;
+    
     // Get strokes for current page
     const pageStrokes = strokes.get(currentPage) || [];
+    
+    // Helper function to convert normalized coordinates (0-1000) to screen coordinates
+    const denormalizePoint = (normalizedPoint: DrawingPoint) => {
+      const x = (normalizedPoint.x / 1000) * displayWidth;
+      const y = (normalizedPoint.y / 1000) * displayHeight;
+      return { x, y };
+    };
     
     // Draw all strokes
     pageStrokes.forEach(stroke => {
       if (stroke.points.length < 2) return;
       
+      // For eraser, use destination-out composite operation to actually erase
+      if (stroke.tool === 'eraser') {
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+      }
+      
       ctx.beginPath();
-      ctx.strokeStyle = stroke.tool === 'eraser' ? 'rgba(255, 255, 255, 1)' : stroke.color;
+      ctx.strokeStyle = stroke.tool === 'eraser' ? 'rgba(0, 0, 0, 1)' : stroke.color;
       ctx.lineWidth = stroke.width;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -465,22 +482,34 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
         ctx.globalAlpha = 1.0;
       }
       
-      const firstPoint = stroke.points[0];
+      const firstPoint = denormalizePoint(stroke.points[0]);
       ctx.moveTo(firstPoint.x, firstPoint.y);
       
       for (let i = 1; i < stroke.points.length; i++) {
-        const point = stroke.points[i];
+        const point = denormalizePoint(stroke.points[i]);
         ctx.lineTo(point.x, point.y);
       }
       
       ctx.stroke();
+      
+      // Restore composite operation for eraser
+      if (stroke.tool === 'eraser') {
+        ctx.restore();
+      }
+      
       ctx.globalAlpha = 1.0;
     });
     
     // Draw current stroke if drawing
     if (currentStroke && currentStroke.points.length >= 2) {
+      // For eraser, use destination-out composite operation to actually erase
+      if (currentStroke.tool === 'eraser') {
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+      }
+      
       ctx.beginPath();
-      ctx.strokeStyle = currentStroke.tool === 'eraser' ? 'rgba(255, 255, 255, 1)' : currentStroke.color;
+      ctx.strokeStyle = currentStroke.tool === 'eraser' ? 'rgba(0, 0, 0, 1)' : currentStroke.color;
       ctx.lineWidth = currentStroke.width;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -489,15 +518,21 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
         ctx.globalAlpha = 0.3;
       }
       
-      const firstPoint = currentStroke.points[0];
+      const firstPoint = denormalizePoint(currentStroke.points[0]);
       ctx.moveTo(firstPoint.x, firstPoint.y);
       
       for (let i = 1; i < currentStroke.points.length; i++) {
-        const point = currentStroke.points[i];
+        const point = denormalizePoint(currentStroke.points[i]);
         ctx.lineTo(point.x, point.y);
       }
       
       ctx.stroke();
+      
+      // Restore composite operation for eraser
+      if (currentStroke.tool === 'eraser') {
+        ctx.restore();
+      }
+      
       ctx.globalAlpha = 1.0;
     }
   };
@@ -507,10 +542,6 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
     
     const rect = annotationCanvasRef.current.getBoundingClientRect();
     
-    // Since we scaled the context by outputScale in renderPage,
-    // we work in viewport/display coordinates (not internal canvas coordinates)
-    // The context.scale(outputScale, outputScale) automatically converts our coordinates
-    // to internal canvas coordinates, so we just use display coordinates directly
     let clientX: number;
     let clientY: number;
     
@@ -527,9 +558,13 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
     }
     
     // Calculate position in display coordinates
-    // The context.scale() in renderPage handles conversion to internal coordinates
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
+    const displayX = clientX - rect.left;
+    const displayY = clientY - rect.top;
+    
+    // Normalize to 0-1 range, then scale to 0-1000 for cross-platform compatibility
+    // This ensures coordinates work across different screen sizes and zoom levels
+    const x = (displayX / rect.width) * 1000;
+    const y = (displayY / rect.height) * 1000;
     
     return { x, y };
   };

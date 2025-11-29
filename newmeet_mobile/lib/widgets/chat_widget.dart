@@ -6,6 +6,7 @@ import 'package:livekit_client/livekit_client.dart' as lk;
 import '../utils/logger.dart';
 import '../services/livekit_service.dart';
 import '../utils/logger.dart';
+import '../utils/responsive.dart';
 import '../theme/app_colors.dart';
 import '../utils/logger.dart';
 import '../theme/app_theme.dart';
@@ -779,7 +780,11 @@ class _ChatWidgetState extends State<ChatWidget> {
           : Alignment.centerLeft,
       child: Container(
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.75,
+          maxWidth: Responsive.value(
+            context,
+            phone: Responsive.width(context) * 0.75,
+            tablet: Responsive.width(context) * 0.6,
+          ),
         ),
         padding: EdgeInsets.all(spacing.md),
         decoration: BoxDecoration(

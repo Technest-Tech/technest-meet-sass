@@ -8,6 +8,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   connectivity_plus
   flutter_webrtc
   livekit_client
+  pdfx
   permission_handler_windows
   screen_capturer
   url_launcher_windows
