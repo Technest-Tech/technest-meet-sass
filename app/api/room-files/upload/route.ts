@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createWriteStream } from 'node:fs';
-import { mkdtemp, rename, rm } from 'node:fs/promises';
+import { mkdtemp, rename, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import Busboy from 'busboy';
 import { PrismaClient } from '@prisma/client';
-import { ensureRoomUploadPath, getRoomFilePath } from '@/lib/utils/storage';
+import { ensureRoomUploadPath, getRoomFilePath, getR2Key } from '@/lib/utils/storage';
+import { uploadFile as uploadToR2, isR2Enabled } from '@/lib/services/r2Storage';
 
 export const runtime = 'nodejs';
 
@@ -96,19 +97,50 @@ export async function POST(req: NextRequest) {
     }
 
     const roomStorageId = room.id;
-    await ensureRoomUploadPath(roomStorageId);
-
     const timestamp = Date.now();
     const sanitizedOriginalName = file.originalName.replace(/[^a-zA-Z0-9.-]/g, '_');
     const filename = `${timestamp}-${sanitizedOriginalName}`;
-    const filePath = getRoomFilePath(roomStorageId, filename);
 
-    await rename(file.tmpPath, filePath);
+    let storedFilename = filename;
+    let uploadedToR2 = false;
+
+    // Try uploading to R2 first if enabled
+    if (isR2Enabled()) {
+      console.log(`[R2] Attempting to upload ${filename} to R2...`);
+      try {
+        const fileBuffer = await readFile(file.tmpPath);
+        const r2Key = getR2Key(roomStorageId, filename);
+        console.log(`[R2] Uploading to R2 key: ${r2Key}`);
+        const success = await uploadToR2(r2Key, fileBuffer, file.mimeType);
+
+        if (success) {
+          // Store R2 key in filename field
+          storedFilename = r2Key;
+          uploadedToR2 = true;
+          console.log(`[R2] Successfully uploaded ${filename} to R2, stored as ${r2Key}`);
+          // Clean up temp file since we uploaded to R2
+          await rm(file.tmpPath, { force: true });
+        } else {
+          console.warn(`[R2] Upload failed for ${filename}, falling back to local storage`);
+        }
+      } catch (error) {
+        console.error(`[R2] Error uploading to R2, falling back to local storage:`, error);
+      }
+    } else {
+      console.log(`[R2] R2 is not enabled or not properly configured, using local storage for ${filename}`);
+    }
+
+    // Fallback to local filesystem if R2 upload failed or R2 is disabled
+    if (!uploadedToR2) {
+      await ensureRoomUploadPath(roomStorageId);
+      const filePath = getRoomFilePath(roomStorageId, filename);
+      await rename(file.tmpPath, filePath);
+    }
 
     const roomFile = await prisma.roomFile.create({
       data: {
         roomId: room.id,
-        filename,
+        filename: storedFilename, // This will be either R2 key or local filename
         originalName: file.originalName,
         fileType: file.mimeType,
         size: file.size,

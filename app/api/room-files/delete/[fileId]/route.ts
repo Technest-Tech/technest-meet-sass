@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { PrismaClient } from '@prisma/client';
-import { getRoomFilePath } from '@/lib/utils/storage';
+import { getRoomFilePath, isR2Key } from '@/lib/utils/storage';
+import { deleteFile as deleteFromR2 } from '@/lib/services/r2Storage';
 
 const prisma = new PrismaClient();
 
@@ -53,16 +54,26 @@ export async function DELETE(
       );
     }
 
-    // Construct file path
-    const filePath = getRoomFilePath(roomFile.roomId, roomFile.filename);
-
-    // Delete file from disk if it exists
-    if (existsSync(filePath)) {
-      await unlink(filePath);
+    // Try deleting from R2 first if it's an R2 key
+    if (isR2Key(roomFile.filename)) {
+      const deleted = await deleteFromR2(roomFile.filename);
+      if (!deleted) {
+        console.warn(
+          `[RoomFiles] Delete requested for ${roomFile.id} from R2, but file not found or delete failed with key ${roomFile.filename}`,
+        );
+      }
     } else {
-      console.warn(
-        `[RoomFiles] Delete requested for ${roomFile.id}, but file missing at ${filePath}. Verify ROOM_UPLOAD_ROOT and migrate legacy folders.`,
-      );
+      // Fallback to local filesystem
+      const filePath = getRoomFilePath(roomFile.roomId, roomFile.filename);
+
+      // Delete file from disk if it exists
+      if (existsSync(filePath)) {
+        await unlink(filePath);
+      } else {
+        console.warn(
+          `[RoomFiles] Delete requested for ${roomFile.id}, but file missing at ${filePath}. Verify ROOM_UPLOAD_ROOT and migrate legacy folders.`,
+        );
+      }
     }
 
     // Delete file metadata from database

@@ -3,8 +3,13 @@ import { TrackToggle } from '@livekit/components-react';
 import { MediaDeviceMenu } from '@livekit/components-react';
 import { useRoomContext } from '@livekit/components-react';
 import { Track, LocalAudioTrack } from 'livekit-client';
-import { NoiseSuppressionProcessor } from '@livekit/track-processors';
 import { isLowPowerDevice } from './client-utils';
+
+// Dynamically import noise suppression processor to avoid SSR issues
+// Note: NoiseSuppressionProcessor is not available in @livekit/track-processors
+// This feature may not be available in the current version
+type NoiseProcessorType = any;
+let NoiseSuppressionProcessor: NoiseProcessorType | null = null;
 
 interface MicrophoneSettingsProps {
   roomFeatures?: {
@@ -16,7 +21,7 @@ export function MicrophoneSettings({ roomFeatures }: MicrophoneSettingsProps) {
   const room = useRoomContext();
   const [isNoiseFilterEnabled, setIsNoiseFilterEnabled] = useState(false);
   const [isNoiseFilterPending, setIsNoiseFilterPending] = useState(false);
-  const [processor, setProcessor] = useState<NoiseSuppressionProcessor | null>(null);
+  const [processor, setProcessor] = useState<NoiseProcessorType | null>(null);
 
   // Apply or remove noise cancellation filter
   useEffect(() => {
@@ -56,15 +61,11 @@ export function MicrophoneSettings({ roomFeatures }: MicrophoneSettingsProps) {
 
         // Only apply if not already applied
         if (isNoiseFilterEnabled && !processor) {
-          // Create and apply noise suppression processor
-          const noiseProcessor = new NoiseSuppressionProcessor({
-            // Use adaptive noise suppression for better quality
-            level: 'aggressive', // Options: 'low', 'moderate', 'aggressive'
-          });
-          
-          await micTrack.addProcessor(noiseProcessor);
-          setProcessor(noiseProcessor);
-          console.log('✅ Noise cancellation enabled');
+          // Noise suppression processor is not available in current @livekit/track-processors version
+          // This feature is disabled until a compatible processor is available
+          console.warn('Noise suppression is not available in the current version of @livekit/track-processors');
+          setIsNoiseFilterEnabled(false);
+          return;
         }
       } catch (error) {
         console.error('Failed to toggle noise cancellation:', error);

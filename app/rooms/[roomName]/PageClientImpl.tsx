@@ -1921,14 +1921,14 @@ function VideoConferenceComponent(props: {
     if (reason === DisconnectReason.PARTICIPANT_REMOVED) {
       logger.info('Participant was removed by host, not reconnecting');
       props.setMeetingEnded(true); // Mark as ended to prevent reconnection
-      router.push('/');
+      router.push('/meeting-ended');
       return;
     }
     
     // If meeting was ended, don't reconnect
     if (props.meetingEnded) {
       logger.info('Meeting was ended, not reconnecting');
-      router.push('/');
+      router.push('/meeting-ended');
       return;
     }
     
@@ -1937,7 +1937,7 @@ function VideoConferenceComponent(props: {
     if (reason === DisconnectReason.CLIENT_INITIATED) {
       logger.info('User intentionally left meeting (CLIENT_INITIATED)');
       props.setMeetingEnded(true); // Mark as ended to prevent reconnection
-      router.push('/');
+      router.push('/meeting-ended');
       return;
     }
     
@@ -1956,7 +1956,7 @@ function VideoConferenceComponent(props: {
     if (room.state === 'disconnected' && !document.hidden) {
       logger.info('Intentional leave detected, redirecting to home...');
       props.setMeetingEnded(true); // Mark as ended to prevent reconnection
-      router.push('/');
+      router.push('/meeting-ended');
     }
   }, [router, room, handleEncryptionError, handleError, props.meetingEnded, props.setMeetingEnded]);
 

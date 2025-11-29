@@ -359,7 +359,7 @@ export function VideoConferenceClientImpl(props: VideoConferenceClientImplProps)
       // If disconnected due to being removed by host, redirect to home
       if (reason === DisconnectReason.PARTICIPANT_REMOVED) {
         logger.info('Participant was removed by host, redirecting to home');
-        window.location.href = '/';
+        window.location.href = '/meeting-ended';
         return;
       }
       
