@@ -23,6 +23,7 @@ import {
   Plus,
   RefreshCw,
   Target,
+  Trash2,
   Users,
   XCircle,
 } from 'lucide-react';
@@ -466,6 +467,30 @@ function SubscriptionsManagementContent({ userEmail }: { userEmail: string }) {
     } catch (err) {
       console.error(err);
       toast.error('تعذر تحديث الحالة');
+    }
+  };
+
+  const handleDelete = async (subscriptionId: string, clientName: string) => {
+    if (!confirm(`هل أنت متأكد من حذف اشتراك ${clientName}؟ هذا الإجراء لا يمكن التراجع عنه.`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/super-admin/subscriptions/${subscriptionId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'فشل حذف الاشتراك');
+      }
+
+      toast.success('تم حذف الاشتراك بنجاح');
+      refetch();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || 'تعذر حذف الاشتراك');
     }
   };
 
@@ -1063,6 +1088,16 @@ function SubscriptionsManagementContent({ userEmail }: { userEmail: string }) {
                             >
                               تعديل
                             </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDelete(subscription.id, subscription.client.name);
+                              }}
+                              className="flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-xs text-red-600 hover:border-red-300 hover:bg-red-50"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                              حذف
+                            </button>
                           </div>
                         </td>
                         </tr>
@@ -1243,8 +1278,14 @@ function CreateSubscriptionModal({
         payload.trialDays = formData.trialDays;
       }
 
-      const response = await fetch('/api/super-admin/subscriptions', {
-        method: 'POST',
+      // Use PUT for updates, POST for new subscriptions
+      const url = existingSubscription
+        ? `/api/super-admin/subscriptions/${existingSubscription.id}`
+        : '/api/super-admin/subscriptions';
+      const method = existingSubscription ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify(payload),
