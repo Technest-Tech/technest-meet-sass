@@ -12,12 +12,14 @@ type SessionInfo = {
   startedBy?: string;
 };
 
-export async function GET(request: NextRequest, { params }: { params: { id: string; roomId: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string; roomId: string }> }) {
   try {
     await requireSuperAdmin();
 
+    const { id, roomId } = await params;
+
     const account = await prisma.account.findUnique({
-      where: { id: params.id },
+      where: { id },
       select: { clientId: true },
     });
 
@@ -26,7 +28,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     }
 
     const room = await prisma.room.findFirst({
-      where: { id: params.roomId, clientId: account.clientId },
+      where: { id: roomId, clientId: account.clientId },
       select: { id: true, name: true, description: true, isActive: true, updatedAt: true },
     });
 

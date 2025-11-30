@@ -57,6 +57,12 @@ interface DashboardStats {
   };
 }
 
+interface RealtimeStats {
+  activeSessions: number;
+  totalParticipants: number;
+  timestamp: string;
+}
+
 function SuperAdminDashboardContent({ userEmail }: { userEmail: string }) {
   const [stats, setStats] = useState<DashboardStats>({
     totalAccounts: 0,
@@ -80,12 +86,44 @@ function SuperAdminDashboardContent({ userEmail }: { userEmail: string }) {
       participantActivity: { joined: 0, left: 0, net: 0 },
     },
   });
+  const [realtimeStats, setRealtimeStats] = useState<RealtimeStats>({
+    activeSessions: 0,
+    totalParticipants: 0,
+    timestamp: '',
+  });
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
   const { isCollapsed } = useSidebar();
 
   useEffect(() => {
     fetchStats();
+  }, []);
+
+  // Poll real-time stats every 3 seconds
+  useEffect(() => {
+    const fetchRealtimeStats = async () => {
+      try {
+        const response = await fetch('/api/super-admin/stats/realtime', {
+          credentials: 'include',
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setRealtimeStats(data);
+        }
+      } catch (error) {
+        console.error('Error fetching real-time stats:', error);
+        // Don't show error toast for real-time updates to avoid spam
+      }
+    };
+
+    // Fetch immediately
+    fetchRealtimeStats();
+
+    // Then poll every 3 seconds
+    const interval = setInterval(fetchRealtimeStats, 3000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const fetchStats = async () => {
@@ -210,7 +248,11 @@ function SuperAdminDashboardContent({ userEmail }: { userEmail: string }) {
 
           {/* Session Statistics Cards */}
           {!isLoading && stats.sessions && (
-            <SessionStatsCards stats={stats.sessions} roomsUtilization={stats.rooms.utilization} />
+            <SessionStatsCards 
+              stats={stats.sessions} 
+              roomsUtilization={stats.rooms.utilization}
+              realtimeStats={realtimeStats}
+            />
           )}
 
           {/* Charts, Alerts and System Status */}
