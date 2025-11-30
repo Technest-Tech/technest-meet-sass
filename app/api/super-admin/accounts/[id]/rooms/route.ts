@@ -5,11 +5,14 @@ import { ActivityEventType, Prisma } from '@prisma/client';
 
 const DEFAULT_ROOMS_PAGE_SIZE = 10;
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     await requireSuperAdmin();
+    
+    const { id } = await params;
+    
     const account = await prisma.account.findUnique({
-      where: { id: params.id },
+      where: { id },
       select: { clientId: true },
     });
 
