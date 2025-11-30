@@ -25,7 +25,7 @@ interface SessionInfo {
 interface ParticipantInfo {
   name: string;
   type: string;
-  lastSeen: Date;
+  lastSeen: string | Date;
 }
 
 interface RoomLogsData {
@@ -250,7 +250,11 @@ export default function RoomLogsModal({
                         </span>
                       </div>
                       <div className="text-sm text-gray-600">
-                        آخر ظهور: {formatDateTime(participant.lastSeen.toISOString())}
+                        آخر ظهور: {formatDateTime(
+                          typeof participant.lastSeen === 'string' 
+                            ? participant.lastSeen 
+                            : participant.lastSeen.toISOString()
+                        )}
                       </div>
                     </div>
                   </div>
