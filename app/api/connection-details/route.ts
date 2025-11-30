@@ -21,6 +21,8 @@ const PUBLIC_LIVEKIT_URL = process.env.NEXT_PUBLIC_LIVEKIT_URL || defaultLivekit
 
 const COOKIE_KEY = 'random-participant-postfix';
 
+// Single LiveKit server - no routing needed
+
 export async function GET(request: NextRequest) {
   try {
     console.log('🔍 Connection details request received');
@@ -53,13 +55,11 @@ export async function GET(request: NextRequest) {
     if (!LIVEKIT_URL) {
       throw new Error('LIVEKIT_URL is not defined');
     }
-    // Use the public URL for client connections, internal URL for server operations
-    const clientLivekitUrl = region ? getLiveKitURL(PUBLIC_LIVEKIT_URL, region) : PUBLIC_LIVEKIT_URL;
-    const serverLivekitUrl = region ? getLiveKitURL(LIVEKIT_URL, region) : LIVEKIT_URL;
+    
+    // Note: We need to get the room first to determine routing, so we'll set these after room lookup
+    let clientLivekitUrl: string;
+    let serverLivekitUrl: string;
     let randomParticipantPostfix = request.cookies.get(COOKIE_KEY)?.value;
-    if (clientLivekitUrl === undefined || serverLivekitUrl === undefined) {
-      throw new Error('Invalid region');
-    }
 
     // These checks are now redundant since we check above, but keep for safety
     if (typeof roomName !== 'string') {
@@ -130,9 +130,28 @@ export async function GET(request: NextRequest) {
     const isGuestLink = room.guestLink === roomName;
     const isObserverLink = room.observerLink === roomName;
     
-    // For observers, use the actual room's link (hostLink/guestLink) as the LiveKit room name
-    // This ensures they join the SAME room as the host and guests
-    const actualRoomName = isObserverLink ? room.hostLink : roomName;
+    // ALWAYS use hostLink as the LiveKit room name to ensure consistency
+    // This ensures all participants (host, guest, observer) use the same room name
+    const actualRoomName = room.hostLink;
+
+    // Use single LiveKit server URL (no routing needed)
+    const publicLivekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || 'wss://rtc.acadmyq.com';
+
+    // Handle region routing if needed
+    if (region) {
+      clientLivekitUrl = getLiveKitURL(publicLivekitUrl, region);
+      // Convert wss:// to ws:// for server-side connections
+      const serverUrl = publicLivekitUrl.replace('wss://', 'ws://').replace('https://', 'http://');
+      serverLivekitUrl = getLiveKitURL(serverUrl, region);
+    } else {
+      clientLivekitUrl = publicLivekitUrl;
+      // Convert wss:// to ws:// for server-side connections
+      serverLivekitUrl = publicLivekitUrl.replace('wss://', 'ws://').replace('https://', 'http://');
+    }
+
+    if (clientLivekitUrl === undefined || serverLivekitUrl === undefined) {
+      throw new Error('Invalid region');
+    }
 
     // Validate participant type matches link type
     // Note: hostLink and guestLink may be the same, so we check both conditions
