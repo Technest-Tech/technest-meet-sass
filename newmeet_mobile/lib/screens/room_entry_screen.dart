@@ -21,7 +21,6 @@ import '../utils/logger.dart';
 import '../utils/responsive.dart';
 import '../theme/app_colors.dart';
 import '../utils/logger.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class _EntryColors {
   static const background = Color(0xFFE8F1FF);
@@ -390,8 +389,6 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
                       SizedBox(height: Responsive.spacing(context, phone: 20.0, tablet: 24.0)),
                       _buildErrorBanner(theme),
                     ],
-                    SizedBox(height: Responsive.spacing(context, phone: 24.0, tablet: 32.0)),
-                    _buildHelpfulTips(theme),
                   ],
                 ),
               ),
@@ -753,105 +750,6 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
     );
   }
 
-  Future<void> _openWhatsApp() async {
-    const phoneNumber = '+201557601371';
-    const message = 'السلام عليكم';
-    final url = Uri.parse('https://wa.me/${phoneNumber.replaceAll(RegExp(r'[^0-9]'), '')}?text=${Uri.encodeComponent(message)}');
-    
-    try {
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url, mode: LaunchMode.externalApplication);
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('WhatsApp is not installed. Please contact +201557601371'),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      Logger.error('Failed to open WhatsApp: $e', e, null, 'room_entry_screen');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to open WhatsApp. Please contact +201557601371'),
-          ),
-        );
-      }
-    }
-  }
-
-  Widget _buildHelpfulTips(ThemeData theme) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: _EntryColors.surface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _EntryColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: _EntryColors.primary.withOpacity(0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.lightbulb,
-                  color: _EntryColors.active,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Need a room?',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: _EntryColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Contact your admin or contact us on WhatsApp +201557601371 for assistance.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: _EntryColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _openWhatsApp,
-              icon: const Icon(Icons.chat, size: 20),
-              label: const Text('Contact us on WhatsApp'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF25D366), // WhatsApp green color
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildBottomNavigation() {
     return Container(
