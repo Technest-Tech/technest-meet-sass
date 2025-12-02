@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  livekit-server:
+    image: livekit/livekit-server:latest
+    container_name: livekit-server
+    ports:
+      - "7880:7880"  # API and WebSocket signaling
+      - "7881:7881"  # TCP fallback
+      - "7882:7882/udp"  # UDP for media traffic
+    environment:
+      LIVEKIT_PORT: "7880"
+      LIVEKIT_BIND_ADDRESSES: "0.0.0.0:7880"
+      LIVEKIT_TCP_PORT: "7881"
+      LIVEKIT_TCP_BIND_ADDRESSES: "0.0.0.0:7881"
+      LIVEKIT_UDP_PORT: "7882"
+      LIVEKIT_UDP_BIND_ADDRESSES: "0.0.0.0:7882"
+    volumes:
+      - ./livekit.yaml:/config.yaml
+    command: --config /config.yaml
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-livekit
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx-server4.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - livekit-server
+    restart: unless-stopped
+
