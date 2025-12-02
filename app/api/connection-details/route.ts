@@ -21,7 +21,49 @@ const PUBLIC_LIVEKIT_URL = process.env.NEXT_PUBLIC_LIVEKIT_URL || defaultLivekit
 
 const COOKIE_KEY = 'random-participant-postfix';
 
-// Single LiveKit server - no routing needed
+// Consistent hashing for LiveKit server routing
+// Ensures same room always routes to same server
+function getLiveKitServerForRoom(roomName: string): { 
+  clientUrl: string; 
+  serverUrl: string;
+} {
+  // Get LiveKit server URLs from env (backward compatible)
+  const livekit1Client = process.env.LIVEKIT_1_CLIENT_URL || process.env.NEXT_PUBLIC_LIVEKIT_URL || 'wss://rtc.acadmyq.com';
+  const livekit1Server = process.env.LIVEKIT_1_SERVER_URL || process.env.LIVEKIT_URL || 'http://178.128.78.195:7880';
+  
+  const livekit2Client = process.env.LIVEKIT_2_CLIENT_URL;
+  const livekit2Server = process.env.LIVEKIT_2_SERVER_URL;
+  
+  // If second server not configured, use single server (backward compatible)
+  if (!livekit2Client || !livekit2Server) {
+    return { 
+      clientUrl: livekit1Client, 
+      serverUrl: livekit1Server 
+    };
+  }
+  
+  // Consistent hashing: same room always goes to same server
+  let hash = 0;
+  for (let i = 0; i < roomName.length; i++) {
+    hash = ((hash << 5) - hash) + roomName.charCodeAt(i);
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  
+  // Route based on hash (0 or 1)
+  const serverIndex = Math.abs(hash) % 2;
+  
+  if (serverIndex === 0) {
+    return { 
+      clientUrl: livekit1Client, 
+      serverUrl: livekit1Server 
+    };
+  } else {
+    return { 
+      clientUrl: livekit2Client, 
+      serverUrl: livekit2Server 
+    };
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -134,20 +176,25 @@ export async function GET(request: NextRequest) {
     // This ensures all participants (host, guest, observer) use the same room name
     const actualRoomName = room.hostLink;
 
-    // Use single LiveKit server URL (no routing needed)
-    const publicLivekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL || 'wss://rtc.acadmyq.com';
+    // Route room to specific LiveKit server using consistent hashing
+    const livekitRouting = getLiveKitServerForRoom(actualRoomName);
+    let clientLivekitUrl: string;
+    let serverLivekitUrl: string;
 
     // Handle region routing if needed
     if (region) {
-      clientLivekitUrl = getLiveKitURL(publicLivekitUrl, region);
-      // Convert wss:// to ws:// for server-side connections
-      const serverUrl = publicLivekitUrl.replace('wss://', 'ws://').replace('https://', 'http://');
-      serverLivekitUrl = getLiveKitURL(serverUrl, region);
+      clientLivekitUrl = getLiveKitURL(livekitRouting.clientUrl, region);
+      serverLivekitUrl = getLiveKitURL(livekitRouting.serverUrl, region);
     } else {
-      clientLivekitUrl = publicLivekitUrl;
-      // Convert wss:// to ws:// for server-side connections
-      serverLivekitUrl = publicLivekitUrl.replace('wss://', 'ws://').replace('https://', 'http://');
+      clientLivekitUrl = livekitRouting.clientUrl;
+      serverLivekitUrl = livekitRouting.serverUrl;
     }
+
+    console.log('🔧 LiveKit routing:', { 
+      roomName: actualRoomName,
+      clientUrl: clientLivekitUrl,
+      serverUrl: serverLivekitUrl 
+    });
 
     if (clientLivekitUrl === undefined || serverLivekitUrl === undefined) {
       throw new Error('Invalid region');
@@ -211,7 +258,8 @@ export async function GET(request: NextRequest) {
           let livekitActiveHostIdentity = '';
           
           try {
-            const roomService = new RoomServiceClient(LIVEKIT_URL, API_KEY, API_SECRET);
+            // Use routed server URL for LiveKit operations
+            const roomService = new RoomServiceClient(serverLivekitUrl, API_KEY, API_SECRET);
             const participants = await roomService.listParticipants(actualRoomName).catch((err) => {
               console.log('LiveKit listParticipants error:', err);
               return [];
@@ -350,7 +398,8 @@ export async function GET(request: NextRequest) {
     // Observers bypass participant limits
     if (participantRole === 'guest' && (isGuestLink || (isHostLink && isGuestLink)) && !isObserver) {
       try {
-        const roomService = new RoomServiceClient(LIVEKIT_URL, API_KEY, API_SECRET);
+        // Use routed server URL for LiveKit operations
+        const roomService = new RoomServiceClient(serverLivekitUrl, API_KEY, API_SECRET);
         // Use actual room name for LiveKit operations
         const livekitRoomName = actualRoomName;
         const participants = await roomService.listParticipants(livekitRoomName).catch((err) => {
