@@ -178,8 +178,6 @@ export async function GET(request: NextRequest) {
 
     // Route room to specific LiveKit server using consistent hashing
     const livekitRouting = getLiveKitServerForRoom(actualRoomName);
-    let clientLivekitUrl: string;
-    let serverLivekitUrl: string;
 
     // Handle region routing if needed
     if (region) {
