@@ -839,19 +839,127 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
 
   // Toggle microphone
   const toggleMicrophone = async () => {
-    if (localParticipant) {
-      const enabled = localParticipant.isMicrophoneEnabled;
-      await localParticipant.setMicrophoneEnabled(!enabled);
-      setIsMicEnabled(!enabled);
+    if (!localParticipant) return;
+    
+    const enabled = localParticipant.isMicrophoneEnabled;
+    const newState = !enabled;
+    
+    // Optimistic update
+    setIsMicEnabled(newState);
+    
+    try {
+      await localParticipant.setMicrophoneEnabled(newState);
+      
+      // Verify the actual state after operation completes
+      const actualState = localParticipant.isMicrophoneEnabled;
+      if (actualState !== newState) {
+        setIsMicEnabled(actualState);
+        logger.debug('Microphone state mismatch after operation', {
+          expected: newState,
+          actual: actualState,
+        });
+      }
+    } catch (error) {
+      // Revert optimistic update on failure
+      setIsMicEnabled(enabled);
+      
+      logger.error('Failed to toggle microphone:', error);
+      
+      // Handle specific error types with user-friendly messages
+      if (error instanceof Error) {
+        if (error.name === 'NotAllowedError' || error.message.includes('Permission denied') || error.message.includes('permission')) {
+          toast.error('Microphone permission denied. Please allow microphone access in your browser settings to use audio.', {
+            duration: 5000,
+          });
+        } else if (error.name === 'NotFoundError' || error.message.includes('NotFoundError') || error.message.includes('not found')) {
+          toast.error('No microphone detected. Please connect a microphone and try again.', {
+            duration: 5000,
+          });
+        } else if (error.name === 'NotReadableError' || error.message.includes('NotReadableError') || error.message.includes('not readable')) {
+          toast.error('Microphone is currently in use by another application. Please close other apps and try again.', {
+            duration: 5000,
+          });
+        } else if (error.message.includes('getUserMedia') || error.message.includes('MediaDevices')) {
+          toast.error('Microphone access is not supported in this browser. Please use a modern browser like Chrome, Firefox, or Edge.', {
+            duration: 5000,
+          });
+        } else if (error.message.includes('network') || error.message.includes('connection')) {
+          toast.error('Network error while accessing microphone. Please check your connection and try again.', {
+            duration: 5000,
+          });
+        } else {
+          toast.error('Unable to access microphone. Please check your microphone settings and try again.', {
+            duration: 5000,
+          });
+        }
+      } else {
+        toast.error('An unexpected error occurred while accessing the microphone. Please try again.', {
+          duration: 5000,
+        });
+      }
     }
   };
 
   // Toggle camera
   const toggleCamera = async () => {
-    if (localParticipant) {
-      const enabled = localParticipant.isCameraEnabled;
-      await localParticipant.setCameraEnabled(!enabled);
-      setIsCameraEnabled(!enabled);
+    if (!localParticipant) return;
+    
+    const enabled = localParticipant.isCameraEnabled;
+    const newState = !enabled;
+    
+    // Optimistic update
+    setIsCameraEnabled(newState);
+    
+    try {
+      await localParticipant.setCameraEnabled(newState);
+      
+      // Verify the actual state after operation completes
+      const actualState = localParticipant.isCameraEnabled;
+      if (actualState !== newState) {
+        setIsCameraEnabled(actualState);
+        logger.debug('Camera state mismatch after operation', {
+          expected: newState,
+          actual: actualState,
+        });
+      }
+    } catch (error) {
+      // Revert optimistic update on failure
+      setIsCameraEnabled(enabled);
+      
+      logger.error('Failed to toggle camera:', error);
+      
+      // Handle specific error types with user-friendly messages
+      if (error instanceof Error) {
+        if (error.name === 'NotAllowedError' || error.message.includes('Permission denied') || error.message.includes('permission')) {
+          toast.error('Camera permission denied. Please allow camera access in your browser settings to use video.', {
+            duration: 5000,
+          });
+        } else if (error.name === 'NotFoundError' || error.message.includes('NotFoundError') || error.message.includes('not found')) {
+          toast.error('No camera detected. Please connect a camera and try again.', {
+            duration: 5000,
+          });
+        } else if (error.name === 'NotReadableError' || error.message.includes('NotReadableError') || error.message.includes('not readable')) {
+          toast.error('Camera is currently in use by another application. Please close other apps and try again.', {
+            duration: 5000,
+          });
+        } else if (error.message.includes('getUserMedia') || error.message.includes('MediaDevices')) {
+          toast.error('Camera access is not supported in this browser. Please use a modern browser like Chrome, Firefox, or Edge.', {
+            duration: 5000,
+          });
+        } else if (error.message.includes('network') || error.message.includes('connection')) {
+          toast.error('Network error while accessing camera. Please check your connection and try again.', {
+            duration: 5000,
+          });
+        } else {
+          toast.error('Unable to access camera. Please check your camera settings and try again.', {
+            duration: 5000,
+          });
+        }
+      } else {
+        toast.error('An unexpected error occurred while accessing the camera. Please try again.', {
+          duration: 5000,
+        });
+      }
     }
   };
 
@@ -1825,6 +1933,71 @@ function VideoConferenceComponent(props: {
   const handleError = React.useCallback((error: Error) => {
     logger.error('LiveKit error:', error);
     
+    // Handle microphone/camera errors gracefully without disconnecting room
+    // This must be checked BEFORE AudioContext and other connection errors
+    const isMicrophoneError = 
+      error.message.includes('Microphone') ||
+      error.message.includes('microphone') ||
+      (error.message.includes('audio') && (error.message.includes('NotAllowedError') || error.message.includes('Permission denied'))) ||
+      (error.message.includes('getUserMedia') && error.message.includes('audio'));
+    
+    const isCameraError = 
+      error.message.includes('Camera') ||
+      error.message.includes('camera') ||
+      (error.message.includes('video') && (error.message.includes('NotAllowedError') || error.message.includes('Permission denied'))) ||
+      (error.message.includes('getUserMedia') && error.message.includes('video'));
+    
+    if (isMicrophoneError || isCameraError) {
+      logger.warn('Microphone/Camera error detected - handling gracefully without disconnecting room', {
+        error: error.message,
+        name: error.name,
+        isMicrophone: isMicrophoneError,
+        isCamera: isCameraError,
+      });
+      
+      // Show clear error message to user while keeping them in the room
+      if (isMicrophoneError) {
+        if (error.message.includes('NotAllowedError') || error.message.includes('Permission denied')) {
+          toast.error('Microphone permission denied. Please allow microphone access in your browser settings to use audio.', {
+            duration: 5000,
+          });
+        } else if (error.message.includes('NotFoundError') || error.message.includes('not found')) {
+          toast.error('No microphone detected. Please connect a microphone and try again.', {
+            duration: 5000,
+          });
+        } else if (error.message.includes('NotReadableError') || error.message.includes('not readable')) {
+          toast.error('Microphone is currently in use by another application. Please close other apps and try again.', {
+            duration: 5000,
+          });
+        } else {
+          toast.error('Unable to access microphone. Please check your microphone settings and try again.', {
+            duration: 5000,
+          });
+        }
+      } else if (isCameraError) {
+        if (error.message.includes('NotAllowedError') || error.message.includes('Permission denied')) {
+          toast.error('Camera permission denied. Please allow camera access in your browser settings to use video.', {
+            duration: 5000,
+          });
+        } else if (error.message.includes('NotFoundError') || error.message.includes('not found')) {
+          toast.error('No camera detected. Please connect a camera and try again.', {
+            duration: 5000,
+          });
+        } else if (error.message.includes('NotReadableError') || error.message.includes('not readable')) {
+          toast.error('Camera is currently in use by another application. Please close other apps and try again.', {
+            duration: 5000,
+          });
+        } else {
+          toast.error('Unable to access camera. Please check your camera settings and try again.', {
+            duration: 5000,
+          });
+        }
+      }
+      
+      // Don't disconnect room for microphone/camera errors - they're non-critical
+      return;
+    }
+    
     // Handle specific RTCPeerConnection errors
     if (error.message.includes('setRemoteDescription') || error.message.includes('addIceCandidate')) {
       logger.warn('RTCPeerConnection error - connection may be in invalid state');
@@ -1842,6 +2015,9 @@ function VideoConferenceComponent(props: {
     // Handle AudioContext errors (browser permission issues)
     if (error.message.includes('AudioContext') || error.message.includes('not allowed to start')) {
       logger.warn('AudioContext permission error - user needs to interact with page first');
+      toast.error('Audio permission required. Please click anywhere on the page and try again.', {
+        duration: 5000,
+      });
       // Reset to user interaction state to allow them to try again
       setIsConnected(false);
       setIsConnecting(false);
@@ -1862,6 +2038,7 @@ function VideoConferenceComponent(props: {
     // Handle camera track placeholder errors
     if (error.message.includes('Element not part of the array') || error.message.includes('camera_placeholder')) {
       logger.warn('Camera track placeholder error - this is usually a timing issue');
+      // Don't show error message for this - it's usually resolved automatically
       // Don't disconnect for this error, it's usually resolved automatically
       return;
     }
@@ -1894,16 +2071,22 @@ function VideoConferenceComponent(props: {
       return;
     }
     
-    // Handle screen sharing permission cancellation gracefully (legacy check for compatibility)
-    if (error.message.includes('Permission denied by user') || error.message.includes('NotAllowedError')) {
+    // Handle generic permission cancellation gracefully (legacy check for compatibility)
+    if (error.message.includes('Permission denied by user') || (error.message.includes('NotAllowedError') && !error.message.includes('screen') && !error.message.includes('display'))) {
       logger.debug('Permission was denied by user - this is expected behavior');
-      // Don't show alert for permission cancellation, just log it
+      // Show a friendly message for permission denial
+      toast.error('Permission was denied. Please allow access when prompted to use this feature.', {
+        duration: 4000,
+      });
       return;
     }
     
-    // Only show alert for unexpected errors
-    if (!error.message.includes('Network') && !error.message.includes('timeout')) {
-      alert(`Encountered an unexpected error, check the console logs for details: ${error.message}`);
+    // Only show toast for unexpected errors (not network/timeout which are handled elsewhere)
+    if (!error.message.includes('Network') && !error.message.includes('timeout') && !error.message.includes('duplicate')) {
+      toast.error('An unexpected error occurred. You can continue using the meeting. If the issue persists, please refresh the page.', {
+        duration: 6000,
+      });
+      logger.error('Unexpected error in handleError:', error);
     }
   }, [room]);
   
