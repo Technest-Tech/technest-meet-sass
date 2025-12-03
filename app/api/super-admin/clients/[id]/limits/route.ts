@@ -68,6 +68,21 @@ export async function PATCH(
       },
     });
 
+    // Update existing rooms' maxParticipants if client limit changed
+    if (Object.prototype.hasOwnProperty.call(validated.data, 'maxParticipants')) {
+      const newMaxParticipants = validated.data.maxParticipants;
+      
+      if (newMaxParticipants !== undefined) {
+        // Update all existing rooms for this client
+        const updateResult = await prisma.room.updateMany({
+          where: { clientId: id },
+          data: { maxParticipants: newMaxParticipants },
+        });
+        
+        console.log(`✅ Updated maxParticipants for ${updateResult.count} rooms of client ${id} to ${newMaxParticipants}`);
+      }
+    }
+
     if (Object.prototype.hasOwnProperty.call(validated.data, 'enableObserverLinks')) {
       const enableObserverLinks = validated.data.enableObserverLinks ?? false;
 
