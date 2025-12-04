@@ -6,6 +6,7 @@
 /newmeet_mobile/node_modules
 /desktop-app
 /electron-app
+/almajd_app
 
 # pnpm
 /.pnp
