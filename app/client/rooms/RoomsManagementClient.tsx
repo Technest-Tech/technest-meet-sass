@@ -346,14 +346,15 @@ function RoomsManagementContent({
         </main>
       </div>
 
-      <CreateRoomModal
-        isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        onSuccess={() => {
-          setShowCreateModal(false);
-          fetchRooms();
-        }}
-      />
+        <CreateRoomModal
+          isOpen={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          onSuccess={() => {
+            setShowCreateModal(false);
+            fetchRooms();
+          }}
+          userEmail={userEmail}
+        />
 
       {editingRoom && (
         <UpdateRoomModal
@@ -373,11 +374,15 @@ function CreateRoomModal({
   isOpen,
   onClose,
   onSuccess,
+  userEmail,
 }: {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  userEmail: string;
 }) {
+  const isAlmajdAccount = userEmail === 'almajd@admin.com';
+  const [useCustomLink, setUseCustomLink] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     hostApproval: false,
@@ -389,10 +394,13 @@ function CreateRoomModal({
     password: '',
     passwordRequired: false,
     passwordFor: 'HOST_ONLY' as 'HOST_ONLY' | 'HOST_AND_GUEST',
+    customRoomLink: '',
   });
   const [isLoading, setIsLoading] = useState(false);
   const [nameError, setNameError] = useState<string>('');
+  const [customLinkError, setCustomLinkError] = useState<string>('');
   const [isCheckingName, setIsCheckingName] = useState(false);
+  const [isCheckingLink, setIsCheckingLink] = useState(false);
   const [enabledFeatures, setEnabledFeatures] = useState<string[]>([]);
 
   // Fetch subscription features when modal opens
@@ -434,6 +442,47 @@ function CreateRoomModal({
     }
   }, []);
 
+  const checkCustomLinkAvailability = useCallback(async (customLink: string) => {
+    if (!customLink || customLink.trim().length === 0) {
+      setCustomLinkError('');
+      return;
+    }
+
+    // Validate format
+    const linkRegex = /^[a-zA-Z0-9]{1,50}$/;
+    if (!linkRegex.test(customLink.trim())) {
+      setCustomLinkError('يجب أن يحتوي رابط الغرفة على أحرف وأرقام فقط (1-50 حرف)');
+      return;
+    }
+
+    setIsCheckingLink(true);
+    setCustomLinkError('');
+
+    try {
+      const response = await fetch('/api/client/rooms/check-name', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ customRoomLink: customLink.trim() }),
+      });
+
+      const data = await response.json();
+
+      if (!data.available) {
+        setCustomLinkError('رابط الغرفة مستخدم بالفعل. يرجى اختيار رابط آخر');
+      } else if (data.error) {
+        setCustomLinkError(data.error);
+      }
+    } catch (error) {
+      console.error('Error checking custom link:', error);
+      // Don't show error on network failure, just silently fail
+    } finally {
+      setIsCheckingLink(false);
+    }
+  }, []);
+
   // Debounced name availability check
   useEffect(() => {
     if (!formData.name || !isOpen) {
@@ -447,6 +496,20 @@ function CreateRoomModal({
 
     return () => clearTimeout(timeoutId);
   }, [formData.name, isOpen, checkRoomNameAvailability]);
+
+  // Debounced custom link availability check
+  useEffect(() => {
+    if (!useCustomLink || !formData.customRoomLink || !isOpen) {
+      setCustomLinkError('');
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      checkCustomLinkAvailability(formData.customRoomLink);
+    }, 500); // Wait 500ms after user stops typing
+
+    return () => clearTimeout(timeoutId);
+  }, [formData.customRoomLink, useCustomLink, isOpen, checkCustomLinkAvailability]);
 
   const fetchSubscriptionFeatures = async () => {
     try {
@@ -476,16 +539,34 @@ function CreateRoomModal({
       return;
     }
 
+    // Check if custom link has error (if using custom link)
+    if (useCustomLink && customLinkError) {
+      toast.error(customLinkError);
+      return;
+    }
+
+    // Validate custom link if using it
+    if (useCustomLink && (!formData.customRoomLink || formData.customRoomLink.trim().length === 0)) {
+      toast.error('يرجى إدخال رابط الغرفة المخصص');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
+      const submitData = { ...formData };
+      // Only include customRoomLink if using custom link
+      if (!useCustomLink) {
+        delete submitData.customRoomLink;
+      }
+
       const response = await fetch('/api/client/rooms', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify(formData),
+        body: JSON.stringify(submitData),
       });
 
       if (!response.ok) {
@@ -506,9 +587,12 @@ function CreateRoomModal({
         password: '',
         passwordRequired: false,
         passwordFor: 'HOST_ONLY',
+        customRoomLink: '',
       });
+      setUseCustomLink(false);
       // Reset errors
       setNameError('');
+      setCustomLinkError('');
     } catch (error: any) {
       console.error('Error creating room:', error);
       toast.error(error.message || 'فشل إنشاء الغرفة');
@@ -531,6 +615,51 @@ function CreateRoomModal({
           />
           {isCheckingName && (
             <p className="text-xs text-gray-500">جاري التحقق من اسم الغرفة...</p>
+          )}
+
+          {/* Custom Room Link (only for almajd account) */}
+          {isAlmajdAccount && (
+            <div className="space-y-2">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useCustomLink}
+                  onChange={(e) => {
+                    setUseCustomLink(e.target.checked);
+                    if (!e.target.checked) {
+                      setFormData({ ...formData, customRoomLink: '' });
+                      setCustomLinkError('');
+                    }
+                  }}
+                  className="w-5 h-5 text-primary-600 rounded focus:ring-primary-500"
+                />
+                <span className="text-sm font-medium text-gray-700">استخدام رابط مخصص للغرفة</span>
+              </label>
+              
+              {useCustomLink && (
+                <div>
+                  <FormInput
+                    label="رابط الغرفة المخصص"
+                    type="text"
+                    value={formData.customRoomLink}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[^a-zA-Z0-9]/g, ''); // Only allow alphanumeric
+                      setFormData({ ...formData, customRoomLink: value });
+                    }}
+                    error={customLinkError}
+                    required={useCustomLink}
+                    placeholder="مثال: 1, 2, 116"
+                    maxLength={50}
+                  />
+                  {isCheckingLink && (
+                    <p className="text-xs text-gray-500">جاري التحقق من رابط الغرفة...</p>
+                  )}
+                  <p className="text-xs text-gray-500 mt-1">
+                    سيتم استخدام هذا الرابط للوصول إلى الغرفة (مثال: almajdmeet.org/1/h)
+                  </p>
+                </div>
+              )}
+            </div>
           )}
         <div className="space-y-3 pt-2">
           <label className="flex items-center gap-3 cursor-pointer relative group">

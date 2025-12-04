@@ -13,8 +13,46 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { roomName } = await request.json();
+    const { roomName, customRoomLink } = await request.json();
 
+    // Check if customRoomLink is provided (for almajd account)
+    if (customRoomLink && typeof customRoomLink === 'string' && customRoomLink.trim().length > 0) {
+      const isAlmajdAccount = session.email === 'almajd@admin.com';
+      
+      if (!isAlmajdAccount) {
+        return NextResponse.json(
+          { available: false, error: 'رابط الغرفة المخصص غير متاح لهذا الحساب' },
+          { status: 403 }
+        );
+      }
+
+      // Validate format (alphanumeric only, 1-50 characters)
+      const linkRegex = /^[a-zA-Z0-9]{1,50}$/;
+      if (!linkRegex.test(customRoomLink.trim())) {
+        return NextResponse.json(
+          { available: false, error: 'يجب أن يحتوي رابط الغرفة على أحرف وأرقام فقط (1-50 حرف)' },
+          { status: 400 }
+        );
+      }
+
+      // Check if link is already used by this client
+      const existingRoom = await prisma.room.findFirst({
+        where: {
+          clientId: session.clientId,
+          OR: [
+            { hostLink: customRoomLink.trim() },
+            { guestLink: customRoomLink.trim() }
+          ],
+        },
+      });
+
+      return NextResponse.json({
+        available: !existingRoom,
+        roomLink: customRoomLink.trim(),
+      });
+    }
+
+    // Legacy: Check room name (for backward compatibility)
     if (!roomName || typeof roomName !== 'string' || roomName.trim().length === 0) {
       return NextResponse.json(
         { available: false, error: 'اسم الغرفة مطلوب' },
@@ -22,7 +60,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Since room links are now randomly generated (7 words), we can't check by name
+    // Since room links are now randomly generated (7 characters), we can't check by name
     // Just validate that the name is provided and return available
     // The actual link will be generated during room creation
     return NextResponse.json({
