@@ -14,6 +14,7 @@
     "format:write": "prettier --write \"**/*.{ts,tsx,md,json}\"",
     "db:generate": "prisma generate",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed:almajd": "tsx scripts/seed-almajd-rooms.ts",
     "db:push": "prisma db push",
     "db:push:local": "cp env.local .env.local && export $(cat .env.local | grep -v '^#' | xargs) && prisma db push",
     "db:studio": "prisma studio",

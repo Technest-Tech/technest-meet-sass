@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const { name, description, hostApproval, maxParticipants, isActive, canRecord, requireWaitingRoom, allowGuestUnmute, enablePrivateChat, password, passwordRequired, passwordFor } = await request.json();
+    const { name, description, hostApproval, maxParticipants, isActive, canRecord, requireWaitingRoom, allowGuestUnmute, enablePrivateChat, password, passwordRequired, passwordFor, clientId, customRoomLink } = await request.json();
 
     if (!name) {
       return NextResponse.json(
@@ -58,41 +58,90 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate room link using 7 random words
-    // Both host and guest will use the same room link
-    let roomLink: string;
-    let attempts = 0;
-    const maxAttempts = 10;
+    // Check if customRoomLink is provided and client is almajd
+    let hostLink: string;
+    let guestLink: string;
 
-    do {
-      // Generate link with 7 random words
-      roomLink = generateRoomLink();
-      
-      attempts++;
-
-      // Check if link already exists
-      const existingRoom = await prisma.room.findFirst({
-        where: {
-          OR: [
-            { hostLink: roomLink },
-            { guestLink: roomLink }
-          ]
-        }
+    if (customRoomLink && clientId) {
+      // Check if client is almajd
+      const client = await prisma.client.findUnique({
+        where: { id: clientId },
+        include: { account: true },
       });
 
-      if (!existingRoom) break;
-    } while (attempts < maxAttempts);
+      if (client && client.account?.email === 'almajd@admin.com') {
+        // Validate custom link format
+        const linkRegex = /^[a-zA-Z0-9]{1,50}$/;
+        if (!linkRegex.test(customRoomLink.trim())) {
+          return NextResponse.json(
+            { error: 'Custom room link must contain only alphanumeric characters (1-50 characters)' },
+            { status: 400 }
+          );
+        }
 
-    if (attempts >= maxAttempts) {
-      return NextResponse.json(
-        { error: 'Failed to generate unique room link' },
-        { status: 500 }
-      );
+        // Check uniqueness within the same client
+        const existingRoom = await prisma.room.findFirst({
+          where: {
+            clientId: clientId,
+            OR: [
+              { hostLink: customRoomLink.trim() },
+              { guestLink: customRoomLink.trim() }
+            ],
+          },
+        });
+
+        if (existingRoom) {
+          return NextResponse.json(
+            { error: 'Custom room link is already in use' },
+            { status: 400 }
+          );
+        }
+
+        hostLink = customRoomLink.trim();
+        guestLink = customRoomLink.trim();
+      } else {
+        return NextResponse.json(
+          { error: 'Custom room links are only available for almajd@admin.com account' },
+          { status: 403 }
+        );
+      }
+    } else {
+      // Generate room link using 7 random characters
+      // Both host and guest will use the same room link
+      let roomLink: string;
+      let attempts = 0;
+      const maxAttempts = 10;
+
+      do {
+        // Generate link with 7 random characters
+        roomLink = generateRoomLink();
+        
+        attempts++;
+
+        // Check if link already exists
+        const existingRoom = await prisma.room.findFirst({
+          where: {
+            OR: [
+              { hostLink: roomLink },
+              { guestLink: roomLink }
+            ]
+          }
+        });
+
+        if (!existingRoom) break;
+      } while (attempts < maxAttempts);
+
+      if (attempts >= maxAttempts) {
+        return NextResponse.json(
+          { error: 'Failed to generate unique room link' },
+          { status: 500 }
+        );
+      }
+
+      // Both host and guest use the same room link
+      hostLink = roomLink;
+      guestLink = roomLink;
     }
-
-    // Both host and guest use the same room link
-    const hostLink = roomLink;
-    const guestLink = roomLink;
 
     // Hash password if provided
     let hashedPassword: string | null = null;
@@ -101,23 +150,30 @@ export async function POST(request: NextRequest) {
     }
 
     // Create the room
+    const roomData: any = {
+      name,
+      description,
+      hostApproval: hostApproval || false,
+      maxParticipants: maxParticipants || 50,
+      isActive: isActive !== undefined ? isActive : true,
+      canRecord: canRecord !== undefined ? canRecord : false,
+      requireWaitingRoom: requireWaitingRoom !== undefined ? requireWaitingRoom : false,
+      allowGuestUnmute: allowGuestUnmute !== undefined ? allowGuestUnmute : true,
+      enablePrivateChat: enablePrivateChat !== undefined ? enablePrivateChat : true,
+      hostLink,
+      guestLink,
+      password: hashedPassword,
+      passwordRequired: passwordRequired || false,
+      passwordFor: passwordFor || null,
+    };
+
+    // Add clientId if provided
+    if (clientId) {
+      roomData.clientId = clientId;
+    }
+
     const room = await prisma.room.create({
-      data: {
-        name,
-        description,
-        hostApproval: hostApproval || false,
-        maxParticipants: maxParticipants || 50,
-        isActive: isActive !== undefined ? isActive : true,
-        canRecord: canRecord !== undefined ? canRecord : false,
-        requireWaitingRoom: requireWaitingRoom !== undefined ? requireWaitingRoom : false,
-        allowGuestUnmute: allowGuestUnmute !== undefined ? allowGuestUnmute : true,
-        enablePrivateChat: enablePrivateChat !== undefined ? enablePrivateChat : true,
-        hostLink,
-        guestLink,
-        password: hashedPassword,
-        passwordRequired: passwordRequired || false,
-        passwordFor: passwordFor || null,
-      },
+      data: roomData,
       include: {
         participants: true
       }

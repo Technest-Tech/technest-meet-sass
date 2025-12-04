@@ -42,6 +42,7 @@ const createRoomSchema = z.object({
   password: z.string().optional(),
   passwordRequired: z.boolean().optional(),
   passwordFor: z.enum(['HOST_ONLY', 'HOST_AND_GUEST']).optional(),
+  customRoomLink: z.string().min(1).max(50).regex(/^[a-zA-Z0-9]+$/, 'يجب أن يحتوي رابط الغرفة على أحرف وأرقام فقط').optional(),
 });
 
 // GET - List client's rooms
@@ -185,40 +186,68 @@ export async function POST(request: NextRequest) {
       .filter((f) => f.enabled)
       .map((f) => f.feature) || [];
 
-    // Generate room link using 7 random words
-    // Both host and guest use the same base link, distinguished by /h or /g in the route
-    let roomLink: string;
-    let attempts = 0;
-    const maxAttempts = 10;
+    // Check if client is almajd@admin.com and customRoomLink is provided
+    const isAlmajdAccount = session.email === 'almajd@admin.com';
+    let hostLink: string;
+    let guestLink: string;
 
-    do {
-      // Generate link with 7 random words
-      roomLink = generateRoomLink();
+    if (isAlmajdAccount && validated.data.customRoomLink) {
+      // Use custom room link for almajd account
+      const customLink = validated.data.customRoomLink.trim();
 
+      // Validate uniqueness within the same client
       const existingRoom = await prisma.room.findFirst({
         where: {
-          OR: [{ hostLink: roomLink }, { guestLink: roomLink }],
+          clientId: session.clientId,
+          OR: [{ hostLink: customLink }, { guestLink: customLink }],
         },
       });
 
-      if (!existingRoom) break;
-      attempts++;
-    } while (attempts < maxAttempts);
+      if (existingRoom) {
+        return NextResponse.json(
+          { error: 'رابط الغرفة مستخدم بالفعل. يرجى اختيار رابط آخر' },
+          { status: 400 }
+        );
+      }
 
-    // Use the same link for both host and guest
-    const hostLink = roomLink;
-    const guestLink = roomLink;
+      hostLink = customLink;
+      guestLink = customLink;
+    } else {
+      // Generate room link using 7 random characters
+      // Both host and guest use the same base link, distinguished by /h or /g in the route
+      let roomLink: string;
+      let attempts = 0;
+      const maxAttempts = 10;
+
+      do {
+        // Generate link with 7 random characters
+        roomLink = generateRoomLink();
+
+        const existingRoom = await prisma.room.findFirst({
+          where: {
+            OR: [{ hostLink: roomLink }, { guestLink: roomLink }],
+          },
+        });
+
+        if (!existingRoom) break;
+        attempts++;
+      } while (attempts < maxAttempts);
+
+      if (attempts >= maxAttempts) {
+        return NextResponse.json(
+          { error: 'فشل في إنشاء رابط فريد للغرفة. يرجى المحاولة مرة أخرى' },
+          { status: 400 }
+        );
+      }
+
+      // Use the same link for both host and guest
+      hostLink = roomLink;
+      guestLink = roomLink;
+    }
     
     let observerLink: string | null = null;
     if (client.enableObserverLinks) {
       observerLink = await generateUniqueObserverLink();
-    }
-
-    if (attempts >= maxAttempts) {
-      return NextResponse.json(
-        { error: 'فشل في إنشاء رابط فريد للغرفة. يرجى المحاولة مرة أخرى' },
-        { status: 400 }
-      );
     }
 
     // Hash password if provided
