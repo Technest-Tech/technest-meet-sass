@@ -21,7 +21,7 @@
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     
     <application
-        android:label="Academiq Meet"
+        android:label="Almajd Academy"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:enableOnBackInvokedCallback="true">

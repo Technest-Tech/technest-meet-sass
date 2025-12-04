@@ -8,12 +8,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:academiq_meet/main.dart';
+import 'package:almajd_academy/main.dart';
 
 void main() {
   testWidgets('App starts with splash screen', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const AcademiqMeetApp());
+    await tester.pumpWidget(const AlmajdAcademyApp());
     await tester.pumpAndSettle();
 
     // Verify that the app starts (splash screen will navigate to room entry)

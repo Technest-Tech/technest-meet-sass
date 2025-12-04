@@ -1,11 +1,11 @@
 {
-    "name": "newmeet_mobile",
-    "short_name": "newmeet_mobile",
+    "name": "Almajd Academy",
+    "short_name": "Almajd Academy",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#hexcode",
     "theme_color": "#hexcode",
-    "description": "A new Flutter project.",
+    "description": "Almajd Academy - Video Conferencing App",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

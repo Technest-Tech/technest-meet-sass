@@ -14,17 +14,17 @@ import 'models/room.dart';
 
 void main() {
   Logger.info('App starting...', 'Main');
-  runApp(const AcademiqMeetApp());
+  runApp(const AlmajdAcademyApp());
 }
 
-class AcademiqMeetApp extends StatefulWidget {
-  const AcademiqMeetApp({super.key});
+class AlmajdAcademyApp extends StatefulWidget {
+  const AlmajdAcademyApp({super.key});
 
   @override
-  State<AcademiqMeetApp> createState() => _AcademiqMeetAppState();
+  State<AlmajdAcademyApp> createState() => _AlmajdAcademyAppState();
 }
 
-class _AcademiqMeetAppState extends State<AcademiqMeetApp> {
+class _AlmajdAcademyAppState extends State<AlmajdAcademyApp> {
   final DeepLinkService _deepLinkService = DeepLinkService();
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   bool _isAppInitialized = false;
@@ -248,7 +248,7 @@ class _AcademiqMeetAppState extends State<AcademiqMeetApp> {
       ],
       child: MaterialApp(
         navigatorKey: _navigatorKey,
-        title: 'Academiq Meet',
+        title: 'Almajd Academy',
         theme: AppTheme.darkTheme,
         home: const SplashScreen(),
         debugShowCheckedModeBanner: false,

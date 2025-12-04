@@ -591,7 +591,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
               <div style={{ padding: '0 4px' }}>
                 <SimpleRecordingControl
                   isHost={isHost}
-                  isFeatureEnabled={Boolean(roomFeatures?.canRecord ?? canRecord)}
+                  isFeatureEnabled={true}
                   showProBadge={false}
                   onRecordingStateChange={setIsRecordingActive}
                 />

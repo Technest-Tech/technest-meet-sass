@@ -66,7 +66,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 child: Row(
                   children: [
                     Image.asset(
-                      'assets/icons/academiq-meet-logo.png',
+                      'assets/icons/logo.png',
                       width: Responsive.value(context, phone: 40.0, tablet: 48.0),
                       height: Responsive.value(context, phone: 40.0, tablet: 48.0),
                       fit: BoxFit.contain,
@@ -76,7 +76,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Academiq Meet',
+                          'Almajd Academy',
                           style: TextStyle(
                             fontSize: Responsive.fontSize(context, phone: 24.0, tablet: 28.0),
                             fontWeight: FontWeight.bold,

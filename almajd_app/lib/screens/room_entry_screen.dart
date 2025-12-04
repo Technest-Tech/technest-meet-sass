@@ -523,7 +523,7 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    'Academiq Meet',
+                    'Almajd Academy',
                     style: theme.textTheme.titleLarge?.copyWith(
                       color: Colors.white,
                       fontWeight: FontWeight.w800,
@@ -606,7 +606,7 @@ class _RoomEntryScreenState extends State<RoomEntryScreen> {
             ),
             const SizedBox(width: 14),
             Text(
-              'Join an Academiq room',
+              'Join an Almajd Academy room',
               style: TextStyle(
                 color: _EntryColors.active,
                 fontWeight: FontWeight.w700,
