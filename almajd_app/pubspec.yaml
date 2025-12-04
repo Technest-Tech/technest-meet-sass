@@ -1,5 +1,5 @@
-name: academiq_meet
-description: "Academiq Meet - LiveKit Video Conferencing App with Whiteboard"
+name: almajd_academy
+description: "Almajd Academy - LiveKit Video Conferencing App with Whiteboard"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev

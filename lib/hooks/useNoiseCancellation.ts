@@ -6,20 +6,19 @@ import { Track, LocalAudioTrack } from 'livekit-client';
 import { isLowPowerDevice } from '../client-utils';
 
 // Dynamically import Krisp noise filter to avoid SSR issues
-let NoiseFilter: any = null;
-let isNoiseFilterLoading = false;
+let KrispNoiseFilter: any = null;
+let isKrispNoiseFilterSupported: any = null;
 
 // Load noise filter on client side
 if (typeof window !== 'undefined') {
   import('@livekit/krisp-noise-filter')
     .then((module) => {
-      // Try different export patterns
-      NoiseFilter = module.default || module.NoiseFilter || module;
-      isNoiseFilterLoading = false;
+      // Import the named export KrispNoiseFilter function
+      KrispNoiseFilter = module.KrispNoiseFilter || module.default?.KrispNoiseFilter;
+      isKrispNoiseFilterSupported = module.isKrispNoiseFilterSupported || module.default?.isKrispNoiseFilterSupported;
     })
     .catch((error) => {
       console.error('Failed to load Krisp noise filter:', error);
-      isNoiseFilterLoading = false;
     });
 }
 
@@ -98,10 +97,11 @@ export function useNoiseCancellation(
         setError(null);
 
         // Wait for noise filter to load if not already loaded
-        if (!NoiseFilter && typeof window !== 'undefined') {
+        if (!KrispNoiseFilter && typeof window !== 'undefined') {
           try {
             const module = await import('@livekit/krisp-noise-filter');
-            NoiseFilter = module.default || module.NoiseFilter || module;
+            KrispNoiseFilter = module.KrispNoiseFilter || module.default?.KrispNoiseFilter;
+            isKrispNoiseFilterSupported = module.isKrispNoiseFilterSupported || module.default?.isKrispNoiseFilterSupported;
           } catch (importError) {
             console.error('Failed to load Krisp noise filter:', importError);
             setError('Noise cancellation not available');
@@ -110,10 +110,20 @@ export function useNoiseCancellation(
           }
         }
 
-        if (!NoiseFilter) {
+        if (!KrispNoiseFilter) {
           setError('Noise cancellation not available');
           setIsEnabled(false);
           return;
+        }
+
+        // Check if Krisp is supported on this device
+        if (isKrispNoiseFilterSupported && typeof isKrispNoiseFilterSupported === 'function') {
+          const isSupported = isKrispNoiseFilterSupported();
+          if (!isSupported) {
+            setError('Noise cancellation is not supported on this device');
+            setIsEnabled(false);
+            return;
+          }
         }
 
         // Get the microphone track
@@ -127,22 +137,13 @@ export function useNoiseCancellation(
         }
 
         // Create and apply the noise filter processor
-        // Use aggressiveness: 3 for maximum noise reduction (~90%)
-        let noiseFilterProcessor;
+        // KrispNoiseFilter is a function that returns a processor instance
+        // Use quality: "high" for maximum noise reduction (~90%)
         try {
-          // Try different instantiation patterns
-          if (typeof NoiseFilter === 'function') {
-            noiseFilterProcessor = new NoiseFilter({
-              aggressiveness: 3, // Maximum noise reduction
-            });
-          } else if (NoiseFilter.default && typeof NoiseFilter.default === 'function') {
-            noiseFilterProcessor = new NoiseFilter.default({
-              aggressiveness: 3,
-            });
-          } else {
-            // If it's already an instance or has a different API
-            noiseFilterProcessor = NoiseFilter;
-          }
+          const noiseFilterProcessor = KrispNoiseFilter({
+            quality: 'high', // Maximum noise reduction: "low" | "medium" | "high"
+            debugLogs: false, // Set to true for debugging if needed
+          });
 
           await micTrack.setProcessor(noiseFilterProcessor);
           processorRef.current = noiseFilterProcessor;

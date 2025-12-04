@@ -202,11 +202,9 @@ export function SimpleRecordingControl({
         data-recording={isRecording}
         data-recording-trigger="true"
         title={
-          !isFeatureEnabled
-            ? 'Upgrade required for recording'
-            : isRecording
-              ? 'Stop screen recording'
-              : 'Start screen recording'
+          isRecording
+            ? 'Stop screen recording'
+            : 'Start screen recording'
         }
         style={{
           width: '100%',

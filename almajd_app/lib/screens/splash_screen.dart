@@ -23,7 +23,7 @@ class SplashScreen extends StatefulWidget {
     this.duration = const Duration(milliseconds: 2500),
     this.logoPath = 'assets/icons/logo_splash.png',
     this.nextScreen,
-    this.appName = 'Academiq Meet',
+    this.appName = 'Almajd Academy',
     this.tagline = 'Connecting reciters worldwide',
     this.description = 'Your trusted platform for online learning and virtual meetings',
   });

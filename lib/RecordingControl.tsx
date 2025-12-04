@@ -9,14 +9,12 @@ interface RecordingControlProps {
 }
 
 export function RecordingControl({ isHost, canRecord }: RecordingControlProps) {
-  const featureEnabled = Boolean(canRecord);
-
-  // Always use simple recording control but reflect feature availability
+  // Recording is now available for everyone, regardless of subscription
   return (
     <SimpleRecordingControl
       isHost={isHost}
-      isFeatureEnabled={featureEnabled}
-      showProBadge={!featureEnabled}
+      isFeatureEnabled={true}
+      showProBadge={false}
     />
   );
 }
