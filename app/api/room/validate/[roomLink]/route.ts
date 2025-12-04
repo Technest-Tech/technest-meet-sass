@@ -145,7 +145,7 @@ export async function GET(
         isActive: room.isActive,
         hostApproval: room.hostApproval,
         allowMultipleHosts: room.allowMultipleHosts ?? false,
-        canRecord: room.canRecord && enabledFeatures.includes('RECORDING'),
+        canRecord: room.canRecord,
         requireWaitingRoom: room.requireWaitingRoom && enabledFeatures.includes('WAITING_ROOM'),
         allowGuestUnmute: room.allowGuestUnmute && enabledFeatures.includes('GUEST_UNMUTE'),
         enablePrivateChat: room.enablePrivateChat && enabledFeatures.includes('PRIVATE_CHAT'),

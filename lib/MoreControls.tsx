@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useRoomContext } from '@livekit/components-react';
 import { useParticipants, useLocalParticipant } from '@livekit/components-react';
-import { MoreHorizontal, X, Users, UserMinus, Mic, MicOff, Video, VideoOff, MessageSquare, MoreVertical } from 'lucide-react';
+import { MoreHorizontal, X, Users, UserMinus, Mic, MicOff, Video, VideoOff, MessageSquare, MoreVertical, Check, Loader2 } from 'lucide-react';
 import { Whiteboard } from './Whiteboard';
 import { NormalWhiteboard } from './NormalWhiteboard';
 import { WhiteboardNotification } from './WhiteboardNotification';
@@ -14,6 +14,7 @@ import { SimpleRecordingControl } from './SimpleRecordingControl';
 import toast from 'react-hot-toast';
 import { VideoRequestData } from './types';
 import { logger } from './utils/logger';
+import { useNoiseCancellation } from './hooks/useNoiseCancellation';
 
 interface MoreControlsProps {
   isHost: boolean;
@@ -75,6 +76,38 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
   const room = useRoomContext();
   const { localParticipant } = useLocalParticipant();
   const participants = useParticipants();
+
+  // Noise cancellation hook
+  const {
+    isEnabled: isNoiseCancellationEnabled,
+    isPending: isNoiseCancellationPending,
+    error: noiseCancellationError,
+    toggle: toggleNoiseCancellation,
+  } = useNoiseCancellation({
+    enabled: false,
+    featureEnabled: roomFeatures?.enableNoiseCancellation ?? false,
+  });
+
+  // Handle noise cancellation state changes and show toasts
+  const prevNoiseCancellationEnabled = useRef(isNoiseCancellationEnabled);
+  useEffect(() => {
+    // Show success toast when state changes (but not on initial mount)
+    if (prevNoiseCancellationEnabled.current !== isNoiseCancellationEnabled) {
+      if (!noiseCancellationError) {
+        toast.success(
+          isNoiseCancellationEnabled
+            ? 'Noise cancellation enabled'
+            : 'Noise cancellation disabled'
+        );
+      }
+      prevNoiseCancellationEnabled.current = isNoiseCancellationEnabled;
+    }
+    
+    // Show error toast if there's an error
+    if (noiseCancellationError) {
+      toast.error(noiseCancellationError);
+    }
+  }, [isNoiseCancellationEnabled, noiseCancellationError]);
 
   // Combine local and remote participants, excluding the host
   const allParticipants = React.useMemo(() => {
@@ -559,7 +592,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
                 <SimpleRecordingControl
                   isHost={isHost}
                   isFeatureEnabled={Boolean(roomFeatures?.canRecord ?? canRecord)}
-                  showProBadge={!(roomFeatures?.canRecord ?? canRecord)}
+                  showProBadge={false}
                   onRecordingStateChange={setIsRecordingActive}
                 />
               </div>
@@ -790,21 +823,38 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
 
             {/* Noise Cancellation Control */}
             <button
-              onClick={() => {
+              onClick={async () => {
                 if (roomFeatures?.enableNoiseCancellation ?? false) {
-                  setIsSettingsOpen(true);
-                  closeDropdown();
+                  try {
+                    await toggleNoiseCancellation();
+                    // Success toast will be shown after state updates (handled by useEffect watching the state)
+                  } catch (error) {
+                    console.error('Failed to toggle noise cancellation:', error);
+                    toast.error('Failed to toggle noise cancellation');
+                  }
                 }
               }}
-              disabled={!(roomFeatures?.enableNoiseCancellation ?? false)}
+              disabled={!(roomFeatures?.enableNoiseCancellation ?? false) || isNoiseCancellationPending}
               style={{
                 width: '100%',
                 padding: '8px 12px',
-                backgroundColor: (roomFeatures?.enableNoiseCancellation ?? false) ? 'rgba(255, 255, 255, 0.1)' : 'rgba(128, 128, 128, 0.1)',
-                color: (roomFeatures?.enableNoiseCancellation ?? false) ? 'white' : 'rgba(255, 255, 255, 0.5)',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
+                backgroundColor: isNoiseCancellationEnabled
+                  ? 'rgba(34, 197, 94, 0.2)'
+                  : (roomFeatures?.enableNoiseCancellation ?? false)
+                  ? 'rgba(255, 255, 255, 0.1)'
+                  : 'rgba(128, 128, 128, 0.1)',
+                color: isNoiseCancellationEnabled
+                  ? '#22c55e'
+                  : (roomFeatures?.enableNoiseCancellation ?? false)
+                  ? 'white'
+                  : 'rgba(255, 255, 255, 0.5)',
+                border: isNoiseCancellationEnabled
+                  ? '1px solid #22c55e'
+                  : '1px solid rgba(255, 255, 255, 0.2)',
                 borderRadius: '8px',
-                cursor: (roomFeatures?.enableNoiseCancellation ?? false) ? 'pointer' : 'not-allowed',
+                cursor: (roomFeatures?.enableNoiseCancellation ?? false) && !isNoiseCancellationPending
+                  ? 'pointer'
+                  : 'not-allowed',
                 fontSize: '13px',
                 fontWeight: '500',
                 display: 'flex',
@@ -812,34 +862,73 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
                 gap: '8px',
                 transition: 'all 0.2s ease',
                 textAlign: 'left',
-                position: 'relative'
+                position: 'relative',
+                boxShadow: isNoiseCancellationEnabled
+                  ? '0 0 8px rgba(34, 197, 94, 0.3)'
+                  : 'none',
               }}
               onMouseEnter={(e) => {
-                if (roomFeatures?.enableNoiseCancellation ?? false) {
-                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                if ((roomFeatures?.enableNoiseCancellation ?? false) && !isNoiseCancellationPending) {
+                  if (isNoiseCancellationEnabled) {
+                    e.currentTarget.style.backgroundColor = 'rgba(34, 197, 94, 0.3)';
+                    e.currentTarget.style.boxShadow = '0 0 12px rgba(34, 197, 94, 0.4)';
+                  } else {
+                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                  }
                 }
               }}
               onMouseLeave={(e) => {
-                if (roomFeatures?.enableNoiseCancellation ?? false) {
-                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                if ((roomFeatures?.enableNoiseCancellation ?? false) && !isNoiseCancellationPending) {
+                  if (isNoiseCancellationEnabled) {
+                    e.currentTarget.style.backgroundColor = 'rgba(34, 197, 94, 0.2)';
+                    e.currentTarget.style.boxShadow = '0 0 8px rgba(34, 197, 94, 0.3)';
+                  } else {
+                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                  }
                 }
               }}
-              title={(roomFeatures?.enableNoiseCancellation ?? false) ? "Noise Cancellation Settings" : "Upgrade required for this feature"}
+              title={
+                !(roomFeatures?.enableNoiseCancellation ?? false)
+                  ? 'Upgrade required for this feature'
+                  : isNoiseCancellationPending
+                  ? 'Processing...'
+                  : isNoiseCancellationEnabled
+                  ? 'Noise Cancellation Active - Click to disable'
+                  : 'Enable Noise Cancellation'
+              }
             >
-              <span style={{ fontSize: '14px' }}>🔇</span>
-              Noise Cancellation
+              {isNoiseCancellationPending ? (
+                <>
+                  <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                  <span>Processing...</span>
+                </>
+              ) : isNoiseCancellationEnabled ? (
+                <>
+                  <Check size={14} />
+                  <span>Noise Cancellation Active</span>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: '14px' }}>🔇</span>
+                  <span>Noise Cancellation</span>
+                </>
+              )}
               {!(roomFeatures?.enableNoiseCancellation ?? false) && (
-                <span style={{
-                  marginLeft: 'auto',
-                  padding: '2px 6px',
-                  background: 'linear-gradient(to right, #a855f7, #ec4899)',
-                  borderRadius: '4px',
-                  fontSize: '10px',
-                  fontWeight: 'bold',
-                  direction: 'ltr'
-                }}>PRO</span>
+                <span
+                  style={{
+                    marginLeft: 'auto',
+                    padding: '2px 6px',
+                    background: 'linear-gradient(to right, #a855f7, #ec4899)',
+                    borderRadius: '4px',
+                    fontSize: '10px',
+                    fontWeight: 'bold',
+                    direction: 'ltr',
+                  }}
+                >
+                  PRO
+                </span>
               )}
             </button>
 

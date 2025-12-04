@@ -127,7 +127,7 @@ export async function PUT(
       allowMultipleHosts: body.allowMultipleHosts !== undefined ? body.allowMultipleHosts : (existingRoom.allowMultipleHosts ?? false),
       maxParticipants: body.maxParticipants !== undefined ? body.maxParticipants : existingRoom.maxParticipants,
       isActive: body.isActive !== undefined ? body.isActive : existingRoom.isActive,
-      canRecord: body.canRecord !== undefined ? (enabledFeatures.includes('RECORDING') && body.canRecord) : existingRoom.canRecord,
+      canRecord: body.canRecord !== undefined ? body.canRecord : existingRoom.canRecord,
       requireWaitingRoom: body.requireWaitingRoom !== undefined ? (enabledFeatures.includes('WAITING_ROOM') && body.requireWaitingRoom) : existingRoom.requireWaitingRoom,
       allowGuestUnmute: body.allowGuestUnmute !== undefined ? (enabledFeatures.includes('GUEST_UNMUTE') && body.allowGuestUnmute) : existingRoom.allowGuestUnmute,
       enablePrivateChat: body.enablePrivateChat !== undefined ? (enabledFeatures.includes('PRIVATE_CHAT') && body.enablePrivateChat) : existingRoom.enablePrivateChat,

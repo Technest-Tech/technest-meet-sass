@@ -240,7 +240,7 @@ export async function POST(request: NextRequest) {
         allowMultipleHosts: validated.data.allowMultipleHosts ?? false,
         maxParticipants: client.maxParticipants, // Use client's maxParticipants from their plan
         isActive: true,
-        canRecord: enabledFeatures.includes('RECORDING') && (validated.data.canRecord ?? false),
+        canRecord: validated.data.canRecord ?? false,
         requireWaitingRoom: enabledFeatures.includes('WAITING_ROOM') && (validated.data.requireWaitingRoom ?? false),
         allowGuestUnmute: enabledFeatures.includes('GUEST_UNMUTE') && (validated.data.allowGuestUnmute ?? true),
         enablePrivateChat: enabledFeatures.includes('PRIVATE_CHAT') && (validated.data.enablePrivateChat ?? true),
