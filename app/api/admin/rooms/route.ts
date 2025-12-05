@@ -107,38 +107,38 @@ export async function POST(request: NextRequest) {
       }
     } else {
       // Generate room link using 7 random characters
-      // Both host and guest will use the same room link
-      let roomLink: string;
-      let attempts = 0;
-      const maxAttempts = 10;
+    // Both host and guest will use the same room link
+    let roomLink: string;
+    let attempts = 0;
+    const maxAttempts = 10;
 
-      do {
+    do {
         // Generate link with 7 random characters
-        roomLink = generateRoomLink();
-        
-        attempts++;
+      roomLink = generateRoomLink();
+      
+      attempts++;
 
-        // Check if link already exists
-        const existingRoom = await prisma.room.findFirst({
-          where: {
-            OR: [
-              { hostLink: roomLink },
-              { guestLink: roomLink }
-            ]
-          }
-        });
+      // Check if link already exists
+      const existingRoom = await prisma.room.findFirst({
+        where: {
+          OR: [
+            { hostLink: roomLink },
+            { guestLink: roomLink }
+          ]
+        }
+      });
 
-        if (!existingRoom) break;
-      } while (attempts < maxAttempts);
+      if (!existingRoom) break;
+    } while (attempts < maxAttempts);
 
-      if (attempts >= maxAttempts) {
-        return NextResponse.json(
-          { error: 'Failed to generate unique room link' },
-          { status: 500 }
-        );
-      }
+    if (attempts >= maxAttempts) {
+      return NextResponse.json(
+        { error: 'Failed to generate unique room link' },
+        { status: 500 }
+      );
+    }
 
-      // Both host and guest use the same room link
+    // Both host and guest use the same room link
       hostLink = roomLink;
       guestLink = roomLink;
     }
@@ -151,20 +151,20 @@ export async function POST(request: NextRequest) {
 
     // Create the room
     const roomData: any = {
-      name,
-      description,
-      hostApproval: hostApproval || false,
-      maxParticipants: maxParticipants || 50,
-      isActive: isActive !== undefined ? isActive : true,
-      canRecord: canRecord !== undefined ? canRecord : false,
-      requireWaitingRoom: requireWaitingRoom !== undefined ? requireWaitingRoom : false,
-      allowGuestUnmute: allowGuestUnmute !== undefined ? allowGuestUnmute : true,
-      enablePrivateChat: enablePrivateChat !== undefined ? enablePrivateChat : true,
-      hostLink,
-      guestLink,
-      password: hashedPassword,
-      passwordRequired: passwordRequired || false,
-      passwordFor: passwordFor || null,
+        name,
+        description,
+        hostApproval: hostApproval || false,
+        maxParticipants: maxParticipants || 50,
+        isActive: isActive !== undefined ? isActive : true,
+        canRecord: canRecord !== undefined ? canRecord : false,
+        requireWaitingRoom: requireWaitingRoom !== undefined ? requireWaitingRoom : false,
+        allowGuestUnmute: allowGuestUnmute !== undefined ? allowGuestUnmute : true,
+        enablePrivateChat: enablePrivateChat !== undefined ? enablePrivateChat : true,
+        hostLink,
+        guestLink,
+        password: hashedPassword,
+        passwordRequired: passwordRequired || false,
+        passwordFor: passwordFor || null,
     };
 
     // Add clientId if provided

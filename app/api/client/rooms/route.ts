@@ -214,24 +214,24 @@ export async function POST(request: NextRequest) {
       guestLink = customLink;
     } else {
       // Generate room link using 7 random characters
-      // Both host and guest use the same base link, distinguished by /h or /g in the route
-      let roomLink: string;
-      let attempts = 0;
-      const maxAttempts = 10;
+    // Both host and guest use the same base link, distinguished by /h or /g in the route
+    let roomLink: string;
+    let attempts = 0;
+    const maxAttempts = 10;
 
-      do {
+    do {
         // Generate link with 7 random characters
-        roomLink = generateRoomLink();
+      roomLink = generateRoomLink();
 
-        const existingRoom = await prisma.room.findFirst({
-          where: {
-            OR: [{ hostLink: roomLink }, { guestLink: roomLink }],
-          },
-        });
+      const existingRoom = await prisma.room.findFirst({
+        where: {
+          OR: [{ hostLink: roomLink }, { guestLink: roomLink }],
+        },
+      });
 
-        if (!existingRoom) break;
-        attempts++;
-      } while (attempts < maxAttempts);
+      if (!existingRoom) break;
+      attempts++;
+    } while (attempts < maxAttempts);
 
       if (attempts >= maxAttempts) {
         return NextResponse.json(
@@ -240,7 +240,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Use the same link for both host and guest
+    // Use the same link for both host and guest
       hostLink = roomLink;
       guestLink = roomLink;
     }
