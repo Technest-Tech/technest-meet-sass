@@ -346,15 +346,15 @@ function RoomsManagementContent({
         </main>
       </div>
 
-        <CreateRoomModal
-          isOpen={showCreateModal}
-          onClose={() => setShowCreateModal(false)}
-          onSuccess={() => {
-            setShowCreateModal(false);
-            fetchRooms();
-          }}
+      <CreateRoomModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSuccess={() => {
+          setShowCreateModal(false);
+          fetchRooms();
+        }}
           userEmail={userEmail}
-        />
+      />
 
       {editingRoom && (
         <UpdateRoomModal

@@ -44,9 +44,19 @@ export function useNoiseCancellation(
   const [error, setError] = useState<string | null>(null);
   const processorRef = useRef<any | null>(null);
   const isApplyingRef = useRef(false);
+  const isCleaningUpRef = useRef(false);
+  const mountedRef = useRef(true);
 
   // Check if feature is available
   const isFeatureAvailable = featureEnabled && !isLowPowerDevice();
+
+  // Track mount state
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Apply or remove noise cancellation filter
   useEffect(() => {
@@ -61,21 +71,58 @@ export function useNoiseCancellation(
 
     // If noise cancellation is disabled, remove processor if it exists
     if (!isEnabled) {
-      if (processorRef.current) {
-        const micPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
-        const micTrack = micPublication?.track;
-        if (micTrack instanceof LocalAudioTrack) {
-          micTrack
-            .removeProcessor(processorRef.current)
-            .then(() => {
+      if (processorRef.current && !isCleaningUpRef.current) {
+        isCleaningUpRef.current = true;
+        const removeProcessor = async () => {
+          try {
+            // Check if room and participant still exist
+            if (!room || !room.localParticipant || !mountedRef.current) {
               processorRef.current = null;
+              return;
+            }
+
+            const currentLocalParticipant = room.localParticipant;
+            const micPublication = currentLocalParticipant.getTrackPublication(Track.Source.Microphone);
+            const micTrack = micPublication?.track;
+            
+            // First try to destroy the processor if it has a destroy method
+            if (processorRef.current && typeof processorRef.current.destroy === 'function') {
+              try {
+                await processorRef.current.destroy();
+              } catch (destroyErr) {
+                // Silently handle destroy errors - processor might already be destroyed
+                console.warn('Error destroying processor (non-critical):', destroyErr);
+              }
+            }
+            
+            // Then remove it from the track if track is valid
+            if (micTrack && micTrack instanceof LocalAudioTrack && typeof micTrack.removeProcessor === 'function') {
+              try {
+                await micTrack.removeProcessor(processorRef.current);
+              } catch (removeErr) {
+                // Track might have been replaced or already removed - this is OK
+                console.warn('Error removing processor from track (non-critical):', removeErr);
+              }
+            }
+          } catch (err) {
+            // All errors are non-critical during cleanup - just log and continue
+            console.warn('Error removing noise filter (non-critical):', err);
+          } finally {
+            // Always clear refs, even on error
+            processorRef.current = null;
+            isCleaningUpRef.current = false;
+            if (mountedRef.current) {
               setError(null);
-            })
-            .catch((err) => {
-              console.error('Failed to remove noise filter:', err);
-              setError('Failed to disable noise cancellation');
-            });
-        }
+            }
+          }
+        };
+        
+        // Fire and forget - don't await to prevent blocking
+        removeProcessor().catch(() => {
+          // Final catch to prevent any unhandled rejections
+          processorRef.current = null;
+          isCleaningUpRef.current = false;
+        });
       }
       return;
     }
@@ -93,8 +140,16 @@ export function useNoiseCancellation(
     const applyNoiseCancellation = async () => {
       try {
         isApplyingRef.current = true;
-        setIsPending(true);
-        setError(null);
+        if (mountedRef.current) {
+          setIsPending(true);
+          setError(null);
+        }
+
+        // Check if room/participant still exist
+        if (!room || !room.localParticipant || !mountedRef.current) {
+          isApplyingRef.current = false;
+          return;
+        }
 
         // Wait for noise filter to load if not already loaded
         if (!KrispNoiseFilter && typeof window !== 'undefined') {
@@ -104,15 +159,19 @@ export function useNoiseCancellation(
             isKrispNoiseFilterSupported = module.isKrispNoiseFilterSupported || module.default?.isKrispNoiseFilterSupported;
           } catch (importError) {
             console.error('Failed to load Krisp noise filter:', importError);
-            setError('Noise cancellation not available');
-            setIsEnabled(false);
+            if (mountedRef.current) {
+              setError('Noise cancellation not available');
+              setIsEnabled(false);
+            }
             return;
           }
         }
 
         if (!KrispNoiseFilter) {
-          setError('Noise cancellation not available');
-          setIsEnabled(false);
+          if (mountedRef.current) {
+            setError('Noise cancellation not available');
+            setIsEnabled(false);
+          }
           return;
         }
 
@@ -120,19 +179,31 @@ export function useNoiseCancellation(
         if (isKrispNoiseFilterSupported && typeof isKrispNoiseFilterSupported === 'function') {
           const isSupported = isKrispNoiseFilterSupported();
           if (!isSupported) {
-            setError('Noise cancellation is not supported on this device');
-            setIsEnabled(false);
+            if (mountedRef.current) {
+              setError('Noise cancellation is not supported on this device');
+              setIsEnabled(false);
+            }
             return;
           }
         }
 
+        // Re-check room/participant after async operations
+        if (!room || !room.localParticipant || !mountedRef.current) {
+          isApplyingRef.current = false;
+          return;
+        }
+
+        const currentLocalParticipant = room.localParticipant;
+        
         // Get the microphone track
-        const micPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
+        const micPublication = currentLocalParticipant.getTrackPublication(Track.Source.Microphone);
         const micTrack = micPublication?.track;
 
         if (!micTrack || !(micTrack instanceof LocalAudioTrack)) {
-          setError('Microphone track not found');
-          setIsEnabled(false);
+          if (mountedRef.current) {
+            setError('Microphone track not found');
+            setIsEnabled(false);
+          }
           return;
         }
 
@@ -145,21 +216,34 @@ export function useNoiseCancellation(
             debugLogs: false, // Set to true for debugging if needed
           });
 
+          // Final check before applying
+          if (!mountedRef.current || !room || !room.localParticipant) {
+            return;
+          }
+
           await micTrack.setProcessor(noiseFilterProcessor);
           processorRef.current = noiseFilterProcessor;
           console.log('✅ Noise cancellation enabled with Krisp filter');
-          setError(null);
+          if (mountedRef.current) {
+            setError(null);
+          }
         } catch (processorError: any) {
           console.error('Failed to apply noise filter:', processorError);
-          setError(processorError?.message || 'Failed to enable noise cancellation');
-          setIsEnabled(false);
+          if (mountedRef.current) {
+            setError(processorError?.message || 'Failed to enable noise cancellation');
+            setIsEnabled(false);
+          }
         }
       } catch (err: any) {
         console.error('Failed to toggle noise cancellation:', err);
-        setError(err?.message || 'Failed to enable noise cancellation');
-        setIsEnabled(false);
+        if (mountedRef.current) {
+          setError(err?.message || 'Failed to enable noise cancellation');
+          setIsEnabled(false);
+        }
       } finally {
-        setIsPending(false);
+        if (mountedRef.current) {
+          setIsPending(false);
+        }
         isApplyingRef.current = false;
       }
     };
@@ -181,13 +265,45 @@ export function useNoiseCancellation(
     const localParticipant = room.localParticipant;
     if (!localParticipant) return;
 
-    const handleMicrophoneDisabled = () => {
-      if (processorRef.current) {
-        const micPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
-        const micTrack = micPublication?.track;
-        if (micTrack instanceof LocalAudioTrack) {
-          micTrack.removeProcessor(processorRef.current).catch(console.error);
+    const handleMicrophoneDisabled = async () => {
+      if (processorRef.current && !isCleaningUpRef.current) {
+        isCleaningUpRef.current = true;
+        try {
+          // Check if room/participant still exist
+          if (!room || !room.localParticipant || !mountedRef.current) {
+            processorRef.current = null;
+            isCleaningUpRef.current = false;
+            return;
+          }
+
+          const currentLocalParticipant = room.localParticipant;
+          
+          // First try to destroy the processor if it has a destroy method
+          if (processorRef.current && typeof processorRef.current.destroy === 'function') {
+            try {
+              await processorRef.current.destroy();
+            } catch (destroyErr) {
+              // Non-critical - processor might already be destroyed
+              console.warn('Error destroying processor on mic disable (non-critical):', destroyErr);
+            }
+          }
+          
+          const micPublication = currentLocalParticipant.getTrackPublication(Track.Source.Microphone);
+          const micTrack = micPublication?.track;
+          if (micTrack && micTrack instanceof LocalAudioTrack && typeof micTrack.removeProcessor === 'function') {
+            try {
+              await micTrack.removeProcessor(processorRef.current);
+            } catch (removeErr) {
+              // Non-critical - track might have been replaced
+              console.warn('Error removing processor on mic disable (non-critical):', removeErr);
+            }
+          }
+        } catch (err) {
+          // All errors are non-critical during cleanup
+          console.warn('Error removing processor on mic disable (non-critical):', err);
+        } finally {
           processorRef.current = null;
+          isCleaningUpRef.current = false;
         }
       }
     };
@@ -217,27 +333,84 @@ export function useNoiseCancellation(
     localParticipant.on('trackUnpublished', handleTrackUnpublished);
 
     return () => {
-      localParticipant.off('trackPublished', handleTrackPublished);
-      localParticipant.off('trackUnpublished', handleTrackUnpublished);
+      try {
+        if (localParticipant) {
+          localParticipant.off('trackPublished', handleTrackPublished);
+          localParticipant.off('trackUnpublished', handleTrackUnpublished);
+        }
+      } catch (err) {
+        // Non-critical - participant might already be cleaned up
+        console.warn('Error removing event listeners (non-critical):', err);
+      }
       
       // Cleanup processor on unmount
-      if (processorRef.current) {
-        const micPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
-        const micTrack = micPublication?.track;
-        if (micTrack instanceof LocalAudioTrack) {
-          micTrack.removeProcessor(processorRef.current).catch(console.error);
-        }
-        processorRef.current = null;
+      if (processorRef.current && !isCleaningUpRef.current) {
+        isCleaningUpRef.current = true;
+        const cleanup = async () => {
+          try {
+            // Check if room/participant still exist
+            if (!room || !room.localParticipant) {
+              processorRef.current = null;
+              isCleaningUpRef.current = false;
+              return;
+            }
+
+            const currentLocalParticipant = room.localParticipant;
+            
+            // First try to destroy the processor if it has a destroy method
+            if (processorRef.current && typeof processorRef.current.destroy === 'function') {
+              try {
+                await processorRef.current.destroy();
+              } catch (destroyErr) {
+                // Non-critical - processor might already be destroyed
+                console.warn('Error destroying processor on unmount (non-critical):', destroyErr);
+              }
+            }
+            
+            const micPublication = currentLocalParticipant.getTrackPublication(Track.Source.Microphone);
+            const micTrack = micPublication?.track;
+            if (micTrack && micTrack instanceof LocalAudioTrack && typeof micTrack.removeProcessor === 'function') {
+              try {
+                await micTrack.removeProcessor(processorRef.current);
+              } catch (removeErr) {
+                // Non-critical - track might have been replaced or already removed
+                console.warn('Error removing processor on unmount (non-critical):', removeErr);
+              }
+            }
+          } catch (err) {
+            // All errors are non-critical during cleanup
+            console.warn('Error removing processor on unmount (non-critical):', err);
+          } finally {
+            // Always clear refs, even on error
+            processorRef.current = null;
+            isCleaningUpRef.current = false;
+          }
+        };
+        
+        // Run cleanup but don't await (cleanup in useEffect return should be synchronous)
+        // Add final catch to prevent any unhandled rejections
+        cleanup().catch(() => {
+          processorRef.current = null;
+          isCleaningUpRef.current = false;
+        });
       }
     };
   }, [room]);
 
   const toggle = async () => {
-    if (!isFeatureAvailable || isPending) {
+    // Prevent toggling if:
+    // 1. Feature not available
+    // 2. Already pending (processing)
+    // 3. Currently cleaning up
+    // 4. Component unmounted
+    if (!isFeatureAvailable || isPending || isCleaningUpRef.current || !mountedRef.current) {
       return;
     }
 
-    setIsEnabled((prev) => !prev);
+    // Safely update state only if component is still mounted
+    if (mountedRef.current) {
+      setIsEnabled((prev) => !prev);
+    }
   };
 
   return {
