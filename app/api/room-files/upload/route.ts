@@ -8,6 +8,7 @@ import Busboy from 'busboy';
 import { PrismaClient } from '@prisma/client';
 import { ensureRoomUploadPath, getRoomFilePath, getR2Key } from '@/lib/utils/storage';
 import { uploadFile as uploadToR2, isR2Enabled } from '@/lib/services/r2Storage';
+import { sanitizeFilename, sanitizeRoomIdentifier, sanitizeStringLenient, validateLength } from '@/lib/utils/sanitize';
 
 export const runtime = 'nodejs';
 
@@ -49,8 +50,8 @@ export async function POST(req: NextRequest) {
     const parsed = await parseMultipartRequest(req, tmpDir);
 
     const file = parsed.file;
-    const roomLink = parsed.roomLink;
-    const uploadedBy = parsed.uploadedBy;
+    let roomLink = parsed.roomLink;
+    let uploadedBy = parsed.uploadedBy;
 
     if (!file || !roomLink || !uploadedBy) {
       if (file?.tmpPath) {
@@ -58,6 +59,31 @@ export async function POST(req: NextRequest) {
       }
       return NextResponse.json(
         { error: 'Missing required fields: file, roomName, or uploadedBy' },
+        { status: 400 }
+      );
+    }
+
+    // Sanitize inputs to prevent command injection
+    roomLink = sanitizeRoomIdentifier(roomLink);
+    uploadedBy = sanitizeStringLenient(uploadedBy);
+
+    // Validate input lengths
+    if (!validateLength(roomLink, 100, 1)) {
+      if (file?.tmpPath) {
+        await rm(file.tmpPath, { force: true });
+      }
+      return NextResponse.json(
+        { error: 'Invalid room link format' },
+        { status: 400 }
+      );
+    }
+
+    if (!validateLength(uploadedBy, 200, 1)) {
+      if (file?.tmpPath) {
+        await rm(file.tmpPath, { force: true });
+      }
+      return NextResponse.json(
+        { error: 'Invalid uploadedBy field' },
         { status: 400 }
       );
     }
@@ -98,8 +124,18 @@ export async function POST(req: NextRequest) {
 
     const roomStorageId = room.id;
     const timestamp = Date.now();
-    const sanitizedOriginalName = file.originalName.replace(/[^a-zA-Z0-9.-]/g, '_');
+    // Enhanced filename sanitization to prevent path traversal and command injection
+    const sanitizedOriginalName = sanitizeFilename(file.originalName);
     const filename = `${timestamp}-${sanitizedOriginalName}`;
+    
+    // Additional validation: ensure filename doesn't contain path traversal
+    if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      await rm(file.tmpPath, { force: true });
+      return NextResponse.json(
+        { error: 'Invalid filename' },
+        { status: 400 }
+      );
+    }
 
     let storedFilename = filename;
     let uploadedToR2 = false;
@@ -212,8 +248,12 @@ async function parseMultipartRequest(req: NextRequest, tmpDir: string): Promise<
 
       const originalNameRaw = info.filename || 'upload';
       const originalName = Buffer.from(originalNameRaw, 'binary').toString('utf8');
-      const sanitizedName = originalName.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const tmpFilePath = path.join(tmpDir, `${Date.now()}-${Math.random().toString(36).slice(2)}-${sanitizedName}`);
+      // Enhanced sanitization using sanitizeFilename utility
+      const sanitizedName = sanitizeFilename(originalName);
+      // Use a safe random filename for temp file to prevent any path issues
+      const safeTempName = `${Date.now()}-${Math.random().toString(36).slice(2)}-${sanitizedName}`;
+      // Ensure no path traversal in temp file path
+      const tmpFilePath = path.join(tmpDir, path.basename(safeTempName));
       const writeStream = createWriteStream(tmpFilePath);
 
       const filePromise = new Promise<void>((resolveFile, rejectFile) => {

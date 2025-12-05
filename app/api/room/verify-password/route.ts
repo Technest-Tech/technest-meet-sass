@@ -1,17 +1,57 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/database';
 import bcrypt from 'bcryptjs';
+import { sanitizeRoomIdentifier, sanitizeString, validateLength } from '@/lib/utils/sanitize';
+import { rateLimit } from '@/lib/middleware/rateLimit';
 
 export async function POST(request: NextRequest) {
   try {
-    const { roomLink, accessType, password } = await request.json();
+    // Rate limiting to prevent brute force attacks
+    const rateLimitResult = await rateLimit(request, {
+      maxRequests: 10,
+      windowMs: 15 * 60 * 1000, // 15 minutes
+    });
 
-    if (!roomLink || !accessType || !password) {
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { 
+          status: 429,
+          headers: {
+            'Retry-After': rateLimitResult.retryAfter?.toString() || '900',
+          },
+        }
+      );
+    }
+
+    const body = await request.json();
+    let { roomLink: roomLinkParam, accessType, password: passwordParam } = body;
+
+    if (!roomLinkParam || !accessType || !passwordParam) {
       return NextResponse.json(
         { error: 'Room link, access type, and password are required' },
         { status: 400 }
       );
     }
+
+    // Sanitize inputs
+    const roomLink = sanitizeRoomIdentifier(roomLinkParam);
+    if (!roomLink || roomLink !== roomLinkParam) {
+      return NextResponse.json(
+        { error: 'Invalid room link format' },
+        { status: 400 }
+      );
+    }
+
+    // Validate password length (prevent extremely long passwords)
+    if (!validateLength(passwordParam, 200, 1)) {
+      return NextResponse.json(
+        { error: 'Invalid password format' },
+        { status: 400 }
+      );
+    }
+
+    const password = sanitizeString(passwordParam);
 
     if (accessType !== 'host' && accessType !== 'guest') {
       return NextResponse.json(

@@ -7,6 +7,7 @@ import { prisma } from '@/lib/database';
 import { checkTrialExpiration, isSubscriptionActive } from '@/lib/utils/trial-check';
 import { extractDeviceInfo } from '@/lib/utils/deviceDetection';
 import { logParticipantJoined } from '@/lib/services/roomActivityLogger';
+import { sanitizeRoomIdentifier, sanitizeStringLenient } from '@/lib/utils/sanitize';
 
 const API_KEY = process.env.LIVEKIT_API_KEY || 'devkey';
 const API_SECRET = process.env.LIVEKIT_API_SECRET || 'secret';
@@ -70,11 +71,16 @@ export async function GET(request: NextRequest) {
     console.log('🔍 Connection details request received');
     
     // Parse query parameters
-    const roomName = request.nextUrl.searchParams.get('roomName');
-    const participantName = request.nextUrl.searchParams.get('participantName');
+    const roomNameParam = request.nextUrl.searchParams.get('roomName');
+    const participantNameParam = request.nextUrl.searchParams.get('participantName');
     const participantType = request.nextUrl.searchParams.get('participantType') || 'guest'; // 'host' or 'guest'
     const metadata = request.nextUrl.searchParams.get('metadata') ?? '';
     const region = request.nextUrl.searchParams.get('region');
+    
+    // Sanitize inputs
+    const roomName = roomNameParam ? sanitizeRoomIdentifier(roomNameParam) : null;
+    const participantName = participantNameParam ? sanitizeStringLenient(participantNameParam) : null;
+    
     const metadataPayload = safeParseMetadata(metadata);
     const deviceInfo = extractDeviceInfo(request);
     const participantRole = participantType as 'host' | 'guest' | 'observer';
@@ -103,12 +109,12 @@ export async function GET(request: NextRequest) {
     let serverLivekitUrl: string;
     let randomParticipantPostfix = request.cookies.get(COOKIE_KEY)?.value;
 
-    // These checks are now redundant since we check above, but keep for safety
-    if (typeof roomName !== 'string') {
-      return NextResponse.json({ error: 'Missing required query parameter: roomName' }, { status: 400 });
+    // Validate sanitized inputs
+    if (!roomName) {
+      return NextResponse.json({ error: 'Missing or invalid roomName parameter' }, { status: 400 });
     }
-    if (!participantName || typeof participantName !== 'string') {
-      return NextResponse.json({ error: 'Missing required query parameter: participantName' }, { status: 400 });
+    if (!participantName) {
+      return NextResponse.json({ error: 'Missing or invalid participantName parameter' }, { status: 400 });
     }
 
     // Validate participant type
@@ -590,7 +596,40 @@ function getCookieExpirationTime(): string {
 function safeParseMetadata(raw: string | null): Record<string, unknown> {
   if (!raw) return {};
   try {
-    return JSON.parse(raw);
+    // Limit metadata size to prevent DoS
+    if (raw.length > 10000) {
+      console.warn('[SECURITY] Metadata payload too large, rejecting');
+      return {};
+    }
+    
+    const parsed = JSON.parse(raw);
+    
+    // Ensure it's an object, not an array or primitive
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return {};
+    }
+    
+    // Limit number of keys to prevent DoS
+    const keys = Object.keys(parsed);
+    if (keys.length > 50) {
+      console.warn('[SECURITY] Metadata has too many keys, rejecting');
+      return {};
+    }
+    
+    // Validate values are safe (strings, numbers, booleans, null only)
+    const sanitized: Record<string, unknown> = {};
+    for (const key of keys) {
+      const value = parsed[key];
+      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || value === null) {
+        // Limit string length
+        if (typeof value === 'string' && value.length > 1000) {
+          continue; // Skip overly long strings
+        }
+        sanitized[key] = value;
+      }
+    }
+    
+    return sanitized;
   } catch {
     return {};
   }

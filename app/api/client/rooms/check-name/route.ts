@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireClient } from '@/lib/auth/server-auth';
 import { prisma } from '@/lib/database';
+import { sanitizeRoomIdentifier, sanitizeStringLenient } from '@/lib/utils/sanitize';
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,7 +14,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { roomName, customRoomLink } = await request.json();
+    const body = await request.json();
+    let { roomName, customRoomLink } = body;
+    
+    // Sanitize inputs
+    if (roomName) {
+      roomName = sanitizeStringLenient(roomName);
+    }
+    if (customRoomLink) {
+      customRoomLink = sanitizeRoomIdentifier(customRoomLink);
+    }
 
     // Check if customRoomLink is provided (for almajd account)
     if (customRoomLink && typeof customRoomLink === 'string' && customRoomLink.trim().length > 0) {

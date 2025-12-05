@@ -4,31 +4,47 @@ import { existsSync } from 'fs';
 import { PrismaClient } from '@prisma/client';
 import { getRoomFilePath, isR2Key } from '@/lib/utils/storage';
 import { deleteFile as deleteFromR2 } from '@/lib/services/r2Storage';
+import { sanitizeString, sanitizeStringLenient } from '@/lib/utils/sanitize';
 
 const prisma = new PrismaClient();
+
+// UUID v4 pattern for validation
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ fileId: string }> }
 ) {
   try {
-    const { fileId } = await params;
+    const { fileId: fileIdParam } = await params;
     const { searchParams } = new URL(req.url);
-    const requestedBy = searchParams.get('requestedBy');
+    const requestedByParam = searchParams.get('requestedBy');
 
-    if (!fileId) {
+    if (!fileIdParam) {
       return NextResponse.json(
         { error: 'Missing fileId parameter' },
         { status: 400 }
       );
     }
 
-    if (!requestedBy) {
+    // Sanitize and validate fileId format (should be UUID)
+    const fileId = sanitizeString(fileIdParam);
+    if (!fileId || !UUID_PATTERN.test(fileId)) {
+      return NextResponse.json(
+        { error: 'Invalid fileId format' },
+        { status: 400 }
+      );
+    }
+
+    if (!requestedByParam) {
       return NextResponse.json(
         { error: 'Missing requestedBy parameter' },
         { status: 400 }
       );
     }
+
+    // Sanitize requestedBy
+    const requestedBy = sanitizeStringLenient(requestedByParam);
 
     // Get file metadata from database
     const roomFile = await prisma.roomFile.findUnique({
