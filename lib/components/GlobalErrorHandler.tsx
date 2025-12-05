@@ -35,7 +35,17 @@ export function GlobalErrorHandler({ children }: { children: React.ReactNode }) 
         errorMessage.includes('NotAllowedError') ||
         errorMessage.includes('User cancelled') ||
         errorMessage.includes('AbortError') ||
-        errorMessage.includes('NetworkError') && errorMessage.includes('Failed to fetch');
+        (errorMessage.includes('NetworkError') && errorMessage.includes('Failed to fetch')) ||
+        // Add Krisp CORS errors to known errors list (non-critical)
+        (errorMessage.includes('Failed to fetch') && (
+          errorMessage.includes('settings') || 
+          errorMessage.includes('rtc') ||
+          errorMessage.includes('acadmyq.com')
+        )) ||
+        errorMessage.includes('CORS') ||
+        // Check if error is from Krisp SDK by examining stack trace
+        (error instanceof TypeError && errorMessage.includes('Failed to fetch') && 
+         (error.stack?.includes('krisp') || error.stack?.includes('Krisp') || error.stack?.includes('noise-filter')));
       
       if (!isKnownError) {
         toast.error('An unexpected error occurred. Please refresh if the issue persists.', {

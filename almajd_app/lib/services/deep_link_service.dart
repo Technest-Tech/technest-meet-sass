@@ -2,9 +2,9 @@ import 'dart:async';
 import 'package:app_links/app_links.dart';
 import '../utils/logger.dart';
 
-/// Service to handle deep links from acadmyq.com domain
+/// Service to handle deep links from acadmyq.com and almajdmeet.org domains
 /// 
-/// Handles URLs in format: https://acadmyq.com/{roomLink}/{accessType}
+/// Handles URLs in format: https://acadmyq.com/{roomLink}/{accessType} or https://almajdmeet.org/{roomLink}/{accessType}
 /// Where accessType is: 'h' (host), 'g' (guest), or 'o' (observer)
 class DeepLinkService {
   static final DeepLinkService _instance = DeepLinkService._internal();

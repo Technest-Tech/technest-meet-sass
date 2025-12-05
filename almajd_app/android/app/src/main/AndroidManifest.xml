@@ -59,7 +59,18 @@
                     android:pathPrefix="/" />
             </intent-filter>
             
-            <!-- Fallback for http (if needed) -->
+            <!-- Deep Link Intent Filter for almajdmeet.org with App Links verification -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="almajdmeet.org"
+                    android:pathPrefix="/" />
+            </intent-filter>
+            
+            <!-- Fallback for http (if needed) - acadmyq.com -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -67,6 +78,17 @@
                 <data
                     android:scheme="http"
                     android:host="acadmyq.com"
+                    android:pathPrefix="/" />
+            </intent-filter>
+            
+            <!-- Fallback for http (if needed) - almajdmeet.org -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="http"
+                    android:host="almajdmeet.org"
                     android:pathPrefix="/" />
             </intent-filter>
         </activity>
