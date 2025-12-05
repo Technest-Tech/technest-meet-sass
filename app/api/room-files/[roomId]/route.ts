@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
+import { sanitizeRoomIdentifier } from '@/lib/utils/sanitize';
 
 const prisma = new PrismaClient();
 
@@ -8,12 +9,15 @@ export async function GET(
   { params }: { params: Promise<{ roomId: string }> }
 ) {
   try {
-    const { roomId } = await params;
-    const roomLink = roomId; // URL param is actually roomLink (hostLink, guestLink, or observerLink)
-
-    if (!roomLink) {
+    const { roomId: roomIdParam } = await params;
+    
+    // URL param is actually roomLink (hostLink, guestLink, or observerLink)
+    // Sanitize to prevent injection
+    const roomLink = sanitizeRoomIdentifier(roomIdParam);
+    
+    if (!roomLink || roomLink !== roomIdParam) {
       return NextResponse.json(
-        { error: 'Missing roomLink parameter' },
+        { error: 'Invalid room link format' },
         { status: 400 }
       );
     }

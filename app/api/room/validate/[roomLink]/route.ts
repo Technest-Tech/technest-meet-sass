@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/database';
 import { checkTrialExpiration, isSubscriptionActive } from '@/lib/utils/trial-check';
+import { sanitizeRoomIdentifier } from '@/lib/utils/sanitize';
 
 export async function GET(
   request: NextRequest,
@@ -19,7 +20,16 @@ export async function GET(
     }
 
     // Await params for Next.js 15 compatibility
-    const { roomLink } = await params;
+    const { roomLink: roomLinkParam } = await params;
+    
+    // Sanitize room link to prevent injection
+    const roomLink = sanitizeRoomIdentifier(roomLinkParam);
+    if (!roomLink || roomLink !== roomLinkParam) {
+      return NextResponse.json(
+        { message: 'Invalid room link format' },
+        { status: 400 }
+      );
+    }
 
     // Find room by host, guest, or observer link
     const room = await prisma.room.findFirst({
