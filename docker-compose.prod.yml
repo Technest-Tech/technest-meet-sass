@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  # Almajd Meet Backend
+  newmeet-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: newmeet-backend
+    ports:
+      - "3000:3000"
+    env_file:
+      - env.production
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://almajd_user:almajd_secure_password_2024@178.128.78.195:5433/almajd_meet
+      - JWT_SECRET=almajd-meet-jwt-secret-2024-production-key-64chars-minimum
+      - LIVEKIT_API_KEY=almajd-meet-api-key-prod-2024
+      - LIVEKIT_API_SECRET=almajd-meet-api-secret-production-2024-secure-key
+      - LIVEKIT_URL=http://178.128.78.195:7880
+      - NEXT_PUBLIC_LIVEKIT_URL=wss://rtc.acadmyq.com
+      - NEXT_PUBLIC_LK_RECORD_ENDPOINT=/api/record
+      - NEXT_PUBLIC_SHOW_SETTINGS_MENU=true
+      - SUPER_ADMIN_EMAIL=admin@acadmyq.com
+      - SUPER_ADMIN_PASSWORD=admin123
+      - R2_ACCESS_KEY_ID=7cc88bb0e07b172a19b37cdec4512970
+      - R2_SECRET_ACCESS_KEY=2863ad840ac813b4a496f8b065c353ccee4a088e07a40975d31344414ca24ea3
+      - R2_ENDPOINT=https://3eb7ab379add240613a41c5ea0a1e9e5.r2.cloudflarestorage.com
+      - R2_BUCKET_NAME=academiq-meet
+      - R2_ENABLED=true
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+    # Security enhancements
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    read_only: false  # Set to true if app doesn't need to write to filesystem
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+      - /var/tmp:noexec,nosuid,size=100m
+    user: "1001:1001"  # Ensure non-root user (already set in Dockerfile, but explicit here)
+    networks:
+      - app-network
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx-simple.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    restart: unless-stopped
+    depends_on:
+      - newmeet-backend
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
