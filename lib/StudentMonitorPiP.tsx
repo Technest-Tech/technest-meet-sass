@@ -3,7 +3,9 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useRoomContext, useLocalParticipant, useParticipants, VideoTrack } from '@livekit/components-react';
-import { Track, TrackPublication } from 'livekit-client';
+import { Track, TrackPublication, VideoQuality, RemoteTrackPublication, RemoteTrack } from 'livekit-client';
+import { Mic, MicOff, Video, VideoOff, MoreVertical } from 'lucide-react';
+import toast from 'react-hot-toast';
 import styles from '@/styles/StudentMonitorPiP.module.css';
 
 interface Position {
@@ -15,9 +17,10 @@ interface StudentMonitorPiPProps {
   isHost?: boolean;
   disabled?: boolean;
   showProBadge?: boolean;
+  roomName?: string;
 }
 
-export function StudentMonitorPiP({ isHost = false, disabled = false, showProBadge = false }: StudentMonitorPiPProps) {
+export function StudentMonitorPiP({ isHost = false, disabled = false, showProBadge = false, roomName }: StudentMonitorPiPProps) {
   const room = useRoomContext();
   const { localParticipant } = useLocalParticipant();
   const participants = useParticipants();
@@ -60,20 +63,17 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
     return () => window.removeEventListener('resize', updateWindowSize);
   }, []);
   
-  // Load persisted state on mount
+  // Load persisted state on mount - but don't auto-enable by default
   useEffect(() => {
-    const persisted = sessionStorage.getItem(STORAGE_KEY);
-    if (persisted === 'true') {
-      manualEnableRef.current = true;
-      setIsManuallyEnabled(true);
-      console.log('Restored manual enable state from sessionStorage');
-    }
+    // Don't restore persisted state on initial load - start fresh each session
+    // User must explicitly click the button to show the monitor
+    manualEnableRef.current = false;
+    setIsManuallyEnabled(false);
+    sessionStorage.removeItem(STORAGE_KEY);
     
-    const minimized = sessionStorage.getItem(MINIMIZED_KEY);
-    if (minimized === 'true') {
-      setIsMinimized(true);
-      console.log('Restored minimized state from sessionStorage');
-    }
+    // Don't restore minimized state either - start fresh
+    setIsMinimized(false);
+    sessionStorage.removeItem(MINIMIZED_KEY);
   }, []);
 
   // Detect screen sharing
@@ -191,14 +191,18 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
     return null;
   }
 
-  // Filter students (remote participants with camera)
+  // Helper function to clean participant names (remove _host_, _guest_ suffixes and roomname)
+  const getCleanName = (identity: string): string => {
+    // Remove patterns like _guest_roomname or _host_roomname
+    // Handles formats like: "215_guest_romname" -> "215"
+    return identity.replace(/_(host|guest)_.*$/, '').trim();
+  };
+
+  // Filter students (all remote participants, excluding local and observers)
   const students = participants.filter(participant => {
-    try {
-      const cameraTrack = participant.getTrackPublication(Track.Source.Camera);
-      return cameraTrack?.isEnabled && !!cameraTrack?.track;
-    } catch {
-      return false;
-    }
+    return participant.identity !== localParticipant?.identity && 
+           participant.identity !== 'observer' &&
+           !participant.isLocal;
   });
 
   // Handle manual enable
@@ -209,6 +213,160 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
     setIsManuallyEnabled(true);
     sessionStorage.setItem(STORAGE_KEY, 'true');
   }, []);
+
+  // Host control functions
+  const muteParticipant = useCallback(async (participantIdentity: string, shouldMute: boolean) => {
+    if (!isHost || !roomName || !room || !localParticipant) {
+      console.error('Cannot mute: isHost=', isHost, 'roomName=', roomName, 'room=', !!room, 'localParticipant=', !!localParticipant);
+      return;
+    }
+
+    try {
+      if (shouldMute) {
+        // Force mute via API (server-side enforcement)
+        console.log('Muting participant via API:', { participantIdentity, roomName: room?.name || roomName });
+        const response = await fetch('/api/room/controls/mute-participant', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomName: room?.name || roomName,
+            participantIdentity,
+            mute: true
+          })
+        });
+
+        const result = await response.json();
+        
+        if (response.ok) {
+          console.log('Mute API success:', result);
+          
+          // Also send data channel message to notify student and update their UI
+          try {
+            const muteRequest = {
+              type: 'mute_command',
+              targetParticipant: participantIdentity,
+              sender: localParticipant.identity,
+              timestamp: Date.now(),
+              allowUnmute: false // Server-side mute, student can't unmute themselves
+            };
+
+            const encodedData = new TextEncoder().encode(JSON.stringify(muteRequest));
+            await room.localParticipant.publishData(encodedData, { topic: 'mute-control', reliable: true });
+            console.log('Mute data channel message sent');
+          } catch (dataChannelError) {
+            console.warn('Failed to send mute data channel message (API mute still applied):', dataChannelError);
+            // Don't fail the whole operation if data channel fails - API mute is the important part
+          }
+          
+          toast.success('Participant muted');
+        } else {
+          console.error('Mute API error:', result);
+          toast.error(result.error || 'Failed to mute');
+        }
+      } else {
+        // Unmute via data channel (API doesn't support unmuting, only muting)
+        console.log('Unmuting participant via data channel:', { participantIdentity });
+        try {
+          const unmuteRequest = {
+            type: 'unmute_command',
+            targetParticipant: participantIdentity,
+            sender: localParticipant.identity,
+            timestamp: Date.now(),
+            allowUnmute: true // This will actually unmute the student
+          };
+
+          const encodedData = new TextEncoder().encode(JSON.stringify(unmuteRequest));
+          await room.localParticipant.publishData(encodedData, { topic: 'mute-control', reliable: true });
+          console.log('Unmute data channel message sent');
+          
+          toast.success('Participant unmuted');
+        } catch (error) {
+          console.error('Error sending unmute request:', error);
+          toast.error('Failed to unmute participant');
+        }
+      }
+    } catch (error) {
+      console.error('Error muting/unmuting participant:', error);
+      toast.error('Network error occurred');
+    }
+  }, [isHost, roomName, room, localParticipant]);
+
+  const controlVideo = useCallback(async (participantIdentity: string, shouldDisable: boolean) => {
+    if (!isHost || !roomName || !room || !localParticipant) {
+      console.error('Cannot control video: isHost=', isHost, 'roomName=', roomName, 'room=', !!room, 'localParticipant=', !!localParticipant);
+      return;
+    }
+
+    if (shouldDisable) {
+      // Disable video via API (server-side enforcement)
+      try {
+        console.log('Stopping video via API:', { participantIdentity, roomName: room?.name || roomName });
+        const response = await fetch('/api/room/controls/video-control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomName: room?.name || roomName,
+            participantIdentity,
+            disable: true
+          })
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+          console.log('Video control API success:', result);
+          
+          // Also send data channel message to notify student and update their UI
+          try {
+            const videoRequest = {
+              type: 'video_request_off',
+              targetParticipant: participantIdentity,
+              requestType: 'camera_off',
+              sender: localParticipant.identity,
+              timestamp: Date.now(),
+              id: `request-${Date.now()}`
+            };
+
+            const encodedData = new TextEncoder().encode(JSON.stringify(videoRequest));
+            await room.localParticipant.publishData(encodedData, { topic: 'video-request', reliable: true });
+            console.log('Video stop data channel message sent');
+          } catch (dataChannelError) {
+            console.warn('Failed to send video stop data channel message (API stop still applied):', dataChannelError);
+            // Don't fail the whole operation if data channel fails - API stop is the important part
+          }
+          
+          toast.success('Video stopped');
+        } else {
+          console.error('Video control API error:', result);
+          toast.error(result.error || 'Failed to stop video');
+        }
+      } catch (error) {
+        console.error('Error controlling video:', error);
+        toast.error('Network error occurred');
+      }
+    } else {
+      // Request video on via data channel
+      try {
+        console.log('Requesting video on for:', { participantIdentity });
+        const request = {
+          type: 'video_request_on',
+          targetParticipant: participantIdentity,
+          requestType: 'camera_on',
+          sender: localParticipant.identity,
+          timestamp: Date.now(),
+          id: `request-${Date.now()}`
+        };
+
+        const encodedData = new TextEncoder().encode(JSON.stringify(request));
+        await room.localParticipant.publishData(encodedData, { topic: 'video-request', reliable: true });
+        
+        toast.success('Request sent to participant');
+      } catch (error) {
+        console.error('Error sending video request:', error);
+        toast.error('Failed to send request');
+      }
+    }
+  }, [isHost, roomName, room, localParticipant]);
 
   // Sync ref with state and persist
   useEffect(() => {
@@ -234,9 +392,21 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
     try {
       // Check if Document PiP API is supported
       if ('documentPictureInPicture' in window) {
+        // Calculate PiP window size based on number of students (no header in PiP)
+        const padding = 4; // Minimal padding
+        const cardHeight = 240; // Increased height for better video display
+        const gap = 6; // Slightly reduced gap
+        const minWidth = 280; // Increased minimum width for better visibility
+        const maxWidth = 320; // Increased maximum width for better visibility
+        const cardCount = Math.max(1, students.length);
+        const visibleCards = Math.min(cardCount, 5); // Show 5 cards with taller height
+        const cardsHeight = cardHeight * visibleCards + gap * Math.max(0, visibleCards - 1);
+        const pipWidth = Math.max(minWidth, Math.min(maxWidth, 300)); // Wider width for better visibility
+        const pipHeight = cardsHeight + padding * 2; // No header height in PiP
+        
         const pip = await (window as any).documentPictureInPicture.requestWindow({
-          width: 600,
-          height: 400,
+          width: pipWidth,
+          height: pipHeight,
         });
         
         // Set up PiP window styling - dark background to match container
@@ -253,9 +423,7 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
         pip.document.body.style.height = '100%';
         pip.document.body.style.background = '#0f172a';
         pip.document.body.style.overflow = 'hidden';
-        pip.document.body.style.display = 'flex';
-        pip.document.body.style.alignItems = 'center';
-        pip.document.body.style.justifyContent = 'center';
+        pip.document.body.style.display = 'block';
         
         // Copy all stylesheets to the PiP window
         [...document.styleSheets].forEach((styleSheet) => {
@@ -317,9 +485,10 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
     };
   }, [pipWindow]);
 
-  // Show if screen sharing OR manually enabled
+  // Show only if manually enabled (not auto-show on screen share)
+  // User must explicitly click the button to show the monitor
   const persistedEnabled = typeof window !== 'undefined' && sessionStorage.getItem(STORAGE_KEY) === 'true';
-  const shouldShow = (isScreenSharing || isManuallyEnabled || manualEnableRef.current || persistedEnabled);
+  const shouldShow = (isManuallyEnabled || manualEnableRef.current || persistedEnabled);
 
   // Show toggle button if monitor is not shown
   if (!shouldShow && !isScreenSharing) {
@@ -387,148 +556,20 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
     return null;
   }
 
-  // Calculate optimal layout based on student count
-  const calculateLayout = (count: number) => {
-    const headerHeight = 60; // Approximate header height
-    const padding = 16; // Container padding
-    const gap = 12; // Grid gap
-    const minCardWidth = 200;
-    const minCardHeight = 150;
-    const maxCardWidth = 600;
-    const maxCardHeight = 400;
-    
-    // Calculate available viewport space (with some margin)
-    // Use windowSize state if available, otherwise fall back to window dimensions
-    const viewportWidth = windowSize.width > 0 ? windowSize.width : (typeof window !== 'undefined' ? window.innerWidth : 1920);
-    const viewportHeight = windowSize.height > 0 ? windowSize.height : (typeof window !== 'undefined' ? window.innerHeight : 1080);
-    const maxWidth = Math.min(viewportWidth * 0.9, 1200);
-    const maxHeight = Math.min(viewportHeight * 0.85, 800);
-    
-    let columns = 1;
-    let rows = 1;
-    let containerWidth = minCardWidth + padding * 2;
-    let containerHeight = minCardHeight + headerHeight + padding * 2;
-    
-    if (count === 0) {
-      return {
-        columns: 1,
-        rows: 1,
-        gridTemplateColumns: '1fr',
-        gridTemplateRows: '1fr',
-        containerWidth: 400,
-        containerHeight: 300,
-        cardAspectRatio: '16/9'
-      };
-    }
-    
-    if (count === 1) {
-      // Single student: use ~95% of available space
-      const cardWidth = Math.min(maxWidth - padding * 2, maxCardWidth);
-      const cardHeight = Math.min(maxHeight - headerHeight - padding * 2, maxCardHeight);
-      return {
-        columns: 1,
-        rows: 1,
-        gridTemplateColumns: '1fr',
-        gridTemplateRows: '1fr',
-        containerWidth: cardWidth + padding * 2,
-        containerHeight: cardHeight + headerHeight + padding * 2,
-        cardAspectRatio: '16/9'
-      };
-    }
-    
-    if (count === 2) {
-      // 2 students: split evenly (2 columns, 1 row)
-      const cardWidth = Math.min((maxWidth - padding * 2 - gap) / 2, maxCardWidth);
-      const cardHeight = Math.min(maxHeight - headerHeight - padding * 2, maxCardHeight);
-      return {
-        columns: 2,
-        rows: 1,
-        gridTemplateColumns: '1fr 1fr',
-        gridTemplateRows: '1fr',
-        containerWidth: cardWidth * 2 + gap + padding * 2,
-        containerHeight: cardHeight + headerHeight + padding * 2,
-        cardAspectRatio: '16/9'
-      };
-    }
-    
-    if (count === 3) {
-      // 3 students: 2 on top, 1 on bottom (or 1 on left, 2 stacked on right)
-      // Use layout: 1 column on left, 2 rows on right
-      const cardWidth = Math.min((maxWidth - padding * 2 - gap * 2) / 3, maxCardWidth);
-      const cardHeight = Math.min((maxHeight - headerHeight - padding * 2 - gap) / 2, maxCardHeight);
-      return {
-        columns: 2,
-        rows: 2,
-        gridTemplateColumns: '1fr 1fr',
-        gridTemplateRows: '1fr 1fr',
-        containerWidth: cardWidth * 2 + gap + padding * 2,
-        containerHeight: cardHeight * 2 + gap + headerHeight + padding * 2,
-        cardAspectRatio: '16/9',
-        specialLayout: 'three' // Special handling for 3 students
-      };
-    }
-    
-    if (count === 4) {
-      // 4 students: 2x2 grid
-      const cardWidth = Math.min((maxWidth - padding * 2 - gap) / 2, maxCardWidth);
-      const cardHeight = Math.min((maxHeight - headerHeight - padding * 2 - gap) / 2, maxCardHeight);
-      return {
-        columns: 2,
-        rows: 2,
-        gridTemplateColumns: '1fr 1fr',
-        gridTemplateRows: '1fr 1fr',
-        containerWidth: cardWidth * 2 + gap + padding * 2,
-        containerHeight: cardHeight * 2 + gap + headerHeight + padding * 2,
-        cardAspectRatio: '16/9'
-      };
-    }
-    
-    if (count <= 6) {
-      // 5-6 students: 3 columns, 2 rows
-      const cardWidth = Math.min((maxWidth - padding * 2 - gap * 2) / 3, maxCardWidth);
-      const cardHeight = Math.min((maxHeight - headerHeight - padding * 2 - gap) / 2, maxCardHeight);
-      return {
-        columns: 3,
-        rows: 2,
-        gridTemplateColumns: 'repeat(3, 1fr)',
-        gridTemplateRows: 'repeat(2, 1fr)',
-        containerWidth: cardWidth * 3 + gap * 2 + padding * 2,
-        containerHeight: cardHeight * 2 + gap + headerHeight + padding * 2,
-        cardAspectRatio: '16/9'
-      };
-    }
-    
-    if (count <= 9) {
-      // 7-9 students: 3x3 grid
-      const cardWidth = Math.min((maxWidth - padding * 2 - gap * 2) / 3, maxCardWidth);
-      const cardHeight = Math.min((maxHeight - headerHeight - padding * 2 - gap * 2) / 3, maxCardHeight);
-      return {
-        columns: 3,
-        rows: 3,
-        gridTemplateColumns: 'repeat(3, 1fr)',
-        gridTemplateRows: 'repeat(3, 1fr)',
-        containerWidth: cardWidth * 3 + gap * 2 + padding * 2,
-        containerHeight: cardHeight * 3 + gap * 2 + headerHeight + padding * 2,
-        cardAspectRatio: '16/9'
-      };
-    }
-    
-    // 10+ students: 4 columns with scrolling
-    const cardWidth = Math.min((maxWidth - padding * 2 - gap * 3) / 4, maxCardWidth);
-    const cardHeight = Math.min((maxHeight - headerHeight - padding * 2 - gap * 2) / 3, maxCardHeight);
-    return {
-      columns: 4,
-      rows: 3,
-      gridTemplateColumns: 'repeat(4, 1fr)',
-      gridTemplateRows: 'repeat(auto-fit, minmax(150px, 1fr))',
-      containerWidth: cardWidth * 4 + gap * 3 + padding * 2,
-      containerHeight: Math.min(cardHeight * 3 + gap * 2 + headerHeight + padding * 2, maxHeight),
-      cardAspectRatio: '16/9',
-      scrollable: true
-    };
-  };
+  // Calculate container dimensions for column layout
+  const headerHeight = 50;
+  const padding = 4; // Minimal padding
+  const cardHeight = 200; // Increased height a little more
+  const gap = 6; // Slightly reduced gap
+  const minWidth = 280; // Increased minimum width for better visibility
+  const maxWidth = 320; // Increased maximum width for better visibility
+  const maxVisibleCards = 5; // Show 5 cards before scrolling
   
-  const layout = calculateLayout(students.length);
+  const containerWidth = Math.max(minWidth, Math.min(maxWidth, 300)); // Wider width for better visibility
+  const cardCount = Math.max(1, students.length);
+  const visibleCards = Math.min(cardCount, maxVisibleCards);
+  const cardsHeight = cardHeight * visibleCards + gap * Math.max(0, visibleCards - 1);
+  const containerHeight = headerHeight + cardsHeight + padding * 2;
 
   if (isMinimized) {
     const minimizedContainer = (
@@ -605,180 +646,630 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
     return mounted && typeof document !== 'undefined' ? createPortal(minimizedContainer, document.body) : null;
   }
 
+  // Participant context menu component (for PiP window)
+  const ParticipantContextMenu = ({ participant, isOpen, onClose, position, onMute, onVideoControl }: {
+    participant: any;
+    isOpen: boolean;
+    onClose: () => void;
+    position: { top: number; left: number };
+    onMute: (identity: string, mute: boolean) => void;
+    onVideoControl: (identity: string, disable: boolean) => void;
+  }) => {
+    // Helper function to get current track state
+    const getTrackState = () => {
+      const audioTrack = participant.getTrackPublication(Track.Source.Microphone);
+      const videoTrack = participant.getTrackPublication(Track.Source.Camera);
+      
+      // For audio: track exists, is enabled, and not muted
+      const audioIsEnabled = audioTrack && audioTrack.isEnabled && !audioTrack.isMuted;
+      
+      // For video: track exists, is enabled, not muted, and has an actual track
+      const videoIsEnabled = videoTrack && videoTrack.isEnabled && !videoTrack.isMuted && !!videoTrack.track;
+      
+      return {
+        audioEnabled: !!audioIsEnabled,
+        videoEnabled: !!videoIsEnabled
+      };
+    };
+
+    // Initialize state with current values
+    const initialState = getTrackState();
+    const [audioEnabled, setAudioEnabled] = useState(initialState.audioEnabled);
+    const [videoEnabled, setVideoEnabled] = useState(initialState.videoEnabled);
+
+    // Update state when menu opens or participant changes
+    useEffect(() => {
+      if (!isOpen) return;
+
+      const updateState = () => {
+        const state = getTrackState();
+        setAudioEnabled(state.audioEnabled);
+        setVideoEnabled(state.videoEnabled);
+      };
+
+      // Update immediately
+      updateState();
+      
+      // Listen to track events for immediate updates
+      const handleTrackMuted = () => updateState();
+      const handleTrackUnmuted = () => updateState();
+      const handleTrackPublished = () => updateState();
+      const handleTrackUnpublished = () => updateState();
+      
+      participant.on('trackMuted', handleTrackMuted);
+      participant.on('trackUnmuted', handleTrackUnmuted);
+      participant.on('trackPublished', handleTrackPublished);
+      participant.on('trackUnpublished', handleTrackUnpublished);
+      
+      // Update state periodically while menu is open (as fallback)
+      const interval = setInterval(updateState, 300);
+      
+      return () => {
+        participant.off('trackMuted', handleTrackMuted);
+        participant.off('trackUnmuted', handleTrackUnmuted);
+        participant.off('trackPublished', handleTrackPublished);
+        participant.off('trackUnpublished', handleTrackUnpublished);
+        clearInterval(interval);
+      };
+    }, [isOpen, participant]);
+    
+    if (!isOpen) {
+      return null;
+    }
+
+    return (
+      <>
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 999998,
+            backgroundColor: 'transparent'
+          }}
+          onClick={onClose}
+        />
+        <div
+          className={styles.contextMenu}
+          style={{
+            position: 'fixed',
+            top: `${position.top}px`,
+            left: `${position.left}px`,
+            zIndex: 999999,
+            minWidth: '180px'
+          }}
+        >
+          <button
+            onClick={async (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              try {
+                console.log('Mute button clicked:', { audioEnabled, participantIdentity: participant.identity });
+                await onMute(participant.identity, audioEnabled);
+                setTimeout(() => {
+                  const state = getTrackState();
+                  setAudioEnabled(state.audioEnabled);
+                }, 500);
+              } catch (error) {
+                console.error('Error in mute button:', error);
+              } finally {
+                onClose();
+              }
+            }}
+            className={styles.contextMenuItem}
+          >
+            {audioEnabled ? <MicOff size={16} /> : <Mic size={16} />}
+            <span>{audioEnabled ? 'Mute' : 'Unmute'}</span>
+          </button>
+          <button
+            onClick={async (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              try {
+                console.log('Video control button clicked:', { videoEnabled, participantIdentity: participant.identity });
+                await onVideoControl(participant.identity, videoEnabled);
+                setTimeout(() => {
+                  const state = getTrackState();
+                  setVideoEnabled(state.videoEnabled);
+                }, 500);
+              } catch (error) {
+                console.error('Error in video control button:', error);
+              } finally {
+                onClose();
+              }
+            }}
+            className={styles.contextMenuItem}
+          >
+            {videoEnabled ? <VideoOff size={16} /> : <Video size={16} />}
+            <span>{videoEnabled ? 'Stop video' : 'Start video'}</span>
+          </button>
+        </div>
+      </>
+    );
+  };
+
+  // Participant card component
+  const ParticipantCard = ({ student, onMute, onVideoControl, isInPiP = false }: {
+    student: any;
+    onMute: (identity: string, mute: boolean) => void;
+    onVideoControl: (identity: string, disable: boolean) => void;
+    isInPiP?: boolean;
+  }) => {
+    const cameraTrack = student.getTrackPublication(Track.Source.Camera);
+    const audioTrack = student.getTrackPublication(Track.Source.Microphone);
+    
+    // Use state hooks to track track state reactively
+    const [isMuted, setIsMuted] = useState(() => !audioTrack?.isEnabled || audioTrack?.isMuted);
+    // For video: track exists, is enabled, not muted, and has an actual track
+    const [hasVideo, setHasVideo] = useState(() => {
+      return cameraTrack && cameraTrack.isEnabled && !cameraTrack.isMuted && !!cameraTrack.track;
+    });
+    
+    const [menuOpen, setMenuOpen] = useState(false);
+    const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+    const cardRef = useRef<HTMLDivElement>(null);
+    const qualitySetRef = useRef(false);
+    const visibilityLockedRef = useRef(false);
+
+    // Update track state reactively when tracks change
+    useEffect(() => {
+      const updateTrackState = () => {
+        const currentAudioTrack = student.getTrackPublication(Track.Source.Microphone);
+        const currentCameraTrack = student.getTrackPublication(Track.Source.Camera);
+        
+        const newIsMuted = !currentAudioTrack?.isEnabled || currentAudioTrack?.isMuted;
+        // For video: track exists, is enabled, not muted, and has an actual track
+        const newHasVideo = currentCameraTrack && 
+                            currentCameraTrack.isEnabled && 
+                            !currentCameraTrack.isMuted && 
+                            !!currentCameraTrack.track;
+        
+        setIsMuted(newIsMuted);
+        setHasVideo(newHasVideo);
+      };
+
+      // Update immediately
+      updateTrackState();
+
+      // Set up listeners for track changes
+      const handleTrackSubscribed = () => updateTrackState();
+      const handleTrackUnsubscribed = () => updateTrackState();
+      const handleTrackMuted = () => updateTrackState();
+      const handleTrackUnmuted = () => updateTrackState();
+      const handleTrackPublished = () => updateTrackState();
+      const handleTrackUnpublished = () => updateTrackState();
+
+      student.on('trackSubscribed', handleTrackSubscribed);
+      student.on('trackUnsubscribed', handleTrackUnsubscribed);
+      student.on('trackMuted', handleTrackMuted);
+      student.on('trackUnmuted', handleTrackUnmuted);
+      student.on('trackPublished', handleTrackPublished);
+      student.on('trackUnpublished', handleTrackUnpublished);
+
+      // Also update periodically to catch any missed events
+      const interval = setInterval(updateTrackState, 1000);
+
+      return () => {
+        student.off('trackSubscribed', handleTrackSubscribed);
+        student.off('trackUnsubscribed', handleTrackUnsubscribed);
+        student.off('trackMuted', handleTrackMuted);
+        student.off('trackUnmuted', handleTrackUnmuted);
+        student.off('trackPublished', handleTrackPublished);
+        student.off('trackUnpublished', handleTrackUnpublished);
+        clearInterval(interval);
+      };
+    }, [student]);
+
+    // Set fixed video quality and keep track always visible to prevent adaptive streaming lag
+    useEffect(() => {
+      if (cameraTrack && cameraTrack instanceof RemoteTrackPublication && cameraTrack.track) {
+        try {
+          // Set a fixed medium quality to prevent adaptive streaming from toggling visibility
+          // This reduces lag when someone speaks
+          if (!qualitySetRef.current) {
+            cameraTrack.setVideoQuality(VideoQuality.MEDIUM);
+            qualitySetRef.current = true;
+            console.log('Set fixed video quality for student monitor:', student.identity);
+          }
+          
+          // Keep the track always enabled/visible to prevent adaptive stream from hiding it
+          // This prevents the hide/show behavior when someone speaks
+          if (!visibilityLockedRef.current && cameraTrack.track) {
+            // Ensure track is subscribed and enabled
+            if (!cameraTrack.isSubscribed) {
+              cameraTrack.setSubscribed(true);
+            }
+            // Set track to always be enabled (visible)
+            if (cameraTrack.track instanceof RemoteTrack && !cameraTrack.track.isEnabled) {
+              cameraTrack.track.setEnabled(true);
+            }
+            visibilityLockedRef.current = true;
+            console.log('Locked visibility for student monitor:', student.identity);
+          }
+        } catch (error) {
+          console.error('Failed to set video quality/visibility:', error);
+        }
+      }
+      
+      // Reset when track changes
+      return () => {
+        qualitySetRef.current = false;
+        visibilityLockedRef.current = false;
+      };
+    }, [cameraTrack, student.identity]);
+    
+    // Continuously ensure track stays visible (prevent adaptive stream from hiding it)
+    useEffect(() => {
+      if (!cameraTrack || !(cameraTrack instanceof RemoteTrackPublication) || !cameraTrack.track) {
+        return;
+      }
+
+      const ensureVisible = () => {
+        try {
+          // Keep track subscribed
+          if (!cameraTrack.isSubscribed) {
+            cameraTrack.setSubscribed(true);
+          }
+          // Keep track enabled
+          if (cameraTrack.track instanceof RemoteTrack && !cameraTrack.track.isEnabled) {
+            cameraTrack.track.setEnabled(true);
+          }
+        } catch (error) {
+          // Silently handle errors
+        }
+      };
+
+      // Check periodically to ensure track stays visible
+      const interval = setInterval(ensureVisible, 1000);
+      
+      return () => clearInterval(interval);
+    }, [cameraTrack]);
+
+    const handleAudioClick = async (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        console.log('Audio button clicked:', { isMuted, participantIdentity: student.identity });
+        // When audio is enabled (not muted), we want to mute (pass true)
+        // When audio is disabled (muted), we want to unmute (pass false)
+        await onMute(student.identity, !isMuted);
+      } catch (error) {
+        console.error('Error in audio button:', error);
+      }
+    };
+
+    const handleVideoClick = async (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        console.log('Video button clicked:', { hasVideo, participantIdentity: student.identity });
+        // When video is enabled, we want to stop it (pass true to disable)
+        // When video is disabled, we want to start it (pass false to enable)
+        await onVideoControl(student.identity, hasVideo);
+      } catch (error) {
+        console.error('Error in video button:', error);
+      }
+    };
+
+    const handleMenuClick = (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (cardRef.current) {
+        const rect = cardRef.current.getBoundingClientRect();
+        const menuLeft = Math.max(10, rect.left);
+        const menuTop = rect.top + 35;
+        
+        // Ensure menu stays within viewport
+        const menuWidth = 180;
+        const maxLeft = window.innerWidth - menuWidth - 10;
+        const finalLeft = Math.min(menuLeft, maxLeft);
+        
+        const newPosition = {
+          top: menuTop,
+          left: finalLeft
+        };
+        
+        setMenuPosition(newPosition);
+      }
+      
+      setMenuOpen(!menuOpen);
+    };
+
+    return (
+      <div
+        ref={cardRef}
+        className={styles.studentCard}
+      >
+        {/* Video/Avatar fills entire card */}
+        {hasVideo && cameraTrack?.track ? (
+          <div className={styles.videoContainer}>
+            <VideoTrack
+              trackRef={{
+                participant: student,
+                publication: cameraTrack,
+                source: Track.Source.Camera
+              }}
+              className={styles.studentVideo}
+            />
+          </div>
+        ) : (
+          <div className={styles.placeholder}>
+            <div className={styles.placeholderInitial}>
+              {getCleanName(student.identity).charAt(0).toUpperCase()}
+            </div>
+          </div>
+        )}
+
+        {/* For PiP window: Show 3-dots menu button and status indicators */}
+        {isInPiP ? (
+          <>
+            <button
+              className={styles.menuButton}
+              onClick={handleMenuClick}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              title="More options"
+              type="button"
+            >
+              <MoreVertical size={18} />
+            </button>
+            {/* Audio control button - top left, below menu button */}
+            <button
+              className={styles.controlButton}
+              onClick={handleAudioClick}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              title={isMuted ? "Unmute" : "Mute"}
+              type="button"
+              style={{
+                top: '46px', // Below menu button with padding
+                color: isMuted ? '#ef4444' : '#22c55e' // Red when muted, green when unmuted
+              }}
+            >
+              {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
+            </button>
+            {/* Video control button - top left, below audio button */}
+            <button
+              className={styles.controlButton}
+              onClick={handleVideoClick}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              title={hasVideo ? "Stop video" : "Start video"}
+              type="button"
+              style={{
+                top: '80px', // Below audio button with padding
+                color: hasVideo ? '#22c55e' : '#ef4444' // Green when video on, red when off
+              }}
+            >
+              {hasVideo ? <Video size={18} /> : <VideoOff size={18} />}
+            </button>
+            <ParticipantContextMenu
+              participant={student}
+              isOpen={menuOpen}
+              onClose={() => setMenuOpen(false)}
+              position={menuPosition}
+              onMute={onMute}
+              onVideoControl={onVideoControl}
+            />
+          </>
+        ) : (
+          <>
+            {/* For main window: Show direct control buttons */}
+            {/* Audio control button - top left */}
+            <button
+              className={styles.controlButton}
+              onClick={handleAudioClick}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              title={isMuted ? "Unmute" : "Mute"}
+              type="button"
+              style={{
+                color: isMuted ? '#ef4444' : '#22c55e' // Red when muted, green when unmuted
+              }}
+            >
+              {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
+            </button>
+
+            {/* Video control button - top left, below audio button with padding */}
+            <button
+              className={styles.controlButton}
+              style={{ 
+                top: '46px', // 8px (top) + 32px (button height) + 6px (padding) = 46px
+                color: hasVideo ? '#22c55e' : '#ef4444' // Green when video on, red when off
+              }}
+              onClick={handleVideoClick}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              title={hasVideo ? "Stop video" : "Start video"}
+              type="button"
+            >
+              {hasVideo ? <Video size={18} /> : <VideoOff size={18} />}
+            </button>
+          </>
+        )}
+
+        {/* Name overlay - bottom */}
+        <div className={styles.studentNameOverlay}>
+          <span className={styles.studentName} title={student.identity}>
+            {getCleanName(student.identity)}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  // Check if we're in PiP window
+  const isInPiP = pipWindow && !pipWindow.closed && pipWindow.document && pipWindow.document.body;
+
   const mainContainer = (
     <div
       ref={containerRef}
       className={styles.container}
+      data-pip={isInPiP ? 'true' : 'false'}
       style={{
-        // Use transform like PictureInPicture - base position set in CSS
-        transform: `translate(${position.x}px, ${position.y}px)`,
-        // Apply calculated dimensions or locked dimensions during drag
-        ...(lockedDimensions ? {
-          width: `${lockedDimensions.width}px`,
-          height: `${lockedDimensions.height}px`
+        // In PiP window: fill 100% width/height, no transform
+        // In main window: use calculated dimensions and transform
+        ...(isInPiP ? {
+          position: 'fixed',
+          top: '0',
+          left: '0',
+          right: '0',
+          bottom: '0',
+          width: '100%',
+          height: '100%',
+          transform: 'none',
+          borderRadius: '0',
+          border: 'none',
+          padding: '0' // No padding in PiP
         } : {
-          width: `${layout.containerWidth}px`,
-          height: `${layout.containerHeight}px`
+          transform: `translate(${position.x}px, ${position.y}px)`,
+          ...(lockedDimensions ? {
+            width: `${lockedDimensions.width}px`,
+            height: `${lockedDimensions.height}px`
+          } : {
+            width: `${containerWidth}px`,
+            height: `${containerHeight}px`
+          })
         })
       }}
     >
-      {/* Header with drag handle */}
-      <div className={styles.header} onMouseDown={handleMouseDown}>
-        <div className={styles.dragHandle}>
-          <span className={styles.dragIcon}>⋮⋮</span>
-          <span className={styles.title}>
-            Student Monitor{students.length > 0 ? ` (${students.length})` : ''}
-            {isScreenSharing && <span style={{ fontSize: '10px', marginLeft: '6px', opacity: 0.7 }}>📺</span>}
-          </span>
-        </div>
-        <div className={styles.headerButtons}>
-          {!pipWindow && (
-            <button
-              className={styles.minimizeButton}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                openDocumentPiP();
-              }}
-              title="Open in Picture-in-Picture window (can move outside browser)"
-              style={{ fontSize: '14px' }}
-            >
-              📺
-            </button>
-          )}
-          {pipWindow && (
-            <button
-              className={styles.minimizeButton}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                closeDocumentPiP();
-              }}
-              title="Close Picture-in-Picture window"
-              style={{ fontSize: '14px', background: 'rgba(59, 130, 246, 0.3)' }}
-            >
-              📺
-            </button>
-          )}
-          {!isScreenSharing && (
-            <button
-              className={styles.minimizeButton}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                // If PiP window is open, close it and return to main window
-                if (pipWindow && !pipWindow.closed) {
+      {/* Header with drag handle - hidden in PiP window */}
+      {!isInPiP && (
+        <div className={styles.header} onMouseDown={handleMouseDown}>
+          <div className={styles.dragHandle}>
+            <span className={styles.dragIcon}>⋮⋮</span>
+            <span className={styles.title}>
+              Student Monitor{students.length > 0 ? ` (${students.length})` : ''}
+              {isScreenSharing && <span style={{ fontSize: '10px', marginLeft: '6px', opacity: 0.7 }}>📺</span>}
+            </span>
+          </div>
+          <div className={styles.headerButtons}>
+            {!pipWindow && (
+              <button
+                className={styles.minimizeButton}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openDocumentPiP();
+                }}
+                title="Open in Picture-in-Picture window (can move outside browser)"
+                style={{ fontSize: '14px' }}
+              >
+                📺
+              </button>
+            )}
+            {pipWindow && (
+              <button
+                className={styles.minimizeButton}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
                   closeDocumentPiP();
-                } else {
-                  // Otherwise, just minimize instead of closing completely
-                  setIsMinimized(true);
-                }
+                }}
+                title="Close Picture-in-Picture window"
+                style={{ fontSize: '14px', background: 'rgba(59, 130, 246, 0.3)' }}
+              >
+                📺
+              </button>
+            )}
+            {!isScreenSharing && (
+              <button
+                className={styles.minimizeButton}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // If PiP window is open, close it and return to main window
+                  if (pipWindow && !pipWindow.closed) {
+                    closeDocumentPiP();
+                  } else {
+                    // Otherwise, just minimize instead of closing completely
+                    setIsMinimized(true);
+                  }
+                }}
+                title="Minimize"
+                style={{ fontSize: '14px' }}
+              >
+                ✕
+              </button>
+            )}
+            <button
+              className={styles.minimizeButton}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsMinimized(true);
               }}
               title="Minimize"
-              style={{ fontSize: '14px' }}
             >
-              ✕
+              ➖
             </button>
-          )}
-          <button
-            className={styles.minimizeButton}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsMinimized(true);
-            }}
-            title="Minimize"
-          >
-            ➖
-          </button>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Student grid */}
+      {/* Student column list */}
       {students.length > 0 ? (
-        <div
-          className={styles.studentsGrid}
-          style={{
-            gridTemplateColumns: layout.gridTemplateColumns,
-            gridTemplateRows: layout.gridTemplateRows,
-            maxHeight: layout.scrollable ? `${layout.containerHeight - 60 - 32}px` : 'none',
-            overflowY: layout.scrollable ? 'auto' : 'visible'
-          }}
+        <div 
+          className={styles.studentsColumn}
+          style={isInPiP ? {
+            height: '100%',
+            maxHeight: '100%'
+          } : {}}
         >
-          {students.map((student, index) => {
-            const cameraTrack = student.getTrackPublication(Track.Source.Camera);
-            const audioTrack = student.getTrackPublication(Track.Source.Microphone);
-            const isMuted = !audioTrack?.isEnabled || audioTrack?.isMuted;
-            
-            // Special handling for 3 students layout
-            const gridStyle: React.CSSProperties = {};
-            if (layout.specialLayout === 'three' && index === 0) {
-              // First student spans 2 rows on the left
-              gridStyle.gridRow = 'span 2';
-            } else if (layout.specialLayout === 'three' && index === 1) {
-              // Second student in top right
-              gridStyle.gridColumn = '2';
-              gridStyle.gridRow = '1';
-            } else if (layout.specialLayout === 'three' && index === 2) {
-              // Third student in bottom right
-              gridStyle.gridColumn = '2';
-              gridStyle.gridRow = '2';
-            }
-
-            return (
-              <div 
-                key={student.sid} 
-                className={styles.studentCard}
-                style={gridStyle}
-              >
-                {cameraTrack?.track ? (
-                  <div className={styles.videoContainer}>
-                    <VideoTrack
-                      trackRef={{
-                        participant: student,
-                        publication: cameraTrack,
-                        source: Track.Source.Camera
-                      }}
-                      className={styles.studentVideo}
-                    />
-                    {isMuted && (
-                      <div className={styles.muteIndicator} title="Muted">
-                        🔇
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className={styles.placeholder}>
-                    <div className={styles.placeholderInitial}>
-                      {student.identity.charAt(0).toUpperCase()}
-                    </div>
-                    {isMuted && (
-                      <div className={styles.muteIndicator} title="Muted">
-                        🔇
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div className={styles.studentName} title={student.identity}>
-                  {student.identity.length > 12
-                    ? `${student.identity.substring(0, 12)}...`
-                    : student.identity}
-                </div>
-              </div>
-            );
-          })}
+          {students.map((student) => (
+            <ParticipantCard
+              key={student.sid}
+              student={student}
+              onMute={muteParticipant}
+              onVideoControl={controlVideo}
+              isInPiP={isInPiP}
+            />
+          ))}
         </div>
       ) : (
         <div className={styles.emptyState}>
@@ -790,8 +1281,8 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
               <path d="M16 3.13C16.8604 3.35031 17.623 3.85071 18.1676 4.55232C18.7122 5.25392 19.0078 6.11683 19.0078 7.005C19.0078 7.89318 18.7122 8.75608 18.1676 9.45769C17.623 10.1593 16.8604 10.6597 16 10.88" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </div>
-          <div className={styles.emptyStateTitle}>No students with cameras active</div>
-          <div className={styles.emptyStateSubtitle}>Student videos will appear here when they enable their cameras</div>
+          <div className={styles.emptyStateTitle}>No participants</div>
+          <div className={styles.emptyStateSubtitle}>Participants will appear here when they join the meeting</div>
         </div>
       )}
     </div>

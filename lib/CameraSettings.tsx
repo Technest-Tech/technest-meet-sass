@@ -33,7 +33,7 @@ interface CustomBackground {
   dataUrl: string;
 }
 
-export function CameraSettings({ roomFeatures }: { roomFeatures?: { enableVirtualBackground?: boolean } }) {
+export function CameraSettings({ roomFeatures, isHost }: { roomFeatures?: { enableVirtualBackground?: boolean }, isHost?: boolean }) {
   const { cameraTrack, localParticipant } = useLocalParticipant();
   const [backgroundType, setBackgroundType] = React.useState<BackgroundType>('none');
   const [virtualBackgroundImagePath, setVirtualBackgroundImagePath] = React.useState<string | null>(
@@ -41,8 +41,11 @@ export function CameraSettings({ roomFeatures }: { roomFeatures?: { enableVirtua
   );
   const [processorsLoaded, setProcessorsLoaded] = React.useState(false);
   const [customBackgrounds, setCustomBackgrounds] = React.useState<CustomBackground[]>([]);
+  const [autoApplyEnabled, setAutoApplyEnabled] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const isVirtualBackgroundEnabled = roomFeatures?.enableVirtualBackground ?? false;
+  const isTeacher = isHost ?? false; // Only teachers/hosts can use auto-apply
+  const manualApplyRef = React.useRef(false); // Track if user manually applied
 
   // Check if processors are loaded
   React.useEffect(() => {
@@ -51,9 +54,10 @@ export function CameraSettings({ roomFeatures }: { roomFeatures?: { enableVirtua
     }
   }, []);
 
-  // Load custom backgrounds from localStorage on mount
+  // Load custom backgrounds and auto-apply settings from localStorage on mount
   React.useEffect(() => {
     if (typeof window !== 'undefined') {
+      // Load custom backgrounds
       const saved = localStorage.getItem('custom_backgrounds');
       if (saved) {
         try {
@@ -61,6 +65,25 @@ export function CameraSettings({ roomFeatures }: { roomFeatures?: { enableVirtua
           setCustomBackgrounds(parsed);
         } catch (error) {
           console.error('Error loading custom backgrounds:', error);
+        }
+      }
+
+      // Load auto-apply settings (only for teachers/hosts)
+      if (isTeacher) {
+        const autoApplySetting = localStorage.getItem('virtualBackground_autoApply');
+        if (autoApplySetting === 'true') {
+          setAutoApplyEnabled(true);
+
+          // Load saved background preferences
+          const savedType = localStorage.getItem('virtualBackground_type') as BackgroundType | null;
+          const savedImagePath = localStorage.getItem('virtualBackground_imagePath');
+
+          if (savedType && savedType !== 'none') {
+            setBackgroundType(savedType);
+            if (savedType === 'image' && savedImagePath) {
+              setVirtualBackgroundImagePath(savedImagePath);
+            }
+          }
         }
       }
     }
@@ -73,11 +96,34 @@ export function CameraSettings({ roomFeatures }: { roomFeatures?: { enableVirtua
   }, [localParticipant, cameraTrack]);
 
   const selectBackground = (type: BackgroundType, imagePath?: string) => {
+    // Mark as manual change
+    manualApplyRef.current = true;
+    
     setBackgroundType(type);
     if (type === 'image' && imagePath) {
       setVirtualBackgroundImagePath(imagePath);
     } else if (type !== 'image') {
       setVirtualBackgroundImagePath(null);
+    }
+
+    // Save to localStorage if auto-apply is enabled (only for teachers)
+    if (autoApplyEnabled && isTeacher && typeof window !== 'undefined') {
+      localStorage.setItem('virtualBackground_type', type);
+      if (type === 'image' && imagePath) {
+        localStorage.setItem('virtualBackground_imagePath', imagePath);
+      } else {
+        localStorage.removeItem('virtualBackground_imagePath');
+      }
+    }
+
+    // If user selects 'none', disable auto-apply (only for teachers)
+    if (type === 'none' && autoApplyEnabled && isTeacher) {
+      setAutoApplyEnabled(false);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('virtualBackground_autoApply', 'false');
+        localStorage.removeItem('virtualBackground_type');
+        localStorage.removeItem('virtualBackground_imagePath');
+      }
     }
   };
 
@@ -129,17 +175,57 @@ export function CameraSettings({ roomFeatures }: { roomFeatures?: { enableVirtua
     }
   };
 
+  // Note: Auto-apply is now handled by useVirtualBackgroundAutoApply hook
+  // This component only handles manual background changes
+
+  // Apply background changes when user manually selects a background
   React.useEffect(() => {
-    if (isLocalTrack(cameraTrack?.track) && BackgroundBlur && VirtualBackground) {
-      if (backgroundType === 'blur') {
-        cameraTrack.track?.setProcessor(BackgroundBlur());
-      } else if (backgroundType === 'image' && virtualBackgroundImagePath) {
-        cameraTrack.track?.setProcessor(VirtualBackground(virtualBackgroundImagePath));
-      } else {
-        cameraTrack.track?.stopProcessor();
+    // Only apply if processors are loaded and we have a valid track
+    if (!isLocalTrack(cameraTrack?.track) || !BackgroundBlur || !VirtualBackground) {
+      return;
+    }
+
+    // Skip if this is the initial load and auto-apply is enabled (let the hook handle it)
+    // But if user manually changed, we should apply
+    if (!manualApplyRef.current && autoApplyEnabled) {
+      // Check if current state matches saved auto-apply settings
+      const savedType = typeof window !== 'undefined'
+        ? (localStorage.getItem('virtualBackground_type') as BackgroundType | null)
+        : null;
+      const savedImagePath = typeof window !== 'undefined'
+        ? localStorage.getItem('virtualBackground_imagePath')
+        : null;
+
+      // If state matches saved settings, let auto-apply handle it
+      if (savedType === backgroundType && 
+          (savedType !== 'image' || savedImagePath === virtualBackgroundImagePath)) {
+        return;
       }
     }
-  }, [cameraTrack, backgroundType, virtualBackgroundImagePath]);
+
+    // User manually changed background, apply it
+    const applyBackground = async () => {
+      try {
+        manualApplyRef.current = true;
+        
+        // Wait a bit to ensure track is ready
+        await new Promise(resolve => setTimeout(resolve, 200));
+
+        if (backgroundType === 'blur') {
+          await cameraTrack.track?.setProcessor(BackgroundBlur());
+        } else if (backgroundType === 'image' && virtualBackgroundImagePath) {
+          await cameraTrack.track?.setProcessor(VirtualBackground(virtualBackgroundImagePath));
+        } else {
+          await cameraTrack.track?.stopProcessor();
+        }
+      } catch (error: any) {
+        console.error('error when trying to pipe', error);
+        // Don't show error to user, just log it
+      }
+    };
+
+    applyBackground();
+  }, [cameraTrack, backgroundType, virtualBackgroundImagePath, autoApplyEnabled]);
 
   return (
     <div dir="ltr" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -167,7 +253,7 @@ export function CameraSettings({ roomFeatures }: { roomFeatures?: { enableVirtua
           Loading background effects...
         </div>
       )}
-      
+
       {processorsLoaded && (
         <div style={{ marginTop: '10px' }}>
           <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -424,8 +510,68 @@ export function CameraSettings({ roomFeatures }: { roomFeatures?: { enableVirtua
               style={{ display: 'none' }}
             />
           </div>
+
+          {/* Auto-apply toggle (only for teachers/hosts) */}
+          {backgroundType !== 'none' && isVirtualBackgroundEnabled && isTeacher && (
+            <div style={{
+              marginTop: '16px',
+              padding: '12px',
+              backgroundColor: 'rgba(255, 255, 255, 0.05)',
+              borderRadius: '8px',
+              border: '1px solid rgba(255, 255, 255, 0.1)'
+            }}>
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                color: 'rgba(255, 255, 255, 0.9)'
+              }}>
+                <input
+                  type="checkbox"
+                  checked={autoApplyEnabled}
+                  onChange={(e) => {
+                    const enabled = e.target.checked;
+                    setAutoApplyEnabled(enabled);
+
+                    if (typeof window !== 'undefined') {
+                      localStorage.setItem('virtualBackground_autoApply', enabled.toString());
+
+                      if (enabled) {
+                        // Save current background settings
+                        localStorage.setItem('virtualBackground_type', backgroundType);
+                        if (backgroundType === 'image' && virtualBackgroundImagePath) {
+                          localStorage.setItem('virtualBackground_imagePath', virtualBackgroundImagePath);
+                        }
+                      } else {
+                        // Clear saved settings
+                        localStorage.removeItem('virtualBackground_type');
+                        localStorage.removeItem('virtualBackground_imagePath');
+                      }
+                    }
+                  }}
+                  style={{
+                    width: '16px',
+                    height: '16px',
+                    cursor: 'pointer',
+                    accentColor: '#4fc3f7'
+                  }}
+                />
+                <span>Auto-apply this background when entering room</span>
+              </label>
+              <p style={{
+                margin: '8px 0 0 24px',
+                fontSize: '12px',
+                color: 'rgba(255, 255, 255, 0.6)',
+                lineHeight: '1.4'
+              }}>
+                As a teacher, your background will automatically apply every time you join this room on this browser
+              </p>
+            </div>
+          )}
         </div>
       )}
-    </div>
+    </div >
   );
 }

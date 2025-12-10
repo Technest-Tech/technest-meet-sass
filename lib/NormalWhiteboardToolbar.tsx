@@ -27,6 +27,7 @@ import {
   Palette,
   Settings,
   Image,
+  Maximize2,
 } from 'lucide-react';
 
 interface NormalWhiteboardToolbarProps {
@@ -52,6 +53,7 @@ interface NormalWhiteboardToolbarProps {
   onGridSizeChange: (size: number) => void;
   zoom: number;
   onZoomChange: (zoom: number) => void;
+  onFitToScreen?: () => void;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -112,6 +114,7 @@ export function NormalWhiteboardToolbar(props: NormalWhiteboardToolbarProps) {
     onGridSizeChange,
     zoom,
     onZoomChange,
+    onFitToScreen,
     canUndo,
     canRedo,
     onUndo,
@@ -375,6 +378,15 @@ export function NormalWhiteboardToolbar(props: NormalWhiteboardToolbarProps) {
         >
           <ZoomIn size={18} />
         </button>
+        {onFitToScreen && (
+          <button
+            className={styles.toolButton}
+            onClick={onFitToScreen}
+            title="Fit to Screen"
+          >
+            <Maximize2 size={18} />
+          </button>
+        )}
       </div>
 
       {/* Separator */}

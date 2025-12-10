@@ -6,8 +6,9 @@ import { getRoomFilePath, isR2Key } from '@/lib/utils/storage';
 import { downloadFile as downloadFromR2 } from '@/lib/services/r2Storage';
 import { sanitizeString } from '@/lib/utils/sanitize';
 
-// UUID v4 pattern for validation
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// CUID pattern for validation (Prisma uses CUIDs, not UUIDs)
+// CUIDs are 25 characters, start with 'c', and contain lowercase letters and numbers
+const CUID_PATTERN = /^c[a-z0-9]{24}$/;
 
 export async function GET(
   req: NextRequest,
@@ -23,9 +24,9 @@ export async function GET(
       );
     }
 
-    // Sanitize and validate fileId format (should be UUID)
+    // Sanitize and validate fileId format (should be CUID)
     const fileId = sanitizeString(fileIdParam);
-    if (!fileId || !UUID_PATTERN.test(fileId)) {
+    if (!fileId || !CUID_PATTERN.test(fileId)) {
       return NextResponse.json(
         { error: 'Invalid fileId format' },
         { status: 400 }

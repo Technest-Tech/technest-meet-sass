@@ -23,7 +23,7 @@ body {
 }
 
 /* RTL-specific adjustments */
-[dir="rtl"] .space-x-reverse > :not([hidden]) ~ :not([hidden]) {
+[dir="rtl"] .space-x-reverse> :not([hidden])~ :not([hidden]) {
   --tw-space-x-reverse: 1;
 }
 
@@ -171,27 +171,34 @@ body {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes slideUp {
-  from { 
+  from {
     transform: translateY(10px);
     opacity: 0;
   }
-  to { 
+
+  to {
     transform: translateY(0);
     opacity: 1;
   }
 }
 
 @keyframes scaleIn {
-  from { 
+  from {
     transform: scale(0.95);
     opacity: 0;
   }
-  to { 
+
+  to {
     transform: scale(1);
     opacity: 1;
   }
@@ -201,6 +208,7 @@ body {
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }
@@ -240,13 +248,13 @@ footer {
 }
 
 /* Ensure no white space after footer */
-body > div:last-child footer,
+body>div:last-child footer,
 body footer:last-child {
   margin-bottom: 0 !important;
 }
 
 /* Remove any spacing after the last element */
-body > div:last-child {
+body>div:last-child {
   margin-bottom: 0 !important;
   padding-bottom: 0 !important;
 }
@@ -263,24 +271,24 @@ body {
 }
 
 /* Remove any spacing from the root container */
-body > div[dir="rtl"] {
+body>div[dir="rtl"] {
   margin-bottom: 0 !important;
   padding-bottom: 0 !important;
   background: transparent !important;
 }
 
 /* Ensure the main container doesn't add white space */
-body > div[dir="rtl"] > div:last-child {
+body>div[dir="rtl"]>div:last-child {
   margin-bottom: 0 !important;
   padding-bottom: 0 !important;
 }
 
 /* Ensure footer container has no spacing */
-footer > div {
+footer>div {
   margin-bottom: 0 !important;
 }
 
-footer > div > div:last-child {
+footer>div>div:last-child {
   margin-bottom: 0 !important;
   padding-bottom: 0 !important;
 }
@@ -292,12 +300,9 @@ html:not(:has(.lk-room-container)) {
 
 body {
   color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
+  background: linear-gradient(to bottom,
       transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+      rgb(var(--background-end-rgb))) rgb(var(--background-start-rgb));
 }
 
 a {
@@ -688,14 +693,14 @@ main:not(:has(.lk-room-container)) {
     padding-bottom: max(12px, env(safe-area-inset-bottom)) !important;
     min-height: 60px !important;
   }
-  
+
   .lk-button-group {
     display: flex !important;
     flex-direction: column !important;
     align-items: center !important;
     gap: 2px !important;
   }
-  
+
   .lk-button-group button {
     background: rgba(255, 255, 255, 0.1) !important;
     border: 1px solid rgba(255, 255, 255, 0.2) !important;
@@ -710,21 +715,21 @@ main:not(:has(.lk-room-container)) {
     touch-action: manipulation !important;
     transition: all 0.2s ease !important;
   }
-  
+
   .lk-button-group button:hover {
     background: rgba(255, 255, 255, 0.2) !important;
     transform: scale(1.05) !important;
   }
-  
+
   .lk-button-group button:active {
     transform: scale(0.95) !important;
   }
-  
+
   .lk-button-group button[data-lk-enabled="true"] {
     background: rgba(34, 197, 94, 0.8) !important;
     border-color: rgba(34, 197, 94, 1) !important;
   }
-  
+
   .lk-button-group button[data-lk-enabled="false"] {
     background: rgba(239, 68, 68, 0.8) !important;
     border-color: rgba(239, 68, 68, 1) !important;
@@ -737,15 +742,15 @@ main:not(:has(.lk-room-container)) {
     padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
     min-height: 55px !important;
   }
-  
+
   .mobile-button-icon {
     font-size: 16px;
   }
-  
+
   .mobile-button-label {
     font-size: 9px;
   }
-  
+
   .mobile-chat-button,
   .mobile-settings-button,
   .mobile-recording-button,
@@ -755,7 +760,7 @@ main:not(:has(.lk-room-container)) {
     min-height: 45px !important;
     padding: 6px 10px !important;
   }
-  
+
   /* Adjust video layout for small screens */
   .lk-focus-layout {
     padding: 10px !important;
@@ -765,6 +770,7 @@ main:not(:has(.lk-room-container)) {
 
 /* Ensure body doesn't scroll on mobile - but allow scrolling on landing page */
 @media (max-width: 768px) {
+
   /* Only prevent scrolling for video conference pages */
   body:has(.lk-room-container) {
     overflow-x: hidden !important;
@@ -772,24 +778,24 @@ main:not(:has(.lk-room-container)) {
     width: 100% !important;
     height: 100% !important;
   }
-  
+
   /* Allow scrolling on landing page */
   body:not(:has(.lk-room-container)) {
     overflow-y: auto !important;
     position: relative !important;
     height: auto !important;
   }
-  
+
   html {
     overflow-x: hidden !important;
   }
-  
+
   /* Ensure the main container takes full height */
   .lk-room-container {
     height: 100vh !important;
     overflow: hidden !important;
   }
-  
+
   /* Make sure video layout doesn't cause scrolling */
   .lk-focus-layout {
     height: calc(100vh - 60px) !important;
@@ -831,23 +837,23 @@ body.chat-open .custom-action-buttons-row {
     box-sizing: border-box !important;
     transition: transform 0.3s ease, opacity 0.3s ease !important;
   }
-  
+
   /* Ensure the control bar is not hidden by other elements */
   .lk-room-container {
     padding-bottom: 60px !important;
   }
-  
+
   /* Make sure video content doesn't overlap with control bar */
   .lk-focus-layout {
     padding-bottom: 80px !important;
   }
-  
+
   .lk-control-bar .lk-button-group {
     display: flex !important;
     flex-direction: row !important;
     gap: 8px !important;
   }
-  
+
   .lk-button {
     padding: 8px 12px !important;
     font-size: 14px !important;
@@ -866,16 +872,16 @@ body.chat-open .custom-action-buttons-row {
     cursor: pointer !important;
     transition: all 0.2s ease !important;
   }
-  
+
   .lk-button:hover {
     background: rgba(255, 255, 255, 0.2) !important;
     transform: scale(1.05) !important;
   }
-  
+
   .lk-button:active {
     transform: scale(0.95) !important;
   }
-  
+
   .lk-button-group {
     display: flex !important;
     flex-direction: row !important;
@@ -884,7 +890,7 @@ body.chat-open .custom-action-buttons-row {
     visibility: visible !important;
     opacity: 1 !important;
   }
-  
+
   .lk-button-group button {
     min-width: 44px;
     min-height: 44px;
@@ -894,14 +900,14 @@ body.chat-open .custom-action-buttons-row {
     align-items: center;
     justify-content: center;
   }
-  
+
   .lk-button-group span {
     font-size: 0.75rem;
     color: white;
     text-align: center;
     margin-top: 0.25rem;
   }
-  
+
   /* Settings button mobile styles */
   .lk-button-settings {
     display: flex;
@@ -911,11 +917,11 @@ body.chat-open .custom-action-buttons-row {
     min-width: 60px;
     padding: 0.5rem;
   }
-  
+
   .settings-icon {
     font-size: 1.25rem;
   }
-  
+
   .settings-text {
     font-size: 0.75rem;
     color: white;
@@ -929,27 +935,27 @@ body.chat-open .custom-action-buttons-row {
     min-width: 40px;
     min-height: 40px;
   }
-  
+
   .lk-button-group button {
     min-width: 40px;
     min-height: 40px;
     padding: 0.375rem;
   }
-  
+
   .lk-button-group span {
     font-size: 0.625rem;
   }
-  
+
   /* Settings button small mobile styles */
   .lk-button-settings {
     min-width: 50px;
     padding: 0.375rem;
   }
-  
+
   .settings-icon {
     font-size: 1rem;
   }
-  
+
   .settings-text {
     font-size: 0.625rem;
   }
@@ -957,6 +963,7 @@ body.chat-open .custom-action-buttons-row {
 
 /* Additional mobile control bar visibility fixes */
 @media (max-width: 768px) {
+
   /* Force LiveKit control bar to be visible */
   [data-lk-theme="default"] .lk-control-bar,
   .lk-control-bar {
@@ -976,7 +983,7 @@ body.chat-open .custom-action-buttons-row {
     width: 100vw !important;
     box-sizing: border-box !important;
   }
-  
+
   /* Ensure dropdowns don't overlap with other elements */
   .more-controls-dropdown {
     position: fixed !important;
@@ -985,30 +992,30 @@ body.chat-open .custom-action-buttons-row {
     z-index: 99999 !important;
     max-width: calc(100vw - 40px) !important;
   }
-  
+
   /* Ensure More button appears above user cards and other elements */
   .more-controls-container {
     z-index: 99999 !important;
     position: relative !important;
   }
-  
+
   .more-controls-button {
     z-index: 99999 !important;
     position: relative !important;
   }
-  
+
   /* Ensure user cards and participant tiles don't overlap with More button */
   .lk-participant-tile,
   .lk-participant-tile-info,
   .lk-video-placeholder,
-  .lk-focus-layout-main > div,
-  .lk-focus-layout > div,
+  .lk-focus-layout-main>div,
+  .lk-focus-layout>div,
   .lk-video-container,
   .lk-participant-tile-video {
     z-index: 1 !important;
     position: relative !important;
   }
-  
+
   /* Ensure all video elements stay below More button */
   .lk-focus-layout,
   .lk-focus-layout-main,
@@ -1016,12 +1023,12 @@ body.chat-open .custom-action-buttons-row {
     z-index: 1 !important;
     position: relative !important;
   }
-  
+
   /* Ensure participant info doesn't interfere with controls */
   .lk-participant-tile-info {
     z-index: 2 !important;
   }
-  
+
   /* Ensure More button is always visible and clickable */
   .more-controls-container,
   .more-controls-button {
@@ -1032,18 +1039,18 @@ body.chat-open .custom-action-buttons-row {
     visibility: visible !important;
     opacity: 1 !important;
   }
-  
+
   /* Ensure More button appears above all video elements */
   .more-controls-container * {
     z-index: inherit !important;
   }
-  
+
   /* Force More button to appear above everything */
   [class*="more-controls"] {
     z-index: 99999 !important;
     position: relative !important;
   }
-  
+
   /* Ensure More button appears above any stacked user cards */
   .more-controls-container {
     z-index: 100000 !important;
@@ -1052,37 +1059,37 @@ body.chat-open .custom-action-buttons-row {
     visibility: visible !important;
     opacity: 1 !important;
   }
-  
+
   /* Ensure More button is always visible when dropdown is open */
   .more-controls-container[style*="zIndex: 100000"],
   .more-controls-container:has([data-dropdown-menu][style*="display: flex"]) {
     z-index: 100000 !important;
   }
-  
+
   .more-controls-button {
     display: flex !important;
     visibility: visible !important;
     opacity: 1 !important;
     pointer-events: auto !important;
   }
-  
+
   /* Ensure device selection menus don't overlap but don't force them to be visible */
   .lk-device-menu,
   .lk-media-device-menu,
   .lk-device-select,
   .lk-media-device-select,
-  [data-lk-source="microphone"] + div,
-  [data-lk-source="camera"] + div {
+  [data-lk-source="microphone"]+div,
+  [data-lk-source="camera"]+div {
     z-index: 9998 !important;
   }
-  
+
   /* Ensure LiveKit dropdowns and menus are properly positioned but not forced visible */
   .lk-dropdown,
   .lk-menu,
   .lk-popover {
     z-index: 9998 !important;
   }
-  
+
   /* Hide device dropdowns by default on page load */
   .lk-device-menu,
   .lk-media-device-menu,
@@ -1094,7 +1101,7 @@ body.chat-open .custom-action-buttons-row {
     visibility: hidden !important;
     opacity: 0 !important;
   }
-  
+
   /* Show device dropdowns only when they have proper open state */
   .lk-device-menu[data-lk-open="true"],
   .lk-media-device-menu[data-lk-open="true"],
@@ -1110,7 +1117,7 @@ body.chat-open .custom-action-buttons-row {
     visibility: visible !important;
     opacity: 1 !important;
   }
-  
+
   /* Force hide any dropdown that might be initialized as open on page load */
   .lk-control-bar .lk-device-menu:not([data-lk-open="true"]):not(.lk-open),
   .lk-control-bar .lk-media-device-menu:not([data-lk-open="true"]):not(.lk-open),
@@ -1120,49 +1127,49 @@ body.chat-open .custom-action-buttons-row {
     visibility: hidden !important;
     opacity: 0 !important;
   }
-  
+
   /* Additional selectors to catch any LiveKit dropdown variations */
-  .lk-control-bar [data-lk-source="microphone"] + div:not([data-lk-open="true"]):not(.lk-open),
-  .lk-control-bar [data-lk-source="camera"] + div:not([data-lk-open="true"]):not(.lk-open),
-  .lk-control-bar [data-lk-source="microphone"] ~ div:not([data-lk-open="true"]):not(.lk-open),
-  .lk-control-bar [data-lk-source="camera"] ~ div:not([data-lk-open="true"]):not(.lk-open) {
+  .lk-control-bar [data-lk-source="microphone"]+div:not([data-lk-open="true"]):not(.lk-open),
+  .lk-control-bar [data-lk-source="camera"]+div:not([data-lk-open="true"]):not(.lk-open),
+  .lk-control-bar [data-lk-source="microphone"]~div:not([data-lk-open="true"]):not(.lk-open),
+  .lk-control-bar [data-lk-source="camera"]~div:not([data-lk-open="true"]):not(.lk-open) {
     display: none !important;
     visibility: hidden !important;
     opacity: 0 !important;
   }
-  
+
   /* Ensure LiveKit buttons are clickable and can trigger dropdowns */
   .lk-control-bar .lk-button {
     pointer-events: auto !important;
     cursor: pointer !important;
     user-select: none !important;
   }
-  
+
   /* Ensure dropdown triggers work properly */
   .lk-control-bar .lk-button[data-lk-source="microphone"],
   .lk-control-bar .lk-button[data-lk-source="camera"] {
     pointer-events: auto !important;
     cursor: pointer !important;
   }
-  
+
   /* Ensure dropdown arrow icons are clickable */
   .lk-control-bar .lk-button svg,
   .lk-control-bar .lk-button .lk-button-icon {
     pointer-events: auto !important;
     cursor: pointer !important;
   }
-  
+
   /* Ensure MediaDeviceMenu components work properly */
   .lk-media-device-menu {
     position: relative !important;
     z-index: 10001 !important;
   }
-  
+
   .lk-media-device-menu button {
     pointer-events: auto !important;
     cursor: pointer !important;
   }
-  
+
   /* Ensure device selection buttons are clickable */
   .lk-control-bar .lk-button[data-lk-source="microphone"],
   .lk-control-bar .lk-button[data-lk-source="camera"] {
@@ -1170,16 +1177,16 @@ body.chat-open .custom-action-buttons-row {
     cursor: pointer !important;
     position: relative !important;
   }
-  
+
   /* Ensure device selection dropdowns work */
-  .lk-control-bar .lk-button[data-lk-source="microphone"] + *,
-  .lk-control-bar .lk-button[data-lk-source="camera"] + * {
+  .lk-control-bar .lk-button[data-lk-source="microphone"]+*,
+  .lk-control-bar .lk-button[data-lk-source="camera"]+* {
     z-index: 10001 !important;
     pointer-events: auto !important;
   }
-  
+
   /* Allow LiveKit device menus to work normally - don't force hide them */
-  
+
   /* Ensure device menus have proper z-index when they are open (let LiveKit handle visibility) */
   .lk-device-menu,
   .lk-media-device-menu,
@@ -1187,14 +1194,14 @@ body.chat-open .custom-action-buttons-row {
   .lk-media-device-select {
     z-index: 10001 !important;
   }
-  
+
   /* Ensure LiveKit dropdowns have proper styling when open (let LiveKit handle visibility) */
   .lk-dropdown,
   .lk-menu,
   .lk-popover {
     z-index: 10001 !important;
   }
-  
+
   /* Ensure any LiveKit menu that appears is properly styled */
   .lk-control-bar [role="menu"],
   .lk-control-bar [role="listbox"],
@@ -1208,13 +1215,13 @@ body.chat-open .custom-action-buttons-row {
     min-width: 200px !important;
     pointer-events: auto !important;
   }
-  
+
   /* Ensure only one dropdown is visible at a time */
-  .lk-control-bar .lk-device-menu[data-lk-open="true"] ~ .lk-device-menu:not([data-lk-open="true"]),
-  .lk-control-bar .lk-media-device-menu[data-lk-open="true"] ~ .lk-media-device-menu:not([data-lk-open="true"]) {
+  .lk-control-bar .lk-device-menu[data-lk-open="true"]~.lk-device-menu:not([data-lk-open="true"]),
+  .lk-control-bar .lk-media-device-menu[data-lk-open="true"]~.lk-media-device-menu:not([data-lk-open="true"]) {
     display: none !important;
   }
-  
+
   /* Ensure all LiveKit buttons are visible */
   [data-lk-theme="default"] .lk-control-bar .lk-button,
   .lk-control-bar .lk-button {
@@ -1230,7 +1237,7 @@ body.chat-open .custom-action-buttons-row {
     color: white !important;
     cursor: pointer !important;
   }
-  
+
   /* Ensure button groups are visible */
   [data-lk-theme="default"] .lk-control-bar .lk-button-group,
   .lk-control-bar .lk-button-group {
@@ -1244,7 +1251,9 @@ body.chat-open .custom-action-buttons-row {
 }
 
 /* Form styles */
-input, textarea, select {
+input,
+textarea,
+select {
   font-family: inherit;
 }
 
@@ -1335,6 +1344,92 @@ button[data-lk-source="screen_share"] {
   padding-bottom: 0 !important;
 }
 
+/* Mobile: Show all participants in grid layout with dynamic columns */
+@media (max-width: 768px) {
+
+  /* Override any CSS that limits participants to 2 */
+  .lk-grid-layout,
+  .lk-focus-layout {
+    display: grid !important;
+    grid-template-columns: repeat(var(--grid-columns, 1), 1fr) !important;
+    grid-auto-rows: 1fr !important;
+    gap: 8px !important;
+    padding: 8px !important;
+    padding-bottom: 80px !important;
+    /* Space for control bar */
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    height: 100vh !important;
+    width: 100vw !important;
+  }
+
+  /* Ensure all participant tiles are visible and fill available space */
+  .lk-participant-tile {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    max-width: 100% !important;
+    aspect-ratio: auto !important;
+  }
+
+  /* Remove any max-width or display restrictions on participant tiles */
+  .lk-grid-layout .lk-participant-tile,
+  .lk-focus-layout .lk-participant-tile {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* Force all participant tiles to be visible - override any LiveKit hiding */
+  .lk-grid-layout>*,
+  .lk-focus-layout>* {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* Ensure no overflow hidden that would hide participants */
+  .lk-grid-layout,
+  .lk-focus-layout {
+    overflow-y: auto !important;
+    overflow-x: visible !important;
+  }
+
+  /* Override any max-height or max-width restrictions on tiles */
+  .lk-participant-tile,
+  .lk-grid-layout .lk-participant-tile,
+  .lk-focus-layout .lk-participant-tile {
+    max-height: none !important;
+    max-width: 100% !important;
+  }
+
+  /* Ensure parent containers don't hide participants */
+  .lk-room-container:not(.screen-sharing-active),
+  .lk-room-container:not(.screen-sharing-active)>*:not(.lk-grid-layout):not(.lk-focus-layout) {
+    overflow: visible !important;
+  }
+
+  /* Force all participant wrapper divs to be visible */
+  .lk-grid-layout>div,
+  .lk-focus-layout>div,
+  .lk-grid-layout>*,
+  .lk-focus-layout>* {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  /* Override any LiveKit internal participant limiting */
+  .lk-grid-layout .lk-participant-tile:nth-child(n),
+  .lk-focus-layout .lk-participant-tile:nth-child(n) {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+}
+
 /* Custom Track Toggle Responsive Styles */
 .custom-track-toggle {
   /* Desktop size is defined in inline styles */
@@ -1342,6 +1437,7 @@ button[data-lk-source="screen_share"] {
 
 /* Tablet responsive styles (768px and below) */
 @media (max-width: 768px) {
+
   /* Hide ALL LiveKit control bar and buttons */
   .lk-control-bar,
   .lk-control-bar *,
@@ -1354,7 +1450,7 @@ button[data-lk-source="screen_share"] {
     position: absolute !important;
     left: -9999px !important;
   }
-  
+
   /* Hide control bar when chat is open */
   body.chat-open .mobile-control-bar,
   body.chat-open .custom-control-bar,
@@ -1364,12 +1460,12 @@ button[data-lk-source="screen_share"] {
     opacity: 0 !important;
     transform: translateY(100%) !important;
   }
-  
+
   /* Hide divider on mobile grid layout */
   .control-divider {
     display: none !important;
   }
-  
+
   /* Grid layout for control buttons on tablets */
   .custom-action-buttons-row {
     display: grid !important;
@@ -1385,15 +1481,22 @@ button[data-lk-source="screen_share"] {
     transform: translateX(-50%) !important;
     bottom: 10px !important;
   }
-  
+
+  /* Hide control bar on mobile tablets when controls-hidden class is present */
+  .custom-action-buttons-row.controls-hidden {
+    transform: translateX(-50%) translateY(calc(100% + 20px)) !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+
   /* Ensure all button wrappers fit the grid */
-  .custom-action-buttons-row > div,
-  .custom-action-buttons-row > button {
+  .custom-action-buttons-row>div,
+  .custom-action-buttons-row>button {
     display: flex !important;
     justify-content: center !important;
     align-items: center !important;
   }
-  
+
   /* Make custom buttons responsive for tablets */
   .custom-track-toggle,
   .custom-control-button,
@@ -1407,23 +1510,227 @@ button[data-lk-source="screen_share"] {
     padding: 6px 8px !important;
     gap: 3px !important;
   }
-  
+
   .custom-toggle-icon {
     width: 18px !important;
     height: 18px !important;
   }
-  
+
   .custom-toggle-label {
     font-size: 9px !important;
   }
-  
+
   .custom-toggle-status {
     font-size: 7px !important;
+  }
+
+  /* Mobile: Show all participants in grid layout with dynamic columns */
+  .lk-grid-layout,
+  .lk-focus-layout {
+    display: grid !important;
+    grid-template-columns: repeat(var(--grid-columns, 1), 1fr) !important;
+    grid-auto-rows: 1fr !important;
+    gap: 8px !important;
+    padding: 8px !important;
+    padding-bottom: 80px !important;
+    /* Space for control bar */
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    height: 100vh !important;
+    width: 100vw !important;
+  }
+
+  /* Ensure all participant tiles are visible and fill available space */
+  .lk-participant-tile {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    max-width: 100% !important;
+    aspect-ratio: auto !important;
+  }
+
+  /* Remove any max-width or display restrictions on participant tiles */
+  .lk-grid-layout .lk-participant-tile,
+  .lk-focus-layout .lk-participant-tile {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* Screen Share Layout: Screen share on top, participants in horizontal scroll at bottom */
+  body.screen-sharing-active .lk-room-container,
+  .lk-room-container.screen-sharing-active {
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100vh !important;
+    width: 100vw !important;
+    overflow: hidden !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    z-index: 1 !important;
+  }
+
+  body.screen-sharing-active .lk-grid-layout,
+  body.screen-sharing-active .lk-focus-layout,
+  .screen-sharing-active .lk-grid-layout,
+  .screen-sharing-active .lk-focus-layout {
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100vh !important;
+    width: 100vw !important;
+    padding: 0 !important;
+    padding-bottom: 0 !important;
+    overflow: hidden !important;
+    gap: 0 !important;
+    position: relative !important;
+  }
+
+  /* Screen share video takes top 70% of viewport - highest priority */
+  body.screen-sharing-active .lk-participant-tile[data-lk-source="screen_share"],
+  body.screen-sharing-active [data-lk-source="screen_share"],
+  .screen-sharing-active .lk-participant-tile[data-lk-source="screen_share"],
+  .screen-sharing-active [data-lk-source="screen_share"],
+  body.screen-sharing-active video[data-lk-source="screen_share"],
+  .screen-sharing-active video[data-lk-source="screen_share"] {
+    position: relative !important;
+    width: 100vw !important;
+    height: 70vh !important;
+    max-height: 70vh !important;
+    min-height: 70vh !important;
+    flex-shrink: 0 !important;
+    flex-grow: 0 !important;
+    order: -999 !important;
+    /* Move to top with highest priority */
+    z-index: 100 !important;
+    display: block !important;
+    visibility: visible !important;
+  }
+
+  /* Target screen share video elements more broadly */
+  body.screen-sharing-active .lk-participant-tile:has([data-lk-source="screen_share"]),
+  body.screen-sharing-active .lk-participant-tile:has(video[data-lk-source="screen_share"]),
+  .screen-sharing-active .lk-participant-tile:has([data-lk-source="screen_share"]),
+  .screen-sharing-active .lk-participant-tile:has(video[data-lk-source="screen_share"]),
+  body.screen-sharing-active>*:has([data-lk-source="screen_share"]),
+  body.screen-sharing-active>*:has(video[data-lk-source="screen_share"]),
+  .screen-sharing-active>*:has([data-lk-source="screen_share"]),
+  .screen-sharing-active>*:has(video[data-lk-source="screen_share"]) {
+    position: relative !important;
+    width: 100vw !important;
+    height: 70vh !important;
+    max-height: 70vh !important;
+    min-height: 70vh !important;
+    flex-shrink: 0 !important;
+    flex-grow: 0 !important;
+    order: -999 !important;
+    z-index: 100 !important;
+    display: block !important;
+    visibility: visible !important;
+  }
+
+  /* Participant cards container at bottom - horizontal scroll (30% height) */
+  /* Target all direct children except screen share */
+  body.screen-sharing-active .lk-grid-layout>*:not(:has([data-lk-source="screen_share"])):not(:has(.lk-participant-tile[data-lk-source="screen_share"])),
+  body.screen-sharing-active .lk-focus-layout>*:not(:has([data-lk-source="screen_share"])):not(:has(.lk-participant-tile[data-lk-source="screen_share"])),
+  .screen-sharing-active .lk-grid-layout>*:not(:has([data-lk-source="screen_share"])):not(:has(.lk-participant-tile[data-lk-source="screen_share"])),
+  .screen-sharing-active .lk-focus-layout>*:not(:has([data-lk-source="screen_share"])):not(:has(.lk-participant-tile[data-lk-source="screen_share"])) {
+    display: flex !important;
+    flex-direction: row !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    gap: 8px !important;
+    padding: 8px !important;
+    height: 30vh !important;
+    max-height: 30vh !important;
+    min-height: 30vh !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: thin !important;
+    flex-wrap: nowrap !important;
+    align-items: flex-start !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Fallback for browsers that don't support :has() */
+  body.screen-sharing-active .lk-grid-layout>div:not([data-lk-source="screen_share"]),
+  body.screen-sharing-active .lk-focus-layout>div:not([data-lk-source="screen_share"]),
+  .screen-sharing-active .lk-grid-layout>div:not([data-lk-source="screen_share"]),
+  .screen-sharing-active .lk-focus-layout>div:not([data-lk-source="screen_share"]) {
+    display: flex !important;
+    flex-direction: row !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    gap: 8px !important;
+    padding: 8px !important;
+    height: 30vh !important;
+    max-height: 30vh !important;
+    min-height: 30vh !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: thin !important;
+    flex-wrap: nowrap !important;
+    align-items: flex-start !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Individual participant cards in screen share mode - horizontal scroll */
+  body.screen-sharing-active .lk-participant-tile:not([data-lk-source="screen_share"]),
+  .screen-sharing-active .lk-participant-tile:not([data-lk-source="screen_share"]) {
+    min-width: 120px !important;
+    width: 120px !important;
+    max-width: 120px !important;
+    height: auto !important;
+    aspect-ratio: 16 / 9 !important;
+    flex-shrink: 0 !important;
+    flex-grow: 0 !important;
+    display: block !important;
+  }
+
+  /* Ensure the grid layout container wraps participant cards in screen share mode */
+  body.screen-sharing-active .lk-grid-layout,
+  body.screen-sharing-active .lk-focus-layout,
+  .screen-sharing-active .lk-grid-layout,
+  .screen-sharing-active .lk-focus-layout {
+    display: flex !important;
+    flex-direction: column !important;
+    height: 100vh !important;
+    overflow: hidden !important;
+  }
+
+  /* Screen share tile wrapper - ensure it's at the top */
+  body.screen-sharing-active .lk-grid-layout>*:has([data-lk-source="screen_share"]),
+  body.screen-sharing-active .lk-focus-layout>*:has([data-lk-source="screen_share"]),
+  body.screen-sharing-active .lk-grid-layout>*:has(.lk-participant-tile[data-lk-source="screen_share"]),
+  body.screen-sharing-active .lk-focus-layout>*:has(.lk-participant-tile[data-lk-source="screen_share"]),
+  .screen-sharing-active .lk-grid-layout>*:has([data-lk-source="screen_share"]),
+  .screen-sharing-active .lk-focus-layout>*:has([data-lk-source="screen_share"]),
+  .screen-sharing-active .lk-grid-layout>*:has(.lk-participant-tile[data-lk-source="screen_share"]),
+  .screen-sharing-active .lk-focus-layout>*:has(.lk-participant-tile[data-lk-source="screen_share"]),
+  body.screen-sharing-active [data-lk-source="screen_share"],
+  .screen-sharing-active [data-lk-source="screen_share"] {
+    order: -999 !important;
+    flex-shrink: 0 !important;
+    flex-grow: 0 !important;
+    width: 100vw !important;
+    height: 70vh !important;
+    max-height: 70vh !important;
+    min-height: 70vh !important;
+    z-index: 100 !important;
+    display: block !important;
+    visibility: visible !important;
+  }
+
+  /* Hide screen share from horizontal scroll row */
+  body.screen-sharing-active .lk-grid-layout>div:not([data-lk-source="screen_share"]) .lk-participant-tile[data-lk-source="screen_share"],
+  body.screen-sharing-active .lk-focus-layout>div:not([data-lk-source="screen_share"]) .lk-participant-tile[data-lk-source="screen_share"],
+  .screen-sharing-active .lk-grid-layout>div:not([data-lk-source="screen_share"]) .lk-participant-tile[data-lk-source="screen_share"],
+  .screen-sharing-active .lk-focus-layout>div:not([data-lk-source="screen_share"]) .lk-participant-tile[data-lk-source="screen_share"] {
+    display: none !important;
   }
 }
 
 /* Phone responsive styles (480px and below) */
 @media (max-width: 480px) {
+
   /* Hide ALL LiveKit controls and buttons */
   .lk-control-bar,
   .lk-control-bar *,
@@ -1436,7 +1743,7 @@ button[data-lk-source="screen_share"] {
     position: absolute !important;
     left: -9999px !important;
   }
-  
+
   /* Hide control bar when chat is open */
   body.chat-open .mobile-control-bar,
   body.chat-open .custom-control-bar,
@@ -1446,17 +1753,17 @@ button[data-lk-source="screen_share"] {
     opacity: 0 !important;
     transform: translateY(100%) !important;
   }
-  
+
   /* Hide divider on mobile */
   .control-divider {
     display: none !important;
   }
-  
+
   /* More button dropdown positioning for phones */
   .more-controls-dropdown {
     bottom: 110px !important;
   }
-  
+
   /* Grid layout - 4 buttons per row on phones */
   .custom-action-buttons-row {
     display: grid !important;
@@ -1472,15 +1779,22 @@ button[data-lk-source="screen_share"] {
     transform: translateX(-50%) !important;
     bottom: 8px !important;
   }
-  
+
+  /* Hide control bar on mobile phones when controls-hidden class is present */
+  .custom-action-buttons-row.controls-hidden {
+    transform: translateX(-50%) translateY(calc(100% + 20px)) !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+
   /* Ensure all button wrappers fit the grid */
-  .custom-action-buttons-row > div,
-  .custom-action-buttons-row > button {
+  .custom-action-buttons-row>div,
+  .custom-action-buttons-row>button {
     display: flex !important;
     justify-content: center !important;
     align-items: center !important;
   }
-  
+
   /* Further reduce button sizes for phones */
   .custom-track-toggle,
   .custom-control-button,
@@ -1494,24 +1808,84 @@ button[data-lk-source="screen_share"] {
     padding: 5px 6px !important;
     gap: 2px !important;
   }
-  
+
   .custom-toggle-icon {
     width: 16px !important;
     height: 16px !important;
   }
-  
+
   .custom-toggle-label {
     font-size: 8px !important;
   }
-  
+
   .custom-toggle-status {
     font-size: 6px !important;
+  }
+
+  /* Mobile phones: Show all participants in grid with dynamic columns */
+  .lk-grid-layout,
+  .lk-focus-layout {
+    grid-template-columns: repeat(var(--grid-columns, 1), 1fr) !important;
+    grid-auto-rows: 1fr !important;
+    gap: 6px !important;
+    padding: 6px !important;
+    height: 100vh !important;
+    width: 100vw !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .lk-participant-tile {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    max-width: 100% !important;
+    aspect-ratio: auto !important;
+  }
+
+  /* Ensure all participant tiles are visible */
+  .lk-grid-layout .lk-participant-tile,
+  .lk-focus-layout .lk-participant-tile {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  /* Screen share layout adjustments for phones (70% height) */
+  body.screen-sharing-active .lk-participant-tile[data-lk-source="screen_share"],
+  body.screen-sharing-active [data-lk-source="screen_share"],
+  body.screen-sharing-active .lk-participant-tile:has([data-lk-source="screen_share"]),
+  .screen-sharing-active .lk-participant-tile[data-lk-source="screen_share"],
+  .screen-sharing-active [data-lk-source="screen_share"],
+  .screen-sharing-active .lk-participant-tile:has([data-lk-source="screen_share"]) {
+    height: 70vh !important;
+    max-height: 70vh !important;
+  }
+
+  body.screen-sharing-active .lk-grid-layout>div:not([data-lk-source="screen_share"]),
+  body.screen-sharing-active .lk-focus-layout>div:not([data-lk-source="screen_share"]),
+  .screen-sharing-active .lk-grid-layout>div:not([data-lk-source="screen_share"]),
+  .screen-sharing-active .lk-focus-layout>div:not([data-lk-source="screen_share"]) {
+    height: 30vh !important;
+    max-height: 30vh !important;
+    padding: 6px !important;
+    gap: 6px !important;
+  }
+
+  body.screen-sharing-active .lk-participant-tile:not([data-lk-source="screen_share"]),
+  .screen-sharing-active .lk-participant-tile:not([data-lk-source="screen_share"]) {
+    min-width: 100px !important;
+    width: 100px !important;
+    max-width: 100px !important;
+    flex-shrink: 0 !important;
+    flex-grow: 0 !important;
   }
 }
 
 
 /* Extra small screens (390px and below) */
 @media (max-width: 390px) {
+
   /* Hide control bar when chat is open */
   body.chat-open .mobile-control-bar,
   body.chat-open .custom-control-bar,
@@ -1521,17 +1895,17 @@ button[data-lk-source="screen_share"] {
     opacity: 0 !important;
     transform: translateY(100%) !important;
   }
-  
+
   /* Hide divider on extra small screens */
   .control-divider {
     display: none !important;
   }
-  
+
   /* More button dropdown positioning for extra small screens */
   .more-controls-dropdown {
     bottom: 105px !important;
   }
-  
+
   /* Grid layout - 4 buttons per row on extra small screens */
   .custom-action-buttons-row {
     display: grid !important;
@@ -1545,15 +1919,15 @@ button[data-lk-source="screen_share"] {
     align-items: center !important;
     bottom: 6px !important;
   }
-  
+
   /* Ensure all button wrappers fit the grid */
-  .custom-action-buttons-row > div,
-  .custom-action-buttons-row > button {
+  .custom-action-buttons-row>div,
+  .custom-action-buttons-row>button {
     display: flex !important;
     justify-content: center !important;
     align-items: center !important;
   }
-  
+
   .custom-track-toggle,
   .custom-control-button,
   [data-custom-button="true"] {
@@ -1566,16 +1940,16 @@ button[data-lk-source="screen_share"] {
     padding: 4px 5px !important;
     gap: 2px !important;
   }
-  
+
   .custom-toggle-icon {
     width: 14px !important;
     height: 14px !important;
   }
-  
+
   .custom-toggle-label {
     font-size: 7px !important;
   }
-  
+
   .custom-toggle-status {
     font-size: 6px !important;
   }

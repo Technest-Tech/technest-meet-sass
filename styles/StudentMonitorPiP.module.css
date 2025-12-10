@@ -20,6 +20,8 @@
   /* Base position set by top/right, transform moves from there (exactly like PictureInPicture) */
   box-sizing: border-box;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .container:hover {
@@ -34,7 +36,9 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 18px;
+  padding: 12px 16px;
+  height: 50px;
+  box-sizing: border-box;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, transparent 100%);
   cursor: move;
@@ -97,92 +101,94 @@
   transform: scale(1.05);
 }
 
-.studentsGrid {
-  display: grid;
-  gap: 12px;
-  padding: 16px;
-  /* max-height will be set dynamically via inline styles */
+.studentsColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px;
+  padding-left: 0; /* No left padding to remove free space */
+  padding-right: 0; /* No right padding to remove free space */
   overflow-y: auto;
-  /* Smooth scrolling */
+  max-height: calc(100% - 50px);
   scroll-behavior: smooth;
+  height: calc(100% - 50px);
+  box-sizing: border-box;
 }
 
-.studentsGrid::-webkit-scrollbar {
-  width: 8px;
+/* When in PiP window, column fills entire height (no header) */
+.container:has(.studentsColumn) {
+  /* This will be handled by inline styles in PiP mode */
 }
 
-.studentsGrid::-webkit-scrollbar-track {
+.studentsColumn::-webkit-scrollbar {
+  width: 6px;
+}
+
+.studentsColumn::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
-  margin: 4px;
+  border-radius: 3px;
 }
 
-.studentsGrid::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.15) 100%);
-  border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+.studentsColumn::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
 }
 
-.studentsGrid::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.25) 100%);
+.studentsColumn::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .studentCard {
   position: relative;
-  /* Modern glassmorphism card */
-  background: linear-gradient(135deg, rgba(0, 0, 0, 0.4) 0%, rgba(15, 23, 42, 0.5) 100%);
-  backdrop-filter: blur(10px);
-  border-radius: 12px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 
-    0 4px 6px -1px rgba(0, 0, 0, 0.2),
-    0 2px 4px -1px rgba(0, 0, 0, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  width: 100%;
+  height: 200px;
+  border-radius: 6px;
+  overflow: visible; /* Changed from hidden to visible so menu can show outside */
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+  margin: 0; /* Ensure no margin */
+}
+
+/* Increased height for cards in PiP window - using data attribute */
+.container[data-pip="true"] .studentCard {
+  height: 240px;
 }
 
 .studentCard:hover {
-  border-color: rgba(255, 255, 255, 0.25);
-  transform: translateY(-4px) scale(1.02);
-  box-shadow: 
-    0 10px 15px -3px rgba(0, 0, 0, 0.3),
-    0 4px 6px -2px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  background: linear-gradient(135deg, rgba(0, 0, 0, 0.5) 0%, rgba(15, 23, 42, 0.6) 100%);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .videoContainer {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
-  aspect-ratio: 16 / 9;
-  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  height: 100%;
+  background: rgba(15, 23, 42, 0.9);
   overflow: hidden;
-  border-radius: 8px 8px 0 0;
+  z-index: 1; /* Below menu button and mute indicator */
 }
 
 .studentVideo {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.3s ease;
-}
-
-.studentCard:hover .studentVideo {
-  transform: scale(1.05);
 }
 
 .placeholder {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  height: 100%;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px 8px 0 0;
-  position: relative;
   overflow: hidden;
+  z-index: 1; /* Below menu button and mute indicator */
 }
 
 .placeholder::before {
@@ -198,7 +204,7 @@
 
 .placeholderInitial {
   color: white;
-  font-size: 32px;
+  font-size: 36px;
   font-weight: 700;
   text-transform: uppercase;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
@@ -209,39 +215,144 @@
 .muteIndicator {
   position: absolute;
   top: 8px;
-  right: 8px;
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.95) 0%, rgba(220, 38, 38, 0.95) 100%);
+  right: 8px; /* Swapped: mic icon on right */
+  background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(8px);
-  color: white;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
+  padding: 4px 6px;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  box-shadow: 
-    0 2px 8px rgba(239, 68, 68, 0.4),
-    0 1px 2px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  z-index: 100; /* Above video/placeholder, below menu button */
+}
+
+.controlButton {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  border: none;
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  z-index: 1000;
+  width: 32px;
+  height: 32px;
+}
+
+.controlButton:hover {
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  transform: scale(1.1);
+}
+
+.controlButton:active {
+  transform: scale(0.95);
+}
+
+.menuButton {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  border: none;
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  z-index: 1000;
+  width: 32px;
+  height: 32px;
+}
+
+.menuButton:hover {
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  transform: scale(1.1);
+}
+
+.menuButton:active {
+  transform: scale(0.95);
+}
+
+.statusIndicator {
+  position: absolute;
+  padding: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  width: 32px;
+  height: 32px;
+  pointer-events: none; /* Not clickable, just an indicator */
+}
+
+.studentNameOverlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 8px 12px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.6) 50%, transparent 100%);
+  backdrop-filter: blur(4px);
   z-index: 10;
 }
 
 .studentName {
-  padding: 10px 12px;
   color: rgba(255, 255, 255, 0.95);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0.4) 100%);
-  backdrop-filter: blur(8px);
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  letter-spacing: 0.3px;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  display: block;
+}
+
+.contextMenu {
+  background: rgba(30, 41, 59, 0.98);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+  min-width: 180px;
+  overflow: hidden;
+}
+
+.contextMenuItem {
+  width: 100%;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.9);
+  transition: background-color 0.15s;
+}
+
+.contextMenuItem:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.contextMenuItem svg {
+  flex-shrink: 0;
 }
 
 .minimizedBar {
@@ -333,9 +444,13 @@
     transform: none !important;
   }
 
-  .studentsGrid {
-    gap: 8px;
-    padding: 12px;
+  .studentsColumn {
+    gap: 6px;
+    padding: 8px;
+  }
+  
+  .studentCard {
+    height: 140px;
   }
   
   .emptyState {

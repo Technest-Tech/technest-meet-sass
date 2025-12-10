@@ -9,7 +9,7 @@ interface MicrophoneSettingsProps {
   };
 }
 
-export function MicrophoneSettings({ roomFeatures }: MicrophoneSettingsProps) {
+export const MicrophoneSettings = React.memo(function MicrophoneSettings({ roomFeatures }: MicrophoneSettingsProps) {
   return (
     <div
       dir="ltr"
@@ -29,4 +29,4 @@ export function MicrophoneSettings({ roomFeatures }: MicrophoneSettingsProps) {
       </section>
     </div>
   );
-}
+});

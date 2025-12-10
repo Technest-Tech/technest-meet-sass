@@ -7,7 +7,10 @@ bind_addresses: ["0.0.0.0"]
 
 # API keys for authentication
 keys:
+  # Production key (for production deployments)
   almajd-meet-api-key-prod-2024: almajd-meet-api-secret-production-2024-secure-key
+  # Development key (for local development)
+  devkey: secret
 
 # Logging
 log_level: info
@@ -22,8 +25,15 @@ development: true
 
 # RTC configuration
 rtc:
-  # Use external IP for development to allow mobile emulator access
-  use_external_ip: true
+  # For local development, disable external IP detection
+  # Use --node-ip flag in docker-compose.yml to force specific IP
+  # NAT 1-to-1 IP mapping is also set via LIVEKIT_NAT_1TO1_IPS environment variable
+  use_external_ip: false
   # Additional ports for RTC
   tcp_port: 7881
   udp_port: 7882
+  # STUN servers for NAT traversal (helps with connectivity)
+  # Format: host:port (without stun: prefix)
+  stun_servers:
+    - stun.l.google.com:19302
+    - stun1.l.google.com:19302

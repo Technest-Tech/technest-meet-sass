@@ -16,7 +16,10 @@ services:
       LIVEKIT_TCP_BIND_ADDRESSES: "0.0.0.0:7881"
       LIVEKIT_UDP_PORT: "7882"
       LIVEKIT_UDP_BIND_ADDRESSES: "0.0.0.0:7882"
+      # Force LiveKit to use local network IP for Docker on macOS
+      # This IP should match your local network IP (check with: ipconfig getifaddr en0)
+      LIVEKIT_NAT_1TO1_IPS: "0.0.0.0/0=192.168.1.23"
     volumes:
       - ./livekit.yaml:/config.yaml
-    command: --config /config.yaml
+    command: ["--config", "/config.yaml", "--node-ip", "192.168.1.23"]
     restart: unless-stopped

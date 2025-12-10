@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useRoomContext } from '@livekit/components-react';
 import { useParticipants, useLocalParticipant } from '@livekit/components-react';
+import { Track } from 'livekit-client';
 import { MoreHorizontal, X, Users, UserMinus, Mic, MicOff, Video, VideoOff, MessageSquare, MoreVertical, Check, Loader2 } from 'lucide-react';
 import { Whiteboard } from './Whiteboard';
 import { NormalWhiteboard } from './NormalWhiteboard';
@@ -38,13 +39,13 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
   const [isRecordingActive, setIsRecordingActive] = useState(false);
-  
+
   // Ensure component is mounted on client-side
   useEffect(() => {
     setMounted(true);
     return () => setMounted(false);
   }, []);
-  
+
   // State for all controls
   const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false);
   const [isNormalWhiteboardOpen, setIsNormalWhiteboardOpen] = useState(false);
@@ -102,7 +103,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
       }
       prevNoiseCancellationEnabled.current = isNoiseCancellationEnabled;
     }
-    
+
     // Show error toast if there's an error
     if (noiseCancellationError) {
       toast.error(noiseCancellationError);
@@ -136,50 +137,82 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [activeMenu]);
 
-  // Track participant audio/video status
+  // Track participant audio/video status reactively
   useEffect(() => {
     const updateStatuses = () => {
       const newStatuses = new Map<string, { audioEnabled: boolean; videoEnabled: boolean }>();
-      
+
       allParticipants.forEach(p => {
-        let audioEnabled = false;
-        let videoEnabled = false;
+        // Get track publications using getTrackPublication (same as StudentMonitorPiP)
+        const audioTrack = p.getTrackPublication(Track.Source.Microphone);
+        const videoTrack = p.getTrackPublication(Track.Source.Camera);
         
-        p.audioTrackPublications.forEach((publication) => {
-          if (!publication.isMuted && publication.track) {
-            audioEnabled = true;
-          }
+        // For audio: track exists, is enabled, and not muted
+        const audioEnabled = audioTrack && audioTrack.isEnabled && !audioTrack.isMuted;
+        
+        // For video: track exists, is enabled, not muted, and has an actual track
+        const videoEnabled = videoTrack && videoTrack.isEnabled && !videoTrack.isMuted && !!videoTrack.track;
+
+        newStatuses.set(p.identity, { 
+          audioEnabled: !!audioEnabled, 
+          videoEnabled: !!videoEnabled 
         });
-        
-        p.videoTrackPublications.forEach((publication) => {
-          if (!publication.isMuted && publication.track) {
-            videoEnabled = true;
-          }
-        });
-        
-        newStatuses.set(p.identity, { audioEnabled, videoEnabled });
       });
-      
+
       setParticipantStatuses(newStatuses);
     };
 
+    // Update immediately
     updateStatuses();
+
+    // Set up event listeners for each participant
+    const cleanupFunctions: (() => void)[] = [];
+
+    allParticipants.forEach(p => {
+      const handleTrackMuted = () => updateStatuses();
+      const handleTrackUnmuted = () => updateStatuses();
+      const handleTrackPublished = () => updateStatuses();
+      const handleTrackUnpublished = () => updateStatuses();
+      const handleTrackSubscribed = () => updateStatuses();
+      const handleTrackUnsubscribed = () => updateStatuses();
+
+      p.on('trackMuted', handleTrackMuted);
+      p.on('trackUnmuted', handleTrackUnmuted);
+      p.on('trackPublished', handleTrackPublished);
+      p.on('trackUnpublished', handleTrackUnpublished);
+      p.on('trackSubscribed', handleTrackSubscribed);
+      p.on('trackUnsubscribed', handleTrackUnsubscribed);
+
+      cleanupFunctions.push(() => {
+        p.off('trackMuted', handleTrackMuted);
+        p.off('trackUnmuted', handleTrackUnmuted);
+        p.off('trackPublished', handleTrackPublished);
+        p.off('trackUnpublished', handleTrackUnpublished);
+        p.off('trackSubscribed', handleTrackSubscribed);
+        p.off('trackUnsubscribed', handleTrackUnsubscribed);
+      });
+    });
+
+    // Also update periodically as fallback
     const interval = setInterval(updateStatuses, 1000);
-    
-    return () => clearInterval(interval);
+
+    return () => {
+      cleanupFunctions.forEach(cleanup => cleanup());
+      clearInterval(interval);
+    };
   }, [allParticipants]);
 
   // Whiteboard functionality
   const sendWhiteboardToggle = useCallback((action: 'open' | 'close') => {
     if (!room) return;
-    
+
     try {
       const message = {
         type: 'whiteboard_toggle',
         isHost: isHost,
         action: action
       };
-      
+
       const encodedData = new TextEncoder().encode(JSON.stringify(message));
       room.localParticipant.publishData(encodedData);
     } catch (error) {
@@ -195,27 +228,27 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
       });
       return;
     }
-    
+
     const newState = !isWhiteboardOpen;
     setIsWhiteboardOpen(newState);
     sendWhiteboardToggle(newState ? 'open' : 'close');
-    
-    setWhiteboardNotification({
-      message: newState 
-        ? 'Whiteboard opened for all participants' 
-        : 'Whiteboard closed for all participants',
-      type: 'success'
-    });
+
+    // Only show notification when opening, not when closing
+    if (newState) {
+      setWhiteboardNotification({
+        message: 'Whiteboard opened for all participants',
+        type: 'success'
+      });
+    }
   };
 
   const handleHostToggle = useCallback((isOpen: boolean) => {
     setIsWhiteboardOpen(isOpen);
-    
-    if (!isHost) {
+
+    // Only show notification when opening, not when closing
+    if (!isHost && isOpen) {
       setWhiteboardNotification({
-        message: isOpen 
-          ? 'Host opened whiteboard for all participants' 
-          : 'Host closed whiteboard for all participants',
+        message: 'Host opened whiteboard for all participants',
         type: 'info'
       });
     }
@@ -249,7 +282,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
       if (response.ok) {
         const result = await response.json();
         console.log(`✅ Participant removal successful:`, result);
-        
+
         // Verify this was a participant removal, not an end meeting
         if (result.action === 'remove_participant_only') {
           setParticipantNotification({
@@ -297,9 +330,9 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
 
       const encodedData = new TextEncoder().encode(JSON.stringify(muteRequest));
       await room.localParticipant.publishData(encodedData, { topic: 'mute-control', reliable: true });
-      
+
       console.log('✅ Mute request sent successfully');
-      
+
       toast.success(`${mute ? 'Muted' : 'Unmuted'} ${getCleanName(participantIdentity)}`);
       setActiveMenu(null);
     } catch (error) {
@@ -325,7 +358,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
 
       const encodedData = new TextEncoder().encode(JSON.stringify(muteAllRequest));
       await room.localParticipant.publishData(encodedData, { topic: 'mute-control', reliable: true });
-      
+
       toast.success('Mute request sent to all participants');
     } catch (error) {
       console.error('Failed to send mute all request:', error);
@@ -350,7 +383,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
     try {
       const encodedData = new TextEncoder().encode(JSON.stringify(request));
       await room.localParticipant.publishData(encodedData, { topic: 'video-request', reliable: true });
-      
+
       const action = turnOn ? 'Request sent' : 'Camera closed';
       toast.success(`${action} for ${getCleanName(participantIdentity)}`);
       setActiveMenu(null);
@@ -360,7 +393,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
   }, [isHost, room, localParticipant]);
 
   const openPrivateChat = useCallback((participantIdentity: string) => {
-    toast(`Opening chat with ${getCleanName(participantIdentity)}`, { 
+    toast(`Opening chat with ${getCleanName(participantIdentity)}`, {
       duration: 2000,
       icon: '💬',
     });
@@ -411,8 +444,8 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
   };
 
   return (
-    <div 
-      ref={dropdownRef} 
+    <div
+      ref={dropdownRef}
       className={`more-controls-container ${isDropdownOpen ? 'dropdown-open' : ''}`}
       style={{ position: 'relative', zIndex: isDropdownOpen ? 100000 : 'auto' }}
     >
@@ -472,7 +505,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
         <MoreHorizontal size={iconOnly ? 20 : 16} />
         {!iconOnly && (isRecordingActive ? 'Recording' : 'More')}
       </button>
-      
+
       {/* Tooltip on hover */}
       {iconOnly && isHovered && (
         <div style={{
@@ -518,271 +551,104 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
           gap: '8px'
         }}
       >
-          {/* Close button */}
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              closeDropdown();
-            }}
-            onTouchStart={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-            onTouchEnd={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              closeDropdown();
-            }}
-            style={{
-              position: 'absolute',
-              top: '8px',
-              right: '8px',
-              background: 'rgba(255, 255, 255, 0.1)',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'rgba(255, 255, 255, 0.7)',
-              width: '44px',
-              height: '44px',
-              minWidth: '44px',
-              minHeight: '44px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: '8px',
-              transition: 'all 0.2s ease',
-              zIndex: 10001,
-              touchAction: 'manipulation',
-              WebkitTapHighlightColor: 'transparent'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
-              e.currentTarget.style.color = 'white';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)';
-            }}
-            title="Close"
-          >
-            <X size={20} />
-          </button>
+        {/* Close button */}
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeDropdown();
+          }}
+          onTouchStart={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeDropdown();
+          }}
+          style={{
+            position: 'absolute',
+            top: '8px',
+            right: '8px',
+            background: 'rgba(255, 255, 255, 0.1)',
+            border: 'none',
+            cursor: 'pointer',
+            color: 'rgba(255, 255, 255, 0.7)',
+            width: '44px',
+            height: '44px',
+            minWidth: '44px',
+            minHeight: '44px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: '8px',
+            transition: 'all 0.2s ease',
+            zIndex: 10001,
+            touchAction: 'manipulation',
+            WebkitTapHighlightColor: 'transparent'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+            e.currentTarget.style.color = 'white';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+            e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)';
+          }}
+          title="Close"
+        >
+          <X size={20} />
+        </button>
 
-          {/* Dropdown Items */}
-          <div style={{ paddingLeft: '48px', paddingTop: '4px' }}>
-            <h3 style={{
-              margin: '0 0 12px 0',
-              fontSize: '13px',
-              fontWeight: '600',
-              color: 'rgba(255, 255, 255, 0.9)',
-              padding: '0 4px',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px',
-              textAlign: 'left'
-            }}>
-              Controls
-            </h3>
-          </div>
+        {/* Dropdown Items */}
+        <div style={{ paddingLeft: '48px', paddingTop: '4px' }}>
+          <h3 style={{
+            margin: '0 0 12px 0',
+            fontSize: '13px',
+            fontWeight: '600',
+            color: 'rgba(255, 255, 255, 0.9)',
+            padding: '0 4px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px',
+            textAlign: 'left'
+          }}>
+            Controls
+          </h3>
+        </div>
 
-          {/* Unified Control Buttons */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {/* Recording Control */}
-            {isHost && (
-              <div style={{ padding: '0 4px' }}>
-                <SimpleRecordingControl
-                  isHost={isHost}
-                  isFeatureEnabled={true}
-                  showProBadge={false}
-                  onRecordingStateChange={setIsRecordingActive}
-                />
-              </div>
-            )}
+        {/* Unified Control Buttons */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {/* Recording Control */}
+          {isHost && (
+            <div style={{ padding: '0 4px' }}>
+              <SimpleRecordingControl
+                isHost={isHost}
+                isFeatureEnabled={true}
+                showProBadge={false}
+                onRecordingStateChange={setIsRecordingActive}
+              />
+            </div>
+          )}
 
-            {/* Collaborative Whiteboard Control */}
-            {isHost && (
-              <button
-                onClick={() => {
-                  if (roomFeatures?.enableCollaborativeWhiteboard ?? false) {
-                    toggleWhiteboard();
-                    closeDropdown();
-                  }
-                }}
-                disabled={!(roomFeatures?.enableCollaborativeWhiteboard ?? false)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  backgroundColor: (roomFeatures?.enableCollaborativeWhiteboard ?? false) ? 'rgba(255, 255, 255, 0.1)' : 'rgba(128, 128, 128, 0.1)',
-                  color: (roomFeatures?.enableCollaborativeWhiteboard ?? false) ? 'white' : 'rgba(255, 255, 255, 0.5)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  borderRadius: '8px',
-                  cursor: (roomFeatures?.enableCollaborativeWhiteboard ?? false) ? 'pointer' : 'not-allowed',
-                  fontSize: '13px',
-                  fontWeight: '500',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  transition: 'all 0.2s ease',
-                  textAlign: 'left',
-                  position: 'relative'
-                }}
-                onMouseEnter={(e) => {
-                  if (roomFeatures?.enableCollaborativeWhiteboard ?? false) {
-                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (roomFeatures?.enableCollaborativeWhiteboard ?? false) {
-                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                  }
-                }}
-                title={(roomFeatures?.enableCollaborativeWhiteboard ?? false) ? "Open/Close Collaborative Whiteboard" : "Upgrade required for this feature"}
-              >
-                <span style={{ fontSize: '14px' }}>📋</span>
-                Collaborative Whiteboard
-                {!(roomFeatures?.enableCollaborativeWhiteboard ?? false) && (
-                  <span style={{
-                    marginLeft: 'auto',
-                    padding: '2px 6px',
-                    background: 'linear-gradient(to right, #a855f7, #ec4899)',
-                    borderRadius: '4px',
-                    fontSize: '10px',
-                    fontWeight: 'bold'
-                  }}>PRO</span>
-                )}
-              </button>
-            )}
-
-            {/* Normal Whiteboard Control */}
-            {isHost && (
-              <button
-                onClick={() => {
-                  if (roomFeatures?.enableNormalWhiteboard ?? false) {
-                    setIsNormalWhiteboardOpen(true);
-                    closeDropdown();
-                  }
-                }}
-                disabled={!(roomFeatures?.enableNormalWhiteboard ?? false)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  backgroundColor: (roomFeatures?.enableNormalWhiteboard ?? false) ? 'rgba(255, 255, 255, 0.1)' : 'rgba(128, 128, 128, 0.1)',
-                  color: (roomFeatures?.enableNormalWhiteboard ?? false) ? 'white' : 'rgba(255, 255, 255, 0.5)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  borderRadius: '8px',
-                  cursor: (roomFeatures?.enableNormalWhiteboard ?? false) ? 'pointer' : 'not-allowed',
-                  fontSize: '13px',
-                  fontWeight: '500',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  transition: 'all 0.2s ease',
-                  textAlign: 'left',
-                  position: 'relative'
-                }}
-                onMouseEnter={(e) => {
-                  if (roomFeatures?.enableNormalWhiteboard ?? false) {
-                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (roomFeatures?.enableNormalWhiteboard ?? false) {
-                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                  }
-                }}
-                title={(roomFeatures?.enableNormalWhiteboard ?? false) ? "Open Normal Whiteboard" : "Upgrade required for this feature"}
-              >
-                <span style={{ fontSize: '14px' }}>📝</span>
-                Normal Whiteboard
-                {!(roomFeatures?.enableNormalWhiteboard ?? false) && (
-                  <span style={{
-                    marginLeft: 'auto',
-                    padding: '2px 6px',
-                    background: 'linear-gradient(to right, #a855f7, #ec4899)',
-                    borderRadius: '4px',
-                    fontSize: '10px',
-                    fontWeight: 'bold'
-                  }}>PRO</span>
-                )}
-              </button>
-            )}
-
-            {/* Participant Manager */}
-            {isHost && (
-              <button
-                onClick={() => {
-                  if (roomFeatures?.enableManageParticipants ?? false) {
-                    setIsParticipantManagerOpen(!isParticipantManagerOpen);
-                    closeDropdown();
-                  }
-                }}
-                disabled={!(roomFeatures?.enableManageParticipants ?? false)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  backgroundColor: (roomFeatures?.enableManageParticipants ?? false) ? 'rgba(255, 255, 255, 0.1)' : 'rgba(128, 128, 128, 0.1)',
-                  color: (roomFeatures?.enableManageParticipants ?? false) ? 'white' : 'rgba(255, 255, 255, 0.5)',
-                  border: '1px solid rgba(255, 255, 255, 0.2)',
-                  borderRadius: '8px',
-                  cursor: (roomFeatures?.enableManageParticipants ?? false) ? 'pointer' : 'not-allowed',
-                  fontSize: '13px',
-                  fontWeight: '500',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  transition: 'all 0.2s ease',
-                  textAlign: 'left',
-                  position: 'relative'
-                }}
-                onMouseEnter={(e) => {
-                  if (roomFeatures?.enableManageParticipants ?? false) {
-                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (roomFeatures?.enableManageParticipants ?? false) {
-                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                  }
-                }}
-                title={(roomFeatures?.enableManageParticipants ?? false) ? "Manage Participants" : "Upgrade required for this feature"}
-              >
-                <span style={{ fontSize: '14px' }}>👥</span>
-                Participants ({allParticipants.length})
-                {!(roomFeatures?.enableManageParticipants ?? false) && (
-                  <span style={{
-                    marginLeft: 'auto',
-                    padding: '2px 6px',
-                    background: 'linear-gradient(to right, #a855f7, #ec4899)',
-                    borderRadius: '4px',
-                    fontSize: '10px',
-                    fontWeight: 'bold'
-                  }}>PRO</span>
-                )}
-              </button>
-            )}
-
-            {/* Virtual Background Control */}
+          {/* Collaborative Whiteboard Control */}
+          {isHost && (
             <button
               onClick={() => {
-                if (roomFeatures?.enableVirtualBackground ?? false) {
-                  setIsSettingsOpen(true);
+                if (roomFeatures?.enableCollaborativeWhiteboard ?? false) {
+                  toggleWhiteboard();
                   closeDropdown();
                 }
               }}
-              disabled={!(roomFeatures?.enableVirtualBackground ?? false)}
+              disabled={!(roomFeatures?.enableCollaborativeWhiteboard ?? false)}
               style={{
                 width: '100%',
                 padding: '8px 12px',
-                backgroundColor: (roomFeatures?.enableVirtualBackground ?? false) ? 'rgba(255, 255, 255, 0.1)' : 'rgba(128, 128, 128, 0.1)',
-                color: (roomFeatures?.enableVirtualBackground ?? false) ? 'white' : 'rgba(255, 255, 255, 0.5)',
+                backgroundColor: (roomFeatures?.enableCollaborativeWhiteboard ?? false) ? 'rgba(255, 255, 255, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                color: (roomFeatures?.enableCollaborativeWhiteboard ?? false) ? 'white' : 'rgba(255, 255, 255, 0.5)',
                 border: '1px solid rgba(255, 255, 255, 0.2)',
                 borderRadius: '8px',
-                cursor: (roomFeatures?.enableVirtualBackground ?? false) ? 'pointer' : 'not-allowed',
+                cursor: (roomFeatures?.enableCollaborativeWhiteboard ?? false) ? 'pointer' : 'not-allowed',
                 fontSize: '13px',
                 fontWeight: '500',
                 display: 'flex',
@@ -793,68 +659,52 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
                 position: 'relative'
               }}
               onMouseEnter={(e) => {
-                if (roomFeatures?.enableVirtualBackground ?? false) {
+                if (roomFeatures?.enableCollaborativeWhiteboard ?? false) {
                   e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
                   e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
                 }
               }}
               onMouseLeave={(e) => {
-                if (roomFeatures?.enableVirtualBackground ?? false) {
+                if (roomFeatures?.enableCollaborativeWhiteboard ?? false) {
                   e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
                   e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
                 }
               }}
-              title={(roomFeatures?.enableVirtualBackground ?? false) ? "Virtual Background" : "Upgrade required for this feature"}
+              title={(roomFeatures?.enableCollaborativeWhiteboard ?? false) ? "Open/Close Collaborative Whiteboard" : "Upgrade required for this feature"}
             >
-              <span style={{ fontSize: '14px' }}>🖼️</span>
-              Virtual Background
-              {!(roomFeatures?.enableVirtualBackground ?? false) && (
+              <span style={{ fontSize: '14px' }}>📋</span>
+              Collaborative Whiteboard
+              {!(roomFeatures?.enableCollaborativeWhiteboard ?? false) && (
                 <span style={{
                   marginLeft: 'auto',
                   padding: '2px 6px',
                   background: 'linear-gradient(to right, #a855f7, #ec4899)',
                   borderRadius: '4px',
                   fontSize: '10px',
-                  fontWeight: 'bold',
-                  direction: 'ltr'
+                  fontWeight: 'bold'
                 }}>PRO</span>
               )}
             </button>
+          )}
 
-            {/* Noise Cancellation Control */}
+          {/* Normal Whiteboard Control */}
+          {isHost && (
             <button
-              onClick={async () => {
-                if (roomFeatures?.enableNoiseCancellation ?? false) {
-                  try {
-                    await toggleNoiseCancellation();
-                    // Success toast will be shown after state updates (handled by useEffect watching the state)
-                  } catch (error) {
-                    console.error('Failed to toggle noise cancellation:', error);
-                    toast.error('Failed to toggle noise cancellation');
-                  }
+              onClick={() => {
+                if (roomFeatures?.enableNormalWhiteboard ?? false) {
+                  setIsNormalWhiteboardOpen(true);
+                  closeDropdown();
                 }
               }}
-              disabled={!(roomFeatures?.enableNoiseCancellation ?? false) || isNoiseCancellationPending}
+              disabled={!(roomFeatures?.enableNormalWhiteboard ?? false)}
               style={{
                 width: '100%',
                 padding: '8px 12px',
-                backgroundColor: isNoiseCancellationEnabled
-                  ? 'rgba(34, 197, 94, 0.2)'
-                  : (roomFeatures?.enableNoiseCancellation ?? false)
-                  ? 'rgba(255, 255, 255, 0.1)'
-                  : 'rgba(128, 128, 128, 0.1)',
-                color: isNoiseCancellationEnabled
-                  ? '#22c55e'
-                  : (roomFeatures?.enableNoiseCancellation ?? false)
-                  ? 'white'
-                  : 'rgba(255, 255, 255, 0.5)',
-                border: isNoiseCancellationEnabled
-                  ? '1px solid #22c55e'
-                  : '1px solid rgba(255, 255, 255, 0.2)',
+                backgroundColor: (roomFeatures?.enableNormalWhiteboard ?? false) ? 'rgba(255, 255, 255, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                color: (roomFeatures?.enableNormalWhiteboard ?? false) ? 'white' : 'rgba(255, 255, 255, 0.5)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
                 borderRadius: '8px',
-                cursor: (roomFeatures?.enableNoiseCancellation ?? false) && !isNoiseCancellationPending
-                  ? 'pointer'
-                  : 'not-allowed',
+                cursor: (roomFeatures?.enableNormalWhiteboard ?? false) ? 'pointer' : 'not-allowed',
                 fontSize: '13px',
                 fontWeight: '500',
                 display: 'flex',
@@ -862,88 +712,310 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
                 gap: '8px',
                 transition: 'all 0.2s ease',
                 textAlign: 'left',
-                position: 'relative',
-                boxShadow: isNoiseCancellationEnabled
-                  ? '0 0 8px rgba(34, 197, 94, 0.3)'
-                  : 'none',
+                position: 'relative'
               }}
               onMouseEnter={(e) => {
-                if ((roomFeatures?.enableNoiseCancellation ?? false) && !isNoiseCancellationPending) {
-                  if (isNoiseCancellationEnabled) {
-                    e.currentTarget.style.backgroundColor = 'rgba(34, 197, 94, 0.3)';
-                    e.currentTarget.style.boxShadow = '0 0 12px rgba(34, 197, 94, 0.4)';
-                  } else {
-                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
-                  }
+                if (roomFeatures?.enableNormalWhiteboard ?? false) {
+                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
                 }
               }}
               onMouseLeave={(e) => {
-                if ((roomFeatures?.enableNoiseCancellation ?? false) && !isNoiseCancellationPending) {
-                  if (isNoiseCancellationEnabled) {
-                    e.currentTarget.style.backgroundColor = 'rgba(34, 197, 94, 0.2)';
-                    e.currentTarget.style.boxShadow = '0 0 8px rgba(34, 197, 94, 0.3)';
-                  } else {
-                    e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                  }
+                if (roomFeatures?.enableNormalWhiteboard ?? false) {
+                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
                 }
               }}
-              title={
-                !(roomFeatures?.enableNoiseCancellation ?? false)
-                  ? 'Upgrade required for this feature'
-                  : isNoiseCancellationPending
-                  ? 'Processing...'
-                  : isNoiseCancellationEnabled
-                  ? 'Noise Cancellation Active - Click to disable'
-                  : 'Enable Noise Cancellation'
-              }
+              title={(roomFeatures?.enableNormalWhiteboard ?? false) ? "Open Normal Whiteboard" : "Upgrade required for this feature"}
             >
-              {isNoiseCancellationPending ? (
-                <>
-                  <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
-                  <span>Processing...</span>
-                </>
-              ) : isNoiseCancellationEnabled ? (
-                <>
-                  <Check size={14} />
-                  <span>Noise Cancellation Active</span>
-                </>
-              ) : (
-                <>
-                  <span style={{ fontSize: '14px' }}>🔇</span>
-                  <span>Noise Cancellation</span>
-                </>
-              )}
-              {!(roomFeatures?.enableNoiseCancellation ?? false) && (
-                <span
-                  style={{
-                    marginLeft: 'auto',
-                    padding: '2px 6px',
-                    background: 'linear-gradient(to right, #a855f7, #ec4899)',
-                    borderRadius: '4px',
-                    fontSize: '10px',
-                    fontWeight: 'bold',
-                    direction: 'ltr',
-                  }}
-                >
-                  PRO
-                </span>
+              <span style={{ fontSize: '14px' }}>📝</span>
+              Normal Whiteboard
+              {!(roomFeatures?.enableNormalWhiteboard ?? false) && (
+                <span style={{
+                  marginLeft: 'auto',
+                  padding: '2px 6px',
+                  background: 'linear-gradient(to right, #a855f7, #ec4899)',
+                  borderRadius: '4px',
+                  fontSize: '10px',
+                  fontWeight: 'bold'
+                }}>PRO</span>
               )}
             </button>
+          )}
 
-            {/* Settings Control */}
+          {/* Participant Manager */}
+          {isHost && (
             <button
               onClick={() => {
-                toggleSettings();
+                if (roomFeatures?.enableManageParticipants ?? false) {
+                  setIsParticipantManagerOpen(!isParticipantManagerOpen);
+                  closeDropdown();
+                }
+              }}
+              disabled={!(roomFeatures?.enableManageParticipants ?? false)}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                backgroundColor: (roomFeatures?.enableManageParticipants ?? false) ? 'rgba(255, 255, 255, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+                color: (roomFeatures?.enableManageParticipants ?? false) ? 'white' : 'rgba(255, 255, 255, 0.5)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '8px',
+                cursor: (roomFeatures?.enableManageParticipants ?? false) ? 'pointer' : 'not-allowed',
+                fontSize: '13px',
+                fontWeight: '500',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                transition: 'all 0.2s ease',
+                textAlign: 'left',
+                position: 'relative'
+              }}
+              onMouseEnter={(e) => {
+                if (roomFeatures?.enableManageParticipants ?? false) {
+                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (roomFeatures?.enableManageParticipants ?? false) {
+                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                }
+              }}
+              title={(roomFeatures?.enableManageParticipants ?? false) ? "Manage Participants" : "Upgrade required for this feature"}
+            >
+              <span style={{ fontSize: '14px' }}>👥</span>
+              Participants ({allParticipants.length})
+              {!(roomFeatures?.enableManageParticipants ?? false) && (
+                <span style={{
+                  marginLeft: 'auto',
+                  padding: '2px 6px',
+                  background: 'linear-gradient(to right, #a855f7, #ec4899)',
+                  borderRadius: '4px',
+                  fontSize: '10px',
+                  fontWeight: 'bold'
+                }}>PRO</span>
+              )}
+            </button>
+          )}
+
+          {/* Virtual Background Control */}
+          <button
+            onClick={() => {
+              if (roomFeatures?.enableVirtualBackground ?? false) {
+                setIsSettingsOpen(true);
                 closeDropdown();
+              }
+            }}
+            disabled={!(roomFeatures?.enableVirtualBackground ?? false)}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              backgroundColor: (roomFeatures?.enableVirtualBackground ?? false) ? 'rgba(255, 255, 255, 0.1)' : 'rgba(128, 128, 128, 0.1)',
+              color: (roomFeatures?.enableVirtualBackground ?? false) ? 'white' : 'rgba(255, 255, 255, 0.5)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: '8px',
+              cursor: (roomFeatures?.enableVirtualBackground ?? false) ? 'pointer' : 'not-allowed',
+              fontSize: '13px',
+              fontWeight: '500',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s ease',
+              textAlign: 'left',
+              position: 'relative'
+            }}
+            onMouseEnter={(e) => {
+              if (roomFeatures?.enableVirtualBackground ?? false) {
+                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (roomFeatures?.enableVirtualBackground ?? false) {
+                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+              }
+            }}
+            title={(roomFeatures?.enableVirtualBackground ?? false) ? "Virtual Background" : "Upgrade required for this feature"}
+          >
+            <span style={{ fontSize: '14px' }}>🖼️</span>
+            Virtual Background
+            {!(roomFeatures?.enableVirtualBackground ?? false) && (
+              <span style={{
+                marginLeft: 'auto',
+                padding: '2px 6px',
+                background: 'linear-gradient(to right, #a855f7, #ec4899)',
+                borderRadius: '4px',
+                fontSize: '10px',
+                fontWeight: 'bold',
+                direction: 'ltr'
+              }}>PRO</span>
+            )}
+          </button>
+
+          {/* Noise Cancellation Control */}
+          <button
+            onClick={async () => {
+              if (roomFeatures?.enableNoiseCancellation ?? false) {
+                try {
+                  await toggleNoiseCancellation();
+                  // Success toast will be shown after state updates (handled by useEffect watching the state)
+                } catch (error) {
+                  console.error('Failed to toggle noise cancellation:', error);
+                  toast.error('Failed to toggle noise cancellation');
+                }
+              }
+            }}
+            disabled={!(roomFeatures?.enableNoiseCancellation ?? false) || isNoiseCancellationPending}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              backgroundColor: isNoiseCancellationEnabled
+                ? 'rgba(34, 197, 94, 0.2)'
+                : (roomFeatures?.enableNoiseCancellation ?? false)
+                  ? 'rgba(255, 255, 255, 0.1)'
+                  : 'rgba(128, 128, 128, 0.1)',
+              color: isNoiseCancellationEnabled
+                ? '#22c55e'
+                : (roomFeatures?.enableNoiseCancellation ?? false)
+                  ? 'white'
+                  : 'rgba(255, 255, 255, 0.5)',
+              border: isNoiseCancellationEnabled
+                ? '1px solid #22c55e'
+                : '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: '8px',
+              cursor: (roomFeatures?.enableNoiseCancellation ?? false) && !isNoiseCancellationPending
+                ? 'pointer'
+                : 'not-allowed',
+              fontSize: '13px',
+              fontWeight: '500',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s ease',
+              textAlign: 'left',
+              position: 'relative',
+              boxShadow: isNoiseCancellationEnabled
+                ? '0 0 8px rgba(34, 197, 94, 0.3)'
+                : 'none',
+            }}
+            onMouseEnter={(e) => {
+              if ((roomFeatures?.enableNoiseCancellation ?? false) && !isNoiseCancellationPending) {
+                if (isNoiseCancellationEnabled) {
+                  e.currentTarget.style.backgroundColor = 'rgba(34, 197, 94, 0.3)';
+                  e.currentTarget.style.boxShadow = '0 0 12px rgba(34, 197, 94, 0.4)';
+                } else {
+                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                }
+              }
+            }}
+            onMouseLeave={(e) => {
+              if ((roomFeatures?.enableNoiseCancellation ?? false) && !isNoiseCancellationPending) {
+                if (isNoiseCancellationEnabled) {
+                  e.currentTarget.style.backgroundColor = 'rgba(34, 197, 94, 0.2)';
+                  e.currentTarget.style.boxShadow = '0 0 8px rgba(34, 197, 94, 0.3)';
+                } else {
+                  e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                }
+              }
+            }}
+            title={
+              !(roomFeatures?.enableNoiseCancellation ?? false)
+                ? 'Upgrade required for this feature'
+                : isNoiseCancellationPending
+                  ? 'Processing...'
+                  : isNoiseCancellationEnabled
+                    ? 'Noise Cancellation Active - Click to disable'
+                    : 'Enable Noise Cancellation'
+            }
+          >
+            {isNoiseCancellationPending ? (
+              <>
+                <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                <span>Processing...</span>
+              </>
+            ) : isNoiseCancellationEnabled ? (
+              <>
+                <Check size={14} />
+                <span>Noise Cancellation Active</span>
+              </>
+            ) : (
+              <>
+                <span style={{ fontSize: '14px' }}>🔇</span>
+                <span>Noise Cancellation</span>
+              </>
+            )}
+            {!(roomFeatures?.enableNoiseCancellation ?? false) && (
+              <span
+                style={{
+                  marginLeft: 'auto',
+                  padding: '2px 6px',
+                  background: 'linear-gradient(to right, #a855f7, #ec4899)',
+                  borderRadius: '4px',
+                  fontSize: '10px',
+                  fontWeight: 'bold',
+                  direction: 'ltr',
+                }}
+              >
+                PRO
+              </span>
+            )}
+          </button>
+
+          {/* Settings Control */}
+          <button
+            onClick={() => {
+              toggleSettings();
+              closeDropdown();
+            }}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              color: 'white',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: '500',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s ease',
+              textAlign: 'left'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+            }}
+            title="Video Background Settings"
+          >
+            <span style={{ fontSize: '14px' }}>⚙️</span>
+            Settings
+          </button>
+
+          {/* Chat Control - Removed, now handled by separate ChatButton */}
+
+          {/* End Meeting Button (Host only) */}
+          {isHost && (
+            <button
+              onClick={() => {
+                closeDropdown();
+                onEndMeeting();
               }}
               style={{
                 width: '100%',
                 padding: '8px 12px',
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                color: 'white',
-                border: '1px solid rgba(255, 255, 255, 0.2)',
+                backgroundColor: 'rgba(239, 68, 68, 0.2)',
+                color: '#fca5a5',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
                 borderRadius: '8px',
                 cursor: 'pointer',
                 fontSize: '13px',
@@ -952,66 +1024,27 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
                 alignItems: 'center',
                 gap: '8px',
                 transition: 'all 0.2s ease',
-                textAlign: 'left'
+                textAlign: 'left',
+                marginTop: '4px'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.3)';
+                e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                e.currentTarget.style.color = '#f87171';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.2)';
+                e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                e.currentTarget.style.color = '#fca5a5';
               }}
-              title="Video Background Settings"
+              title="End Meeting for All Participants"
             >
-              <span style={{ fontSize: '14px' }}>⚙️</span>
-              Settings
+              <span style={{ fontSize: '14px' }}>🚪</span>
+              End Meeting
             </button>
-
-            {/* Chat Control - Removed, now handled by separate ChatButton */}
-
-            {/* End Meeting Button (Host only) */}
-            {isHost && (
-              <button
-                onClick={() => {
-                  closeDropdown();
-                  onEndMeeting();
-                }}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  backgroundColor: 'rgba(239, 68, 68, 0.2)',
-                  color: '#fca5a5',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  fontWeight: '500',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  transition: 'all 0.2s ease',
-                  textAlign: 'left',
-                  marginTop: '4px'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.3)';
-                  e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.4)';
-                  e.currentTarget.style.color = '#f87171';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.2)';
-                  e.currentTarget.style.borderColor = 'rgba(239, 68, 68, 0.3)';
-                  e.currentTarget.style.color = '#fca5a5';
-                }}
-                title="End Meeting for All Participants"
-              >
-                <span style={{ fontSize: '14px' }}>🚪</span>
-                End Meeting
-              </button>
-            )}
-          </div>
+          )}
         </div>
+      </div>
 
       {/* Whiteboard Component - Rendered via portal */}
       {mounted && createPortal(
@@ -1147,13 +1180,13 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
             </div>
 
             {/* Settings Menu Content */}
-            <div style={{ 
-              flex: 1, 
+            <div style={{
+              flex: 1,
               overflow: 'auto',
               padding: '20px 24px',
               direction: 'ltr'
             }}>
-              <SettingsMenu canRecord={canRecord} roomFeatures={roomFeatures} />
+              <SettingsMenu canRecord={canRecord} roomFeatures={roomFeatures} isHost={isHost} />
             </div>
           </div>
         </div>,
@@ -1270,8 +1303,8 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
                   style={{
                     flex: 1,
                     padding: '12px 20px',
-                    background: isMutingAll 
-                      ? 'rgba(239, 68, 68, 0.3)' 
+                    background: isMutingAll
+                      ? 'rgba(239, 68, 68, 0.3)'
                       : 'linear-gradient(135deg, rgba(239, 68, 68, 0.9) 0%, rgba(220, 38, 38, 0.9) 100%)',
                     border: '1px solid rgba(239, 68, 68, 0.5)',
                     borderRadius: '10px',
@@ -1304,7 +1337,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
             )}
 
             {/* Participants List */}
-            <div style={{ 
+            <div style={{
               flex: 1,
               overflowY: 'auto',
               overflowX: 'visible',
@@ -1480,9 +1513,9 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
         const participant = allParticipants.find(p => p.identity === activeMenu);
         const status = participantStatuses.get(activeMenu);
         if (!participant) return null;
-        
+
         return createPortal(
-          <div 
+          <div
             data-dropdown-menu
             dir="ltr"
             style={{
@@ -1506,140 +1539,106 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
                 setMenuPosition(null);
               }}
               style={{
-                                  width: '100%',
-                                  padding: '12px 18px',
-                                  background: 'transparent',
-                                  border: 'none',
-                                  textAlign: 'left',
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '12px',
-                                  fontSize: '14px',
-                                  fontWeight: '500',
-                                  color: 'rgba(255, 255, 255, 0.9)',
-                                  transition: 'all 0.15s'
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.background = 'rgba(59, 130, 246, 0.15)';
-                                  e.currentTarget.style.color = '#60a5fa';
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.background = 'transparent';
-                                  e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
-                                }}
-                              >
-                                {status?.audioEnabled ? <MicOff size={17} /> : <Mic size={17} />}
-                                {status?.audioEnabled ? 'Mute' : 'Unmute'}
-                              </button>
+                width: '100%',
+                padding: '12px 18px',
+                background: 'transparent',
+                border: 'none',
+                textAlign: 'left',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                fontSize: '14px',
+                fontWeight: '500',
+                color: 'rgba(255, 255, 255, 0.9)',
+                transition: 'all 0.15s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(59, 130, 246, 0.15)';
+                e.currentTarget.style.color = '#60a5fa';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
+              }}
+            >
+              {status?.audioEnabled ? <MicOff size={17} /> : <Mic size={17} />}
+              {status?.audioEnabled ? 'Mute' : 'Unmute'}
+            </button>
 
-                              <button
-                                onClick={() => {
-                                  requestVideoControl(activeMenu, !status?.videoEnabled);
-                                  setActiveMenu(null);
-                                  setMenuPosition(null);
-                                }}
-                                style={{
-                                  width: '100%',
-                                  padding: '12px 18px',
-                                  background: 'transparent',
-                                  border: 'none',
-                                  textAlign: 'left',
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '12px',
-                                  fontSize: '14px',
-                                  fontWeight: '500',
-                                  color: 'rgba(255, 255, 255, 0.9)',
-                                  transition: 'all 0.15s'
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.background = 'rgba(59, 130, 246, 0.15)';
-                                  e.currentTarget.style.color = '#60a5fa';
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.background = 'transparent';
-                                  e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
-                                }}
-                              >
-                                {status?.videoEnabled ? <VideoOff size={17} /> : <Video size={17} />}
-                                {status?.videoEnabled ? 'Close camera' : 'Request camera on'}
-                              </button>
+            <button
+              onClick={() => {
+                requestVideoControl(activeMenu, !status?.videoEnabled);
+                setActiveMenu(null);
+                setMenuPosition(null);
+              }}
+              style={{
+                width: '100%',
+                padding: '12px 18px',
+                background: 'transparent',
+                border: 'none',
+                textAlign: 'left',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                fontSize: '14px',
+                fontWeight: '500',
+                color: 'rgba(255, 255, 255, 0.9)',
+                transition: 'all 0.15s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(59, 130, 246, 0.15)';
+                e.currentTarget.style.color = '#60a5fa';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
+              }}
+            >
+              {status?.videoEnabled ? <VideoOff size={17} /> : <Video size={17} />}
+              {status?.videoEnabled ? 'Close camera' : 'Request camera on'}
+            </button>
 
-                              <button
-                                onClick={() => {
-                                  openPrivateChat(activeMenu);
-                                  setActiveMenu(null);
-                                  setMenuPosition(null);
-                                }}
-                                style={{
-                                  width: '100%',
-                                  padding: '12px 18px',
-                                  background: 'transparent',
-                                  border: 'none',
-                                  textAlign: 'left',
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '12px',
-                                  fontSize: '14px',
-                                  fontWeight: '500',
-                                  color: 'rgba(255, 255, 255, 0.9)',
-                                  transition: 'all 0.15s'
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.background = 'rgba(59, 130, 246, 0.15)';
-                                  e.currentTarget.style.color = '#60a5fa';
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.background = 'transparent';
-                                  e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)';
-                                }}
-                              >
-                                <MessageSquare size={17} />
-                                Send private message
-                              </button>
+            <div style={{
+              height: '1px',
+              background: 'rgba(255, 255, 255, 0.1)',
+              margin: '6px 0'
+            }} />
 
-                              <div style={{
-                                height: '1px',
-                                background: 'rgba(255, 255, 255, 0.1)',
-                                margin: '6px 0'
-                              }} />
-
-                              <button
-                                onClick={() => {
-                                  handleRemoveClick(activeMenu);
-                                  setActiveMenu(null);
-                                  setMenuPosition(null);
-                                }}
-                                style={{
-                                  width: '100%',
-                                  padding: '12px 18px',
-                                  background: 'transparent',
-                                  border: 'none',
-                                  textAlign: 'left',
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '12px',
-                                  fontSize: '14px',
-                                  fontWeight: '500',
-                                  color: '#ef4444',
-                                  transition: 'all 0.15s'
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
-                                  e.currentTarget.style.color = '#f87171';
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.background = 'transparent';
-                                  e.currentTarget.style.color = '#ef4444';
-                                }}
-                              >
-                                <UserMinus size={17} />
-                                Remove from meeting
-                              </button>
+            <button
+              onClick={() => {
+                handleRemoveClick(activeMenu);
+                setActiveMenu(null);
+                setMenuPosition(null);
+              }}
+              style={{
+                width: '100%',
+                padding: '12px 18px',
+                background: 'transparent',
+                border: 'none',
+                textAlign: 'left',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                fontSize: '14px',
+                fontWeight: '500',
+                color: '#ef4444',
+                transition: 'all 0.15s'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)';
+                e.currentTarget.style.color = '#f87171';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.color = '#ef4444';
+              }}
+            >
+              <UserMinus size={17} />
+              Remove from meeting
+            </button>
           </div>,
           document.body
         );
@@ -1666,8 +1665,8 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
           color: 'white',
           fontWeight: '500',
           fontSize: '14px',
-          backgroundColor: participantNotification.type === 'success' ? '#10b981' : 
-                          participantNotification.type === 'error' ? '#ef4444' : '#3b82f6',
+          backgroundColor: participantNotification.type === 'success' ? '#10b981' :
+            participantNotification.type === 'error' ? '#ef4444' : '#3b82f6',
           boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
           backdropFilter: 'blur(10px)'
         }}>
@@ -1682,7 +1681,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
           100% { transform: rotate(360deg); }
         }
       `}</style>
-      
+
       <style jsx global>{`
         /* Settings Modal Mobile Responsive */
         @media (max-width: 768px) {

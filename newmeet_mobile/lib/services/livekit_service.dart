@@ -645,12 +645,111 @@ class LiveKitService extends ChangeNotifier {
     }
   }
 
+  // Current camera position
+  lk.CameraPosition _currentCameraPosition = lk.CameraPosition.front;
+
+  // Get current camera position
+  lk.CameraPosition get currentCameraPosition => _currentCameraPosition;
+
   // Toggle camera
   Future<void> toggleCamera() async {
     if (_room?.localParticipant != null) {
       final isEnabled = _room!.localParticipant!.isCameraEnabled();
       await _room!.localParticipant!.setCameraEnabled(!isEnabled);
       notifyListeners();
+    }
+  }
+
+  // Switch camera position (front/back)
+  Future<void> switchCamera() async {
+    if (_room?.localParticipant == null) {
+      Logger.warning('LiveKit: Cannot switch camera - no local participant', 'LiveKitService');
+      return;
+    }
+
+    try {
+      final wasEnabled = _room!.localParticipant!.isCameraEnabled();
+      
+      // Toggle camera position
+      _currentCameraPosition = _currentCameraPosition == lk.CameraPosition.front
+          ? lk.CameraPosition.back
+          : lk.CameraPosition.front;
+
+      Logger.debug('LiveKit: Switching camera to ${_currentCameraPosition == lk.CameraPosition.front ? "front" : "back"}', 'LiveKitService');
+
+      // If camera was enabled, we need to recreate the track with new position
+      if (wasEnabled) {
+        // Disable camera first
+        await _room!.localParticipant!.setCameraEnabled(false);
+        
+        // Small delay to ensure track is properly stopped
+        await Future.delayed(const Duration(milliseconds: 100));
+        
+        // Enable camera with new position
+        // Note: LiveKit SDK's setCameraEnabled doesn't directly support camera position
+        // We need to unpublish the current track and create a new one
+        await _recreateCameraTrack();
+      }
+      
+      notifyListeners();
+    } catch (e) {
+      Logger.error(' LiveKit: Failed to switch camera: $e', e, null, 'LiveKitService');
+      _error = 'Failed to switch camera: $e';
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  // Recreate camera track with current position
+  Future<void> _recreateCameraTrack() async {
+    if (_room?.localParticipant == null) return;
+
+    try {
+      // Find and unpublish the current camera track
+      // First disable the camera to stop the current track
+      await _room!.localParticipant!.setCameraEnabled(false);
+      
+      // Wait a moment for the track to be fully stopped
+      await Future.delayed(const Duration(milliseconds: 100));
+      
+      // Find and remove camera track publications
+      final videoPublications = _room!.localParticipant!.videoTrackPublications.toList();
+      for (final publication in videoPublications) {
+        // Check if this is a camera track (not screen share)
+        final name = publication.name?.toLowerCase() ?? '';
+        final isScreenShare = name.contains('screen') || 
+                            name.contains('screenshare') ||
+                            name.contains('screen-share');
+        
+        if (!isScreenShare && publication.track != null) {
+          // Stop the track
+          await publication.track!.stop();
+          Logger.debug('LiveKit: Stopped old camera track', 'LiveKitService');
+        }
+      }
+
+      // Create new camera track with new position
+      final newTrack = await lk.LocalVideoTrack.createCameraTrack(
+        lk.CameraCaptureOptions(
+          cameraPosition: _currentCameraPosition,
+        ),
+      );
+
+      // Publish the new track
+      await _room!.localParticipant!.publishVideoTrack(newTrack);
+      Logger.debug('LiveKit: Published new camera track with position: ${_currentCameraPosition == lk.CameraPosition.front ? "front" : "back"}', 'LiveKitService');
+      
+      // Ensure camera is enabled after publishing
+      await _room!.localParticipant!.setCameraEnabled(true);
+    } catch (e) {
+      Logger.error(' LiveKit: Failed to recreate camera track: $e', e, null, 'LiveKitService');
+      // Try to re-enable camera with old method as fallback
+      try {
+        await _room!.localParticipant!.setCameraEnabled(true);
+      } catch (fallbackError) {
+        Logger.error(' LiveKit: Fallback camera enable also failed: $fallbackError', fallbackError, null, 'LiveKitService');
+      }
+      rethrow;
     }
   }
 

@@ -98,5 +98,31 @@ export function logCommandInjectionAttempt(ip: string, userAgent: string, input:
     userAgent,
     details: `Potential command injection detected in input: ${input.substring(0, 100)}`,
   });
+  
+  // In production, you might want to send this to an external service
+  // Example: sendToSecurityService({ type: 'COMMAND_INJECTION', ip, userAgent, input });
+}
+
+/**
+ * Send security event to external logging service
+ * Configure this based on your logging infrastructure
+ */
+export async function sendToSecurityService(event: SecurityEvent): Promise<void> {
+  // Example implementation - customize based on your needs
+  if (process.env.SECURITY_WEBHOOK_URL) {
+    try {
+      await fetch(process.env.SECURITY_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...event,
+          service: 'almajd-meet',
+          environment: process.env.NODE_ENV,
+        }),
+      });
+    } catch (error) {
+      console.error('[Security] Failed to send event to external service:', error);
+    }
+  }
 }
 
