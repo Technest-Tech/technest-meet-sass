@@ -5,10 +5,16 @@ import { logParticipantLeft, logRoomEnded } from '@/lib/services/roomActivityLog
 import { sanitizeRoomIdentifier } from '@/lib/utils/sanitize';
 import { getSecrets } from '@/lib/config/secrets';
 
-const receiver = new WebhookReceiver(
-  getSecrets().livekitApiKey,
-  getSecrets().livekitApiSecret
-);
+// Lazy initialization to avoid calling getSecrets() at build time
+let receiver: WebhookReceiver | null = null;
+
+function getReceiver(): WebhookReceiver {
+  if (!receiver) {
+    const secrets = getSecrets();
+    receiver = new WebhookReceiver(secrets.livekitApiKey, secrets.livekitApiSecret);
+  }
+  return receiver;
+}
 
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get('authorization') || '';
@@ -23,7 +29,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const event = await receiver.receive(body, authHeader);
+    const event = await getReceiver().receive(body, authHeader);
     const roomName = event.room?.name;
 
     if (!roomName) {
