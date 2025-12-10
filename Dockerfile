@@ -40,8 +40,8 @@ RUN chown -R nextjs:nodejs /app && \
     chmod -R a-w /app/.next 2>/dev/null || true
 
 # Set read-only for sensitive directories (using tmpfs in docker-compose)
-# Remove shell access for security
-RUN rm -f /bin/sh /bin/bash 2>/dev/null || true
+# Note: We keep /bin/sh as npm requires it to run scripts
+# Security is maintained through read-only filesystem and non-root user
 
 # Switch to non-root user
 USER nextjs
