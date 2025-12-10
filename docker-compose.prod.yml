@@ -45,6 +45,7 @@ services:
       - /tmp:noexec,nosuid,nodev,size=100m  # Prevent execution from /tmp
       - /var/tmp:noexec,nosuid,nodev,size=100m
       - /app/.next/cache:noexec,nosuid,nodev,size=500m  # Cache in memory
+      - /home/nextjs/.npm:noexec,nosuid,nodev,size=100m  # npm cache directory
     user: "1001:1001"  # Ensure non-root user (already set in Dockerfile, but explicit here)
     ulimits:
       nproc: 512  # Limit process creation to prevent fork bombs
