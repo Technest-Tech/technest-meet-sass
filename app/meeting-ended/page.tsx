@@ -1,8 +1,6 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { ArrowRight } from 'lucide-react';
 
 export default function MeetingEndedPage() {
   const [isVisible, setIsVisible] = useState(false);
@@ -147,17 +145,6 @@ export default function MeetingEndedPage() {
           <p className="text-lg sm:text-xl text-gray-600 mb-8 max-w-xl mx-auto leading-relaxed">
             نأمل أن تكون قد استمتعت بالاجتماع. نراك قريباً!
           </p>
-
-          {/* Return Home Button */}
-          <div className="mt-10">
-            <Link
-              href="/"
-              className="group inline-flex items-center justify-center gap-3 px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl font-bold text-lg shadow-2xl shadow-blue-500/30 hover:shadow-blue-500/50 hover:scale-105 transition-all duration-300"
-            >
-              <span>العودة إلى الصفحة الرئيسية</span>
-              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-            </Link>
-          </div>
 
           {/* Decorative Elements */}
           <div className="mt-16 flex justify-center gap-4 opacity-30">

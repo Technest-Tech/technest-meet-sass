@@ -54,13 +54,13 @@ export function WhiteboardControl({ isHost }: WhiteboardControlProps) {
     // Send command to all participants
     sendWhiteboardToggle(newState ? 'open' : 'close');
     
-    // Show notification for host
-    setNotification({
-      message: newState 
-        ? 'Whiteboard opened for all participants' 
-        : 'Whiteboard closed for all participants',
-      type: 'success'
-    });
+    // Only show notification when opening, not when closing
+    if (newState) {
+      setNotification({
+        message: 'Whiteboard opened for all participants',
+        type: 'success'
+      });
+    }
   };
 
   // Handle host control of whiteboard state
@@ -68,12 +68,10 @@ export function WhiteboardControl({ isHost }: WhiteboardControlProps) {
     setIsWhiteboardOpen(isOpen);
     setIsWaitingForHost(false); // No longer waiting for host
     
-    // Show notification for guests when host controls whiteboard
-    if (!isHost) {
+    // Only show notification when opening, not when closing
+    if (!isHost && isOpen) {
       setNotification({
-        message: isOpen 
-          ? 'Host opened whiteboard for all participants' 
-          : 'Host closed whiteboard for all participants',
+        message: 'Host opened whiteboard for all participants',
         type: 'info'
       });
     }

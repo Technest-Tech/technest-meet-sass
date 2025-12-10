@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateUser, generateToken } from '@/lib/auth';
+import { sanitizeEmail, sanitizeString, detectCommandInjection } from '@/lib/utils/sanitize';
+import { logCommandInjectionAttempt } from '@/lib/utils/securityLogger';
 
 export async function POST(request: NextRequest) {
   try {
     const { email, password } = await request.json();
+    const ip = request.ip || request.headers.get('x-forwarded-for') || 'unknown';
+    const userAgent = request.headers.get('user-agent') || 'unknown';
 
     if (!email || !password) {
       return NextResponse.json(
@@ -12,7 +16,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const user = await authenticateUser(email, password);
+    // Check for command injection attempts
+    if (detectCommandInjection(email) || detectCommandInjection(password)) {
+      logCommandInjectionAttempt(ip, userAgent, `email: ${email.substring(0, 50)}`);
+      return NextResponse.json(
+        { error: 'Invalid input detected' },
+        { status: 400 }
+      );
+    }
+
+    // Sanitize inputs
+    const sanitizedEmail = sanitizeEmail(email);
+    const sanitizedPassword = sanitizeString(password);
+
+    const user = await authenticateUser(sanitizedEmail, sanitizedPassword);
 
     if (!user) {
       return NextResponse.json(

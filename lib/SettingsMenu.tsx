@@ -18,6 +18,7 @@ import { MicrophoneSettings } from './MicrophoneSettings';
 export interface SettingsMenuProps extends React.HTMLAttributes<HTMLDivElement> {
   canRecord?: boolean;
   onClose?: () => void;
+  isHost?: boolean;
   roomFeatures?: {
     enableVirtualBackground?: boolean;
     enableNoiseCancellation?: boolean;
@@ -29,17 +30,11 @@ export interface SettingsMenuProps extends React.HTMLAttributes<HTMLDivElement> 
  */
 export function SettingsMenu(props: SettingsMenuProps) {
   // Destructure custom props to avoid passing them to DOM
-  const { canRecord, onClose, roomFeatures, ...domProps } = props;
-  
+  const { canRecord, onClose, roomFeatures, isHost, ...domProps } = props;
+
   const layoutContext = useMaybeLayoutContext();
   const room = useRoomContext();
   const recordingEndpoint = process.env.NEXT_PUBLIC_LK_RECORD_ENDPOINT;
-
-  // Add debugging
-  React.useEffect(() => {
-    console.log('SettingsMenu mounted, layoutContext:', layoutContext);
-    console.log('Room:', room);
-  }, [layoutContext, room]);
 
   const settings = React.useMemo(() => {
     return {
@@ -111,12 +106,12 @@ export function SettingsMenu(props: SettingsMenuProps) {
                 onClick={() => setActiveTab(tab)}
                 style={{
                   padding: '10px 20px',
-                  backgroundColor: tab === activeTab 
-                    ? 'rgba(79, 195, 247, 0.2)' 
+                  backgroundColor: tab === activeTab
+                    ? 'rgba(79, 195, 247, 0.2)'
                     : 'rgba(255, 255, 255, 0.05)',
                   color: tab === activeTab ? '#4fc3f7' : 'rgba(255, 255, 255, 0.7)',
-                  border: tab === activeTab 
-                    ? '1px solid #4fc3f7' 
+                  border: tab === activeTab
+                    ? '1px solid #4fc3f7'
                     : '1px solid rgba(255, 255, 255, 0.1)',
                   borderRadius: '8px',
                   cursor: 'pointer',
@@ -152,7 +147,7 @@ export function SettingsMenu(props: SettingsMenuProps) {
           <>
             {settings.media && settings.media.camera && (
               <div style={{ marginBottom: '32px' }}>
-                <h3 style={{ 
+                <h3 style={{
                   margin: '0 0 16px 0',
                   fontSize: '16px',
                   fontWeight: '600',
@@ -164,13 +159,13 @@ export function SettingsMenu(props: SettingsMenuProps) {
                   📹 Camera
                 </h3>
                 <section>
-                  <CameraSettings roomFeatures={roomFeatures} />
+                  <CameraSettings roomFeatures={roomFeatures} isHost={isHost} />
                 </section>
               </div>
             )}
             {settings.media && settings.media.microphone && (
               <div style={{ marginBottom: '32px' }}>
-                <h3 style={{ 
+                <h3 style={{
                   margin: '0 0 16px 0',
                   fontSize: '16px',
                   fontWeight: '600',
@@ -188,7 +183,7 @@ export function SettingsMenu(props: SettingsMenuProps) {
             )}
             {settings.media && settings.media.speaker && (
               <div style={{ marginBottom: '32px' }}>
-                <h3 style={{ 
+                <h3 style={{
                   margin: '0 0 16px 0',
                   fontSize: '16px',
                   fontWeight: '600',
@@ -211,7 +206,7 @@ export function SettingsMenu(props: SettingsMenuProps) {
         )}
         {activeTab === 'recording' && (
           <div style={{ marginBottom: '32px' }}>
-            <h3 style={{ 
+            <h3 style={{
               margin: '0 0 16px 0',
               fontSize: '16px',
               fontWeight: '600',
@@ -223,7 +218,7 @@ export function SettingsMenu(props: SettingsMenuProps) {
               ⏺️ Record Meeting
             </h3>
             <section>
-              <p style={{ 
+              <p style={{
                 color: 'rgba(255, 255, 255, 0.8)',
                 marginBottom: '16px'
               }}>
@@ -231,8 +226,8 @@ export function SettingsMenu(props: SettingsMenuProps) {
                   ? '🔴 Meeting is currently being recorded'
                   : 'No active recordings for this meeting'}
               </p>
-              <button 
-                disabled={processingRecRequest} 
+              <button
+                disabled={processingRecRequest}
                 onClick={() => toggleRoomRecording()}
                 style={{
                   padding: '10px 20px',

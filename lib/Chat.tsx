@@ -4,19 +4,26 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useRoomContext, useLocalParticipant, useParticipants } from '@livekit/components-react';
 import toast from 'react-hot-toast';
-import { Lock, Download, Users } from 'lucide-react';
+import { Lock, Download, Users, Upload, File, Image as ImageIcon } from 'lucide-react';
 import styles from '@/styles/Chat.module.css';
 import { filterObservers } from './utils/observer-filter';
+import { ChatFileMessage } from './types';
 
 interface ChatMessage {
   id: string;
   sender: string;
-  message: string;
+  message?: string;
   timestamp: number;
   isLocal: boolean;
   recipientType: 'all' | 'host' | 'specific';
   recipientId?: string;
   isPrivate: boolean;
+  fileData?: {
+    fileId: string;
+    fileName: string;
+    fileType: string;
+    fileSize: number;
+  };
 }
 
 interface ChatProps {
@@ -37,8 +44,13 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
   const [mounted, setMounted] = useState(false);
   const [recipientType, setRecipientType] = useState<'all' | 'host' | 'specific'>('all');
   const [selectedRecipient, setSelectedRecipient] = useState<string>('');
+  const [showParticipantDropdown, setShowParticipantDropdown] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadRequestRef = useRef<XMLHttpRequest | null>(null);
 
   // Ensure component is mounted on client-side
   useEffect(() => {
@@ -79,7 +91,7 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
     }
   }, [isOpen, onUnreadCountChange]);
 
-  // Handle room connection state
+  // Handle room connection state and cleanup on disconnect
   useEffect(() => {
     if (room) {
       setIsConnected(room.state === 'connected');
@@ -88,15 +100,41 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
         setIsConnected(room.state === 'connected');
       };
 
+      const handleDisconnected = async () => {
+        // Cleanup chat files when room disconnects
+        try {
+          if (room.name) {
+            await fetch(`/api/chat-files/${encodeURIComponent(room.name)}`, {
+              method: 'DELETE',
+            }).catch(err => {
+              console.error('Error cleaning up chat files:', err);
+            });
+          }
+        } catch (error) {
+          console.error('Error during cleanup:', error);
+        }
+      };
+
       room.on('connectionStateChanged', handleConnectionStateChange);
+      room.on('disconnected', handleDisconnected);
       
       return () => {
         room.off('connectionStateChanged', handleConnectionStateChange);
+        room.off('disconnected', handleDisconnected);
+        
+        // Cleanup on unmount
+        if (room.name) {
+          fetch(`/api/chat-files/${encodeURIComponent(room.name)}`, {
+            method: 'DELETE',
+          }).catch(err => {
+            console.error('Error cleaning up chat files on unmount:', err);
+          });
+        }
       };
     }
   }, [room]);
 
-  // Handle incoming chat messages
+  // Handle incoming chat messages and file messages
   useEffect(() => {
     if (!room || !localParticipant) return;
 
@@ -193,6 +231,98 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
               }
             );
           }
+        } else if (messageData.type === 'chat_file') {
+          const fileMessage = messageData as ChatFileMessage;
+          const isFromMe = participant?.identity === localParticipant?.identity;
+          const recipientType = fileMessage.recipientType || 'all';
+          const isPrivate = fileMessage.isPrivate || false;
+          
+          // Determine if this file message should be shown to current user
+          let shouldShow = false;
+          
+          if (recipientType === 'all') {
+            shouldShow = true;
+          } else if (recipientType === 'host') {
+            shouldShow = isHost || isFromMe;
+          } else if (recipientType === 'specific') {
+            shouldShow = isFromMe || fileMessage.recipientId === localParticipant.identity;
+          }
+          
+          if (!shouldShow) return;
+          
+          const chatMessage: ChatMessage = {
+            id: fileMessage.id,
+            sender: fileMessage.sender || participant?.identity || 'Unknown',
+            timestamp: fileMessage.timestamp,
+            isLocal: isFromMe,
+            recipientType,
+            recipientId: fileMessage.recipientId,
+            isPrivate,
+            fileData: {
+              fileId: fileMessage.fileId,
+              fileName: fileMessage.fileName,
+              fileType: fileMessage.fileType,
+              fileSize: fileMessage.fileSize,
+            }
+          };
+          
+          setMessages(prev => [...prev, chatMessage]);
+          
+          // Increment unread count for non-local file messages when chat is closed
+          if (!chatMessage.isLocal && !isOpen) {
+            setUnreadCount(prev => {
+              const newCount = prev + 1;
+              onUnreadCountChange?.(newCount);
+              return newCount;
+            });
+          }
+          
+          // Show toast notification for incoming file messages
+          if (!chatMessage.isLocal) {
+            const notificationPrefix = isPrivate ? '🔒 Private File' : '📎 File';
+            toast(
+              <div style={{ 
+                display: 'flex', 
+                flexDirection: 'column', 
+                gap: '4px',
+                minWidth: '250px',
+                maxWidth: '350px'
+              }}>
+                <div style={{ 
+                  fontWeight: '600', 
+                  fontSize: '14px', 
+                  color: '#1f2937',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <span style={{ fontSize: '12px' }}>{notificationPrefix}</span>
+                  <span>{chatMessage.sender}</span>
+                </div>
+                <div style={{ 
+                  fontSize: '13px', 
+                  color: '#374151',
+                  lineHeight: '1.4',
+                  wordBreak: 'break-word'
+                }}>
+                  {fileMessage.fileName}
+                </div>
+              </div>, 
+              {
+                duration: 4000,
+                position: 'top-right',
+                style: {
+                  backgroundColor: isPrivate ? '#fef3c7' : '#ffffff',
+                  color: '#1f2937',
+                  border: isPrivate ? '2px solid #fbbf24' : '1px solid #e5e7eb',
+                  borderRadius: '8px',
+                  boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                  padding: '12px 16px',
+                  maxWidth: '400px',
+                },
+              }
+            );
+          }
         }
       } catch (error) {
         console.error('Error parsing chat message:', error);
@@ -254,11 +384,208 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
     }
   }, [newMessage, room, localParticipant, recipientType, selectedRecipient]);
 
+  // Handle file upload
+  const handleFileUpload = useCallback(async (file: File) => {
+    if (!room || !localParticipant || !room.name) {
+      toast.error('Not connected to room');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File too large. Maximum size is 10MB');
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadProgress(0);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('roomName', room.name);
+      formData.append('uploadedBy', localParticipant.identity);
+
+      const xhr = new XMLHttpRequest();
+      uploadRequestRef.current = xhr;
+
+      const uploadPromise = new Promise<any>((resolve, reject) => {
+        xhr.open('POST', '/api/chat-files/upload');
+        xhr.responseType = 'json';
+
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const percent = Math.min(100, Math.round((event.loaded / event.total) * 100));
+            setUploadProgress(percent);
+          }
+        };
+
+        xhr.onload = () => {
+          uploadRequestRef.current = null;
+          if (xhr.status >= 200 && xhr.status < 300) {
+            const response = xhr.response;
+            if (response?.file) {
+              resolve(response.file);
+            } else {
+              reject(new Error(response?.error || 'Upload failed'));
+            }
+          } else {
+            reject(new Error(xhr.response?.error || 'Upload failed'));
+          }
+        };
+
+        xhr.onerror = () => {
+          uploadRequestRef.current = null;
+          reject(new Error('Network error while uploading file'));
+        };
+
+        xhr.onabort = () => {
+          uploadRequestRef.current = null;
+          reject(new Error('Upload aborted'));
+        };
+
+        xhr.send(formData);
+      });
+
+      const uploadedFile = await uploadPromise;
+      
+      console.log('File uploaded successfully:', { 
+        fileId: uploadedFile.id, 
+        fileName: uploadedFile.originalName,
+        roomName: room.name 
+      });
+
+      // Create file message
+      const isPrivate = recipientType !== 'all';
+      const fileMessage: ChatFileMessage = {
+        type: 'chat_file',
+        id: Date.now().toString(),
+        sender: localParticipant.identity,
+        fileId: uploadedFile.id,
+        fileName: uploadedFile.originalName,
+        fileType: uploadedFile.fileType,
+        fileSize: uploadedFile.size,
+        timestamp: Date.now(),
+        recipientType,
+        recipientId: recipientType === 'specific' ? selectedRecipient : undefined,
+        isPrivate,
+      };
+
+      // Broadcast file message via LiveKit
+      const encodedData = new TextEncoder().encode(JSON.stringify(fileMessage));
+      await room.localParticipant.publishData(encodedData, { topic: 'chat', reliable: true });
+
+      // Add to local state
+      const chatMessage: ChatMessage = {
+        id: fileMessage.id,
+        sender: fileMessage.sender,
+        timestamp: fileMessage.timestamp,
+        isLocal: true,
+        recipientType,
+        recipientId: fileMessage.recipientId,
+        isPrivate,
+        fileData: {
+          fileId: fileMessage.fileId,
+          fileName: fileMessage.fileName,
+          fileType: fileMessage.fileType,
+          fileSize: fileMessage.fileSize,
+        }
+      };
+
+      setMessages(prev => [...prev, chatMessage]);
+      setUploadProgress(100);
+
+      toast.success(`File uploaded: ${file.name}`, {
+        duration: 2000,
+        icon: '✅',
+      });
+    } catch (error) {
+      console.error('File upload error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to upload file', {
+        duration: 3000,
+        icon: '❌',
+      });
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  }, [room, localParticipant, recipientType, selectedRecipient]);
+
+  // Handle file input change
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleFileUpload(file);
+    }
+  }, [handleFileUpload]);
+
+  // Handle file download
+  const handleFileDownload = useCallback(async (fileId: string, fileName: string, roomName?: string) => {
+    if (!roomName && !room?.name) {
+      toast.error('Room name not available');
+      return;
+    }
+    
+    const targetRoomName = roomName || room.name;
+    
+    try {
+      const url = `/api/chat-files/download/${fileId}?roomName=${encodeURIComponent(targetRoomName)}`;
+      console.log('Downloading file:', { fileId, fileName, roomName: targetRoomName, url });
+      
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Download failed:', { status: response.status, error: errorData });
+        throw new Error(errorData.error || `Download failed with status ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(blobUrl);
+      document.body.removeChild(a);
+
+      toast.success(`Downloaded ${fileName}`, {
+        duration: 2000,
+        icon: '⬇️',
+      });
+    } catch (error) {
+      console.error('Download error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to download file';
+      toast.error(errorMessage, {
+        duration: 3000,
+        icon: '❌',
+      });
+    }
+  }, [room]);
+
+  // Format file size
+  const formatFileSize = useCallback((bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }, []);
+
+  // Check if file is an image
+  const isImageFile = useCallback((fileType: string): boolean => {
+    return fileType.startsWith('image/');
+  }, []);
+
   // Save chat transcript
   const saveTranscript = useCallback(() => {
     const transcript = messages.map(msg => {
       const time = new Date(msg.timestamp).toLocaleTimeString();
       const privateLabel = msg.isPrivate ? ' [Private]' : '';
+      if (msg.fileData) {
+        return `[${time}] ${msg.sender}${privateLabel}: [File] ${msg.fileData.fileName} (${formatFileSize(msg.fileData.fileSize)})`;
+      }
       return `[${time}] ${msg.sender}${privateLabel}: ${msg.message}`;
     }).join('\n');
 
@@ -273,7 +600,7 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
     URL.revokeObjectURL(url);
 
     toast.success('Chat transcript downloaded');
-  }, [messages]);
+  }, [messages, formatFileSize]);
 
   // Handle Enter key press
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -296,8 +623,8 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
     if (msg.recipientType === 'all') return null;
     if (msg.recipientType === 'host') return msg.isLocal ? '(to Host)' : '(Private)';
     if (msg.recipientType === 'specific') {
-      if (msg.isLocal) {
-        return `(to ${msg.recipientId})`;
+      if (msg.isLocal && msg.recipientId) {
+        return `(to ${getParticipantName(msg.recipientId)})`;
       } else {
         return '(Private)';
       }
@@ -305,9 +632,43 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
     return null;
   };
 
-  // Get clean participant names for display
+  // Get participant's real name from metadata or clean identity
+  const getParticipantName = (identity: string): string => {
+    const participant = participants.find(p => p.identity === identity);
+    if (participant?.metadata) {
+      try {
+        const metadata = JSON.parse(participant.metadata);
+        if (metadata.name) return metadata.name;
+      } catch (e) {
+        // If parsing fails, continue to extract from identity
+      }
+    }
+    // If no metadata name, extract from identity
+    // Pattern: name_role_roomname (e.g., "john_guest_room123" or "john_host_room123")
+    const parts = identity.split('_');
+    if (parts.length >= 3) {
+      // The name is always the first part, before the role
+      const namePart = parts[0];
+      // Make sure it's not empty and not just a number
+      if (namePart && namePart.trim() && isNaN(Number(namePart))) {
+        // Capitalize first letter of each word
+        return namePart
+          .split(' ')
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+          .join(' ');
+      }
+    }
+    // Fallback: remove role and room name suffixes
+    // Remove patterns like: _host_roomname, _guest_roomname, _observer_*
+    return identity
+      .replace(/^(.+?)_(host|guest|observer)_.*$/, '$1')
+      .replace(/^(\d+)_(host|guest|observer)_/, '')
+      .trim() || identity;
+  };
+
+  // Get clean name (backward compatibility)
   const getCleanName = (identity: string): string => {
-    return identity.replace(/_(host|guest)_\d+$/, '');
+    return getParticipantName(identity);
   };
 
   // Get filtered participants (excluding observers and local participant)
@@ -326,6 +687,21 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
       }
     }
   }, [isHost, recipientType, selectedRecipient, participants, localParticipant]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (showParticipantDropdown && !target.closest('[data-dropdown-container]')) {
+        setShowParticipantDropdown(false);
+      }
+    };
+
+    if (showParticipantDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showParticipantDropdown]);
 
   if (!isOpen || !mounted) return null;
 
@@ -381,26 +757,28 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
                 key={message.id} 
                 className={`${styles.message} ${message.isLocal ? styles.localMessage : styles.remoteMessage}`}
                 style={{
-                  position: 'relative'
+                  position: 'relative',
+                  marginTop: message.isPrivate ? '20px' : '0'
                 }}
               >
                 {message.isPrivate && (
                   <div style={{
                     position: 'absolute',
-                    top: '-8px',
-                    left: message.isLocal ? 'auto' : '12px',
-                    right: message.isLocal ? '12px' : 'auto',
+                    top: '-16px',
+                    left: message.isLocal ? 'auto' : '0',
+                    right: message.isLocal ? '0' : 'auto',
                     backgroundColor: '#fbbf24',
                     color: '#1f2937',
-                    padding: '2px 8px',
-                    borderRadius: '10px',
+                    padding: '3px 10px',
+                    borderRadius: '12px',
                     fontSize: '10px',
                     fontWeight: '600',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '4px',
                     zIndex: 1,
-                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)'
+                    boxShadow: '0 2px 6px rgba(251, 191, 36, 0.4)',
+                    whiteSpace: 'nowrap'
                   }}>
                     <Lock size={10} />
                     Private
@@ -408,7 +786,7 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
                 )}
                 <div className={styles.messageHeader}>
                   <span className={styles.senderName}>
-                    {message.isLocal ? 'You' : getCleanName(message.sender)}
+                    {message.isLocal ? 'You' : getParticipantName(message.sender)}
                     {recipientLabel && (
                       <span style={{ 
                         fontSize: '11px', 
@@ -434,7 +812,46 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
                     border: message.isPrivate ? '1px solid #fbbf24' : undefined
                   }}
                 >
-                  {message.message}
+                  {message.fileData ? (
+                    <div className={styles.fileMessageContainer}>
+                      {isImageFile(message.fileData.fileType) ? (
+                        <div className={styles.imagePreviewContainer}>
+                          {room?.name ? (
+                            <img
+                              src={`/api/chat-files/view/${message.fileData.fileId}?roomName=${encodeURIComponent(room.name)}`}
+                              alt={message.fileData.fileName}
+                              className={styles.imagePreview}
+                              onError={(e) => {
+                                // Hide image on error, show file info instead
+                                e.currentTarget.style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <ImageIcon size={32} />
+                          )}
+                        </div>
+                      ) : (
+                        <div className={styles.fileIconContainer}>
+                          <File size={24} />
+                        </div>
+                      )}
+                      <div className={styles.fileInfo}>
+                        <div className={styles.fileName}>{message.fileData.fileName}</div>
+                        <div className={styles.fileSize}>{formatFileSize(message.fileData.fileSize)}</div>
+                      </div>
+                      {room?.name && (
+                        <button
+                          onClick={() => handleFileDownload(message.fileData!.fileId, message.fileData!.fileName, room.name)}
+                          className={styles.downloadButton}
+                          title="Download file"
+                        >
+                          <Download size={16} />
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    message.message
+                  )}
                 </div>
               </div>
               );
@@ -479,10 +896,14 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
             <div style={{ 
               display: 'flex', 
               gap: '8px',
-              flexWrap: 'wrap'
+              flexWrap: 'wrap',
+              alignItems: 'center'
             }}>
               <button
-                onClick={() => setRecipientType('all')}
+                onClick={() => {
+                  setRecipientType('all');
+                  setShowParticipantDropdown(false);
+                }}
                 style={{
                   padding: '8px 16px',
                   borderRadius: '8px',
@@ -520,7 +941,10 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
               
               {!isHost && (
                 <button
-                  onClick={() => setRecipientType('host')}
+                  onClick={() => {
+                    setRecipientType('host');
+                    setShowParticipantDropdown(false);
+                  }}
                   style={{
                     padding: '8px 16px',
                     borderRadius: '8px',
@@ -556,81 +980,127 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
                   Host (Private)
                 </button>
               )}
+
+              {/* Participant Dropdown for Host */}
+              {isHost && availableParticipants.length > 0 && (
+                <div style={{ position: 'relative', display: 'inline-block' }} data-dropdown-container>
+                  <button
+                    onClick={() => setShowParticipantDropdown(!showParticipantDropdown)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '8px',
+                      border: recipientType === 'specific' 
+                        ? '2px solid #fbbf24' 
+                        : '1px solid rgba(255, 255, 255, 0.2)',
+                      backgroundColor: recipientType === 'specific'
+                        ? 'rgba(251, 191, 36, 0.2)'
+                        : 'rgba(255, 255, 255, 0.05)',
+                      color: 'white',
+                      fontSize: '13px',
+                      fontWeight: recipientType === 'specific' ? '600' : '500',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      minWidth: '150px',
+                      justifyContent: 'space-between'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (recipientType !== 'specific') {
+                        e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (recipientType !== 'specific') {
+                        e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                      }
+                    }}
+                  >
+                    <Lock size={14} />
+                    <span>
+                      {selectedRecipient 
+                        ? getParticipantName(selectedRecipient) 
+                        : 'Select Participant'}
+                    </span>
+                    <span style={{ fontSize: '10px' }}>▼</span>
+                  </button>
+
+                  {showParticipantDropdown && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      marginTop: '4px',
+                      backgroundColor: 'rgba(26, 26, 46, 0.98)',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      borderRadius: '8px',
+                      padding: '8px',
+                      minWidth: '200px',
+                      maxWidth: '300px',
+                      maxHeight: '250px',
+                      overflowY: 'auto',
+                      overflowX: 'hidden',
+                      zIndex: 1000,
+                      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}>
+                      {availableParticipants.map(p => {
+                        const isSelected = recipientType === 'specific' && selectedRecipient === p.identity;
+                        const participantName = getParticipantName(p.identity);
+                        
+                        return (
+                          <button
+                            key={p.identity}
+                            onClick={() => {
+                              setRecipientType('specific');
+                              setSelectedRecipient(p.identity);
+                              setShowParticipantDropdown(false);
+                            }}
+                            style={{
+                              padding: '10px 12px',
+                              borderRadius: '6px',
+                              border: 'none',
+                              backgroundColor: isSelected
+                                ? 'rgba(251, 191, 36, 0.3)'
+                                : 'rgba(255, 255, 255, 0.05)',
+                              color: 'white',
+                              fontSize: '13px',
+                              fontWeight: isSelected ? '600' : '400',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s ease',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                              textAlign: 'left',
+                              justifyContent: 'flex-start',
+                              width: '100%'
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isSelected) {
+                                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isSelected) {
+                                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+                              }
+                            }}
+                          >
+                            {isSelected && <span style={{ fontSize: '12px' }}>✓</span>}
+                            <span style={{ flex: 1 }}>{participantName}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-            
-            {/* Participant Selector for Host */}
-            {isHost && availableParticipants.length > 0 && (
-              <div style={{ 
-                display: 'flex', 
-                flexDirection: 'column',
-                gap: '8px'
-              }}>
-                <div style={{ 
-                  fontSize: '12px', 
-                  color: 'rgba(255, 255, 255, 0.6)',
-                  marginTop: '4px'
-                }}>
-                  Select participant for private message:
-                </div>
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '6px',
-                  maxHeight: '120px',
-                  overflowY: 'auto',
-                  padding: '4px'
-                }}>
-                  {availableParticipants.map(p => {
-                    const isSelected = recipientType === 'specific' && selectedRecipient === p.identity;
-                    return (
-                      <button
-                        key={p.identity}
-                        onClick={() => {
-                          setRecipientType('specific');
-                          setSelectedRecipient(p.identity);
-                        }}
-                        style={{
-                          padding: '8px 12px',
-                          borderRadius: '6px',
-                          border: isSelected 
-                            ? '2px solid #fbbf24' 
-                            : '1px solid rgba(255, 255, 255, 0.1)',
-                          backgroundColor: isSelected
-                            ? 'rgba(251, 191, 36, 0.2)'
-                            : 'rgba(255, 255, 255, 0.05)',
-                          color: 'white',
-                          fontSize: '13px',
-                          fontWeight: isSelected ? '600' : '400',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          textAlign: 'left',
-                          justifyContent: 'flex-start'
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!isSelected) {
-                            e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-                            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!isSelected) {
-                            e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
-                            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
-                          }
-                        }}
-                      >
-                        <Lock size={12} />
-                        <span>{getCleanName(p.identity)}</span>
-                        {isSelected && <span style={{ marginLeft: 'auto', fontSize: '10px' }}>✓</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
@@ -638,7 +1108,7 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
         <div className={styles.inputContainer}>
           <div style={{ 
             display: 'flex', 
-            gap: '10px',
+            gap: '8px',
             alignItems: 'center',
             width: '100%',
             flexWrap: 'wrap'
@@ -651,6 +1121,36 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
               flex: '1 1 100%'
             }}>
               <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileInputChange}
+                className={styles.fileInput}
+                id="chat-file-input"
+                accept="image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,application/zip"
+                disabled={!isConnected || isUploading}
+                style={{ display: 'none' }}
+              />
+              <label
+                htmlFor="chat-file-input"
+                className={styles.fileUploadButton}
+                title="Upload file or image"
+                style={{
+                  opacity: (!isConnected || isUploading) ? 0.5 : 1,
+                  cursor: (!isConnected || isUploading) ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isUploading ? (
+                  <div className={styles.uploadProgress}>
+                    <div className={styles.uploadSpinner}></div>
+                    {uploadProgress !== null && (
+                      <span className={styles.uploadProgressText}>{uploadProgress}%</span>
+                    )}
+                  </div>
+                ) : (
+                  <Upload size={18} />
+                )}
+              </label>
+              <input
                 ref={inputRef}
                 type="text"
                 value={newMessage}
@@ -662,7 +1162,7 @@ export function Chat({ isOpen, onClose, onUnreadCountChange, isHost = false }: C
                         ? "Type a message..." 
                         : recipientType === 'host'
                         ? "Private to host..."
-                        : `Private to ${selectedRecipient ? getCleanName(selectedRecipient) : 'participant'}...`)
+                        : `Private to ${selectedRecipient ? getParticipantName(selectedRecipient) : 'participant'}...`)
                     : "Connecting..."
                 }
                 disabled={!isConnected}

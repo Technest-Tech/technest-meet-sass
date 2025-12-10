@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { logSuspiciousUserAgent, logBlockedIP, logBlockedPostRoot } from '@/lib/utils/securityLogger';
+import { logSuspiciousUserAgent, logBlockedIP, logBlockedPostRoot, logCommandInjectionAttempt } from '@/lib/utils/securityLogger';
+import { detectCommandInjection } from '@/lib/utils/sanitize';
 
 // Suspicious user agents that indicate bots/scanners
 const SUSPICIOUS_USER_AGENTS = [
@@ -14,15 +15,19 @@ const SUSPICIOUS_USER_AGENTS = [
   'spider',
 ];
 
-// Blocked IPs (can be expanded)
+// Known attacker IPs from security incidents
 const BLOCKED_IPS: string[] = [
-  // Add known attacker IPs here if needed
-  // '45.76.155.14',
-  // '193.34.213.150',
+  '45.76.155.14',        // Dec 5, 2025 attacker
+  '176.117.107.158',     // Malware server
+  '176.117.107.154',     // Secondary malware server
+  '193.34.213.150',      // Additional attacker
 ];
 
+// Suspicious file extensions that could be used for attacks
+const DANGEROUS_EXTENSIONS = ['.sh', '.exe', '.bat', '.cmd', '.ps1', '.py', '.pl', '.rb'];
+
 export function middleware(request: NextRequest) {
-  const { pathname, method } = request.nextUrl;
+  const { pathname, method, searchParams } = request.nextUrl;
   const userAgent = request.headers.get('user-agent') || '';
   const ip = request.ip || request.headers.get('x-forwarded-for') || 'unknown';
   
@@ -58,6 +63,37 @@ export function middleware(request: NextRequest) {
       { error: 'Method not allowed', message: 'POST requests to root endpoint are not permitted' },
       { status: 405 }
     );
+  }
+
+  // Check for command injection patterns in query parameters
+  for (const [key, value] of searchParams.entries()) {
+    if (detectCommandInjection(value)) {
+      logCommandInjectionAttempt(ip, userAgent, `query param ${key}: ${value.substring(0, 100)}`);
+      return NextResponse.json(
+        { error: 'Forbidden', message: 'Invalid request detected' },
+        { status: 403 }
+      );
+    }
+  }
+
+  // Block requests with dangerous file extensions in path
+  const lowerPath = pathname.toLowerCase();
+  if (DANGEROUS_EXTENSIONS.some(ext => lowerPath.endsWith(ext))) {
+    return NextResponse.json(
+      { error: 'Forbidden', message: 'File type not allowed' },
+      { status: 403 }
+    );
+  }
+
+  // Validate Content-Type for POST requests
+  if (method === 'POST') {
+    const contentType = request.headers.get('content-type') || '';
+    // Block suspicious content types that could be used for attacks
+    if (contentType.includes('application/x-www-form-urlencoded') && 
+        pathname.startsWith('/api/') && 
+        !contentType.includes('multipart')) {
+      // Additional validation could go here
+    }
   }
   
   // Add security headers

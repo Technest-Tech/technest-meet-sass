@@ -2,25 +2,23 @@
 /// Full-featured whiteboard with layers, collaboration, undo/redo, and all drawing tools
 
 import 'dart:async';
-import '../utils/logger.dart';
 import 'dart:convert';
-import '../utils/logger.dart';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
-import '../utils/logger.dart';
 import 'package:flutter/material.dart';
-import '../utils/logger.dart';
+import 'package:flutter/gestures.dart';
 import 'package:provider/provider.dart';
-import '../utils/logger.dart';
 import '../models/whiteboard_models.dart';
-import '../utils/logger.dart';
 import '../services/livekit_service.dart';
-import '../utils/logger.dart';
 import '../theme/app_colors.dart';
-import '../utils/logger.dart';
 import '../utils/whiteboard_utils.dart';
 import '../utils/logger.dart';
+import '../utils/responsive.dart';
 import 'whiteboard/whiteboard_toolbar.dart';
-import '../utils/logger.dart';
+
+// Fixed virtual canvas dimensions - all devices use the same coordinate space
+const double VIRTUAL_CANVAS_WIDTH = 1920.0;
+const double VIRTUAL_CANVAS_HEIGHT = 1080.0;
 
 class WhiteboardWidget extends StatefulWidget {
   final VoidCallback onClose;
@@ -39,8 +37,6 @@ class WhiteboardWidget extends StatefulWidget {
 class _WhiteboardWidgetState extends State<WhiteboardWidget> {
   // Canvas and rendering
   final GlobalKey _canvasKey = GlobalKey();
-  ui.PictureRecorder? _pictureRecorder;
-  CustomPaint? _customPaint;
 
   // Participant state
   String? _participantId;
@@ -84,11 +80,22 @@ class _WhiteboardWidgetState extends State<WhiteboardWidget> {
   String _activeLayerId = 'layer-1';
 
   // Canvas state
-  Size _canvasSize = const Size(800, 600);
+  // Virtual canvas size - fixed for all devices to ensure coordinate space consistency
+  final Size _virtualCanvasSize = const Size(VIRTUAL_CANVAS_WIDTH, VIRTUAL_CANVAS_HEIGHT);
+  // Viewport size - actual display size of the canvas element
+  Size _viewportSize = const Size(800, 600);
   double _zoom = 1.0;
   Point _pan = Point(x: 0, y: 0);
   bool _isPanning = false;
   Point? _panStart;
+  
+  // Pinch-to-zoom state
+  bool _isPinching = false;
+  double _pinchStartDistance = 0;
+  double _pinchStartZoom = 1.0;
+  
+  // Canvas container key for size calculations
+  final GlobalKey _canvasContainerKey = GlobalKey();
 
   // Background state
   String _backgroundColor = '#ffffff';
@@ -100,7 +107,7 @@ class _WhiteboardWidgetState extends State<WhiteboardWidget> {
 
   // Throttle/debounce
   DateTime _lastUpdateTime = DateTime.now();
-  static const int _updateThrottleMs = 50; // 50ms throttle for mobile
+  static const int _updateThrottleMs = 120; // Increased throttle to reduce data size
   Timer? _throttleTimer;
 
   // Image cache
@@ -111,6 +118,46 @@ class _WhiteboardWidgetState extends State<WhiteboardWidget> {
     super.initState();
     _setupLiveKitListener();
     _textFocusNode.addListener(_onTextFocusChange);
+    
+    // Auto-fit on mobile when widget is built
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _autoFitCanvas();
+    });
+  }
+  
+  // Auto-fit function - reusable for initial load and orientation changes
+  void _autoFitCanvas() {
+    final context = _canvasContainerKey.currentContext;
+    if (context == null) return;
+    
+    final isMobile = Responsive.isMobile(context) || 
+                     MediaQuery.of(context).size.width <= 768;
+    
+    if (isMobile) {
+      final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
+      if (renderBox != null) {
+        final containerSize = renderBox.size;
+        final containerWidth = containerSize.width;
+        final containerHeight = containerSize.height;
+        
+        // Only proceed if we have valid dimensions
+        if (containerWidth > 0 && containerHeight > 0) {
+          // Calculate zoom to fit entire virtual canvas
+          final zoomX = containerWidth / VIRTUAL_CANVAS_WIDTH;
+          final zoomY = containerHeight / VIRTUAL_CANVAS_HEIGHT;
+          final fitZoom = math.min(zoomX, zoomY) * 0.95; // 95% to add some padding
+          
+          // Center the canvas
+          final centerX = (containerWidth - VIRTUAL_CANVAS_WIDTH * fitZoom) / 2;
+          final centerY = (containerHeight - VIRTUAL_CANVAS_HEIGHT * fitZoom) / 2;
+          
+          setState(() {
+            _zoom = fitZoom;
+            _pan = Point(x: centerX, y: centerY);
+          });
+        }
+      }
+    }
   }
 
   void _setupLiveKitListener() {
@@ -291,26 +338,21 @@ class _WhiteboardWidgetState extends State<WhiteboardWidget> {
     widget.onSendData(data);
   }
 
+  // Convert viewport coordinates to virtual canvas coordinates
   Point _getCanvasPoint(Offset localPosition) {
-    final scaleX = _canvasSize.width / _canvasSize.width;
-    final scaleY = _canvasSize.height / _canvasSize.height;
-    final x = (localPosition.dx * scaleX - _pan.x) / _zoom;
-    final y = (localPosition.dy * scaleY - _pan.y) / _zoom;
+    // Transform viewport coordinates to virtual canvas coordinates
+    // Formula: virtualX = (viewportX - pan.x) / zoom
+    final x = (localPosition.dx - _pan.x) / _zoom;
+    final y = (localPosition.dy - _pan.y) / _zoom;
     return Point(x: x, y: y);
   }
 
+  // Helper method to start drawing/panning (called from scale gesture)
   void _handlePanStart(DragStartDetails details) {
+    // Don't start if we're pinching
+    if (_isPinching) return;
+    
     final point = _getCanvasPoint(details.localPosition);
-
-    // Check if we're in pan mode
-    final isPanMode = _currentTool == ToolType.pointer;
-    if (isPanMode) {
-      setState(() {
-        _isPanning = true;
-        _panStart = point;
-      });
-      return;
-    }
 
     // Text tool - show input
     if (_currentTool == ToolType.text) {
@@ -363,24 +405,10 @@ class _WhiteboardWidgetState extends State<WhiteboardWidget> {
     });
   }
 
+  // Helper method to update drawing (called from scale gesture)
   void _handlePanUpdate(DragUpdateDetails details) {
-    if (_isPanning && _panStart != null) {
-      final currentScreen = details.localPosition;
-      final startScreenX = _panStart!.x * _zoom + _pan.x;
-      final startScreenY = _panStart!.y * _zoom + _pan.y;
-
-      setState(() {
-        _pan = Point(
-          x: _pan.x + (currentScreen.dx - startScreenX),
-          y: _pan.y + (currentScreen.dy - startScreenY),
-        );
-        _panStart = Point(
-          x: (currentScreen.dx - _pan.x) / _zoom,
-          y: (currentScreen.dy - _pan.y) / _zoom,
-        );
-      });
-      return;
-    }
+    // Don't handle if we're pinching or panning
+    if (_isPinching || _isPanning) return;
 
     if (!_isDrawing || _currentAction == null) return;
 
@@ -397,24 +425,45 @@ class _WhiteboardWidgetState extends State<WhiteboardWidget> {
     });
 
     // Send real-time update (throttled)
+    // For strokes, only send simplified updates to avoid exceeding data limit
     final now = DateTime.now();
     if (now.difference(_lastUpdateTime).inMilliseconds >= _updateThrottleMs) {
-      _sendDataToParticipants({
+      Map<String, dynamic> actionToSend;
+      
+      if (_currentAction!.type == ActionType.stroke && 
+          _currentAction!.points != null && 
+          _currentAction!.points!.length > 50) {
+        // For long strokes, only send the last 20 points
+        final simplifiedPoints = _currentAction!.points!.sublist(
+          math.max(0, _currentAction!.points!.length - 20)
+        );
+        actionToSend = _currentAction!.copyWith(points: simplifiedPoints).toJson();
+      } else {
+        actionToSend = _currentAction!.toJson();
+      }
+      
+      // Check size before sending
+      final jsonString = jsonEncode({
         'type': 'action_update',
-        'action': _currentAction!.toJson(),
+        'action': actionToSend,
       });
-      _lastUpdateTime = now;
+      final size = utf8.encode(jsonString).length;
+      
+      if (size <= 16384) {
+        _sendDataToParticipants({
+          'type': 'action_update',
+          'action': actionToSend,
+        });
+        _lastUpdateTime = now;
+      }
+      // Silently skip if too large
     }
   }
 
+  // Helper method to end drawing (called from scale gesture)
   void _handlePanEnd(DragEndDetails details) {
-    if (_isPanning) {
-      setState(() {
-        _isPanning = false;
-        _panStart = null;
-      });
-      return;
-    }
+    // Don't handle if we're pinching or panning
+    if (_isPinching || _isPanning) return;
 
     if (!_isDrawing || _currentAction == null) return;
 
@@ -424,9 +473,36 @@ class _WhiteboardWidgetState extends State<WhiteboardWidget> {
       _updateHistory();
 
       // Send completed action
+      // If the action is too large, try to simplify it
+      var actionToSend = _currentAction!;
+      if (_currentAction!.type == ActionType.stroke && 
+          _currentAction!.points != null && 
+          _currentAction!.points!.length > 100) {
+        // For very long strokes, sample points to reduce size
+        final points = _currentAction!.points!;
+        final testSize = utf8.encode(jsonEncode({
+          'type': 'action_complete',
+          'action': _currentAction!.toJson(),
+        })).length;
+        
+        if (testSize > 16384) {
+          // Sample points (keep every Nth point)
+          final sampleRate = (points.length / 500).ceil(); // Target ~500 points max
+          final sampledPoints = <Point>[];
+          for (int i = 0; i < points.length; i += sampleRate) {
+            sampledPoints.add(points[i]);
+          }
+          // Always include last point
+          if (sampledPoints.last != points.last) {
+            sampledPoints.add(points.last);
+          }
+          actionToSend = _currentAction!.copyWith(points: sampledPoints);
+        }
+      }
+      
       _sendDataToParticipants({
         'type': 'action_complete',
-        'action': _currentAction!.toJson(),
+        'action': actionToSend.toJson(),
       });
 
       _currentAction = null;
@@ -566,6 +642,15 @@ class _WhiteboardWidgetState extends State<WhiteboardWidget> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Recalculate fit when orientation changes
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _autoFitCanvas();
+    });
+  }
+
+  @override
   void dispose() {
     _textController.dispose();
     _textFocusNode.dispose();
@@ -573,11 +658,123 @@ class _WhiteboardWidgetState extends State<WhiteboardWidget> {
     super.dispose();
   }
 
+  // Store initial values for scale gestures
+  Offset? _scaleStartFocalPoint;
+  Point? _scaleStartPan;
+  
+  // Handle scale gestures (both pan and pinch-to-zoom)
+  void _handleScaleStart(ScaleStartDetails details) {
+    if (details.pointerCount == 2) {
+      // Two fingers = pinch-to-zoom
+      _isPinching = true;
+      _pinchStartDistance = 1.0;
+      _pinchStartZoom = _zoom;
+      _scaleStartFocalPoint = details.localFocalPoint;
+      _scaleStartPan = _pan;
+      _isPanning = false;
+      _isDrawing = false;
+    } else if (details.pointerCount == 1) {
+      // Single finger - check if it's pan mode or drawing
+      final point = _getCanvasPoint(details.localFocalPoint);
+      final isPanMode = _currentTool == ToolType.pointer;
+      
+      if (isPanMode) {
+        _isPanning = true;
+        _panStart = point;
+        _scaleStartFocalPoint = details.localFocalPoint;
+        _scaleStartPan = _pan;
+      } else {
+        // Start drawing
+        _handlePanStart(DragStartDetails(
+          localPosition: details.localFocalPoint,
+          globalPosition: details.focalPoint,
+          kind: PointerDeviceKind.touch,
+        ));
+      }
+    }
+  }
+
+  void _handleScaleUpdate(ScaleUpdateDetails details) {
+    if (details.pointerCount == 2 && _isPinching) {
+      // Two fingers = pinch-to-zoom
+      final newZoom = math.max(0.1, math.min(3.0, _pinchStartZoom * details.scale));
+      
+      // Adjust pan to zoom around the focal point
+      if (_scaleStartFocalPoint != null && _scaleStartPan != null) {
+        final zoomChange = newZoom / _zoom;
+        final newPanX = details.localFocalPoint.dx - (details.localFocalPoint.dx - _scaleStartPan!.x) * zoomChange;
+        final newPanY = details.localFocalPoint.dy - (details.localFocalPoint.dy - _scaleStartPan!.y) * zoomChange;
+        
+        setState(() {
+          _zoom = newZoom;
+          _pan = Point(x: newPanX, y: newPanY);
+        });
+      }
+    } else if (details.pointerCount == 1) {
+      // Single finger - pan or draw
+      if (_isPanning && _panStart != null && _scaleStartFocalPoint != null && _scaleStartPan != null) {
+        // Panning mode
+        final delta = details.localFocalPoint - _scaleStartFocalPoint!;
+        double newPanX = _scaleStartPan!.x + delta.dx;
+        double newPanY = _scaleStartPan!.y + delta.dy;
+        
+        // Apply boundary constraints
+        final context = _canvasContainerKey.currentContext;
+        if (context != null) {
+          final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
+          if (renderBox != null) {
+            final containerSize = renderBox.size;
+            final maxPanX = 0.0;
+            final minPanX = containerSize.width - VIRTUAL_CANVAS_WIDTH * _zoom;
+            final maxPanY = 0.0;
+            final minPanY = containerSize.height - VIRTUAL_CANVAS_HEIGHT * _zoom;
+            
+            newPanX = math.max(minPanX, math.min(maxPanX, newPanX));
+            newPanY = math.max(minPanY, math.min(maxPanY, newPanY));
+          }
+        }
+        
+        setState(() {
+          _pan = Point(x: newPanX, y: newPanY);
+        });
+      } else if (_isDrawing) {
+        // Drawing mode - use focalPointDelta for delta
+        _handlePanUpdate(DragUpdateDetails(
+          localPosition: details.localFocalPoint,
+          delta: details.focalPointDelta,
+          globalPosition: details.focalPoint,
+        ));
+      }
+    }
+  }
+
+  void _handleScaleEnd(ScaleEndDetails details) {
+    if (_isPinching) {
+      _isPinching = false;
+      _pinchStartDistance = 0;
+      _scaleStartFocalPoint = null;
+      _scaleStartPan = null;
+    } else if (_isPanning) {
+      _isPanning = false;
+      _panStart = null;
+      _scaleStartFocalPoint = null;
+      _scaleStartPan = null;
+    } else if (_isDrawing) {
+      _handlePanEnd(DragEndDetails());
+    }
+  }
+
+  // Fit to screen handler
+  void _handleFitToScreen() {
+    _autoFitCanvas();
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        _canvasSize = Size(constraints.maxWidth, constraints.maxHeight - 100);
+        // Update viewport size (display canvas size)
+        _viewportSize = Size(constraints.maxWidth, constraints.maxHeight - 100);
 
     return Container(
       color: AppColors.surfaceElevated.withOpacity(0.98),
@@ -611,6 +808,7 @@ class _WhiteboardWidgetState extends State<WhiteboardWidget> {
                 onGridSizeChange: (size) => setState(() => _gridSize = size),
                 zoom: _zoom,
                 onZoomChange: (zoom) => setState(() => _zoom = zoom),
+                onFitToScreen: _handleFitToScreen,
                 canUndo: _historyStep > 0,
                 canRedo: _historyStep < _history.length - 1,
                 onUndo: _handleUndo,
@@ -621,19 +819,20 @@ class _WhiteboardWidgetState extends State<WhiteboardWidget> {
 
               // Canvas Container
               Expanded(
+                key: _canvasContainerKey,
                 child: Stack(
                   children: [
                     Row(
                       children: [
                     Expanded(
                           child: GestureDetector(
-                            onPanStart: _handlePanStart,
-                            onPanUpdate: _handlePanUpdate,
-                            onPanEnd: _handlePanEnd,
+                            onScaleStart: _handleScaleStart,
+                            onScaleUpdate: _handleScaleUpdate,
+                            onScaleEnd: _handleScaleEnd,
                             child: RepaintBoundary(
                               child: CustomPaint(
                                 key: _canvasKey,
-                                size: _canvasSize,
+                                size: _viewportSize,
                                 painter: WhiteboardPainter(
                                   actions: _actions,
                                   currentAction: _currentAction,
@@ -643,6 +842,8 @@ class _WhiteboardWidgetState extends State<WhiteboardWidget> {
                                   gridSize: _gridSize,
                                   zoom: _zoom,
                                   pan: _pan,
+                                  virtualCanvasSize: _virtualCanvasSize,
+                                  viewportSize: _viewportSize,
                                   imageCache: _imageCache,
                                 ),
                               ),
@@ -760,6 +961,8 @@ class WhiteboardPainter extends CustomPainter {
   final double gridSize;
   final double zoom;
   final Point pan;
+  final Size virtualCanvasSize;
+  final Size viewportSize;
   final Map<String, ui.Image> imageCache;
 
   WhiteboardPainter({
@@ -771,26 +974,34 @@ class WhiteboardPainter extends CustomPainter {
     required this.gridSize,
     required this.zoom,
     required this.pan,
+    required this.virtualCanvasSize,
+    required this.viewportSize,
     required this.imageCache,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Clear canvas
+    // Clear display canvas (viewport size)
     canvas.drawRect(
       Rect.fromLTWH(0, 0, size.width, size.height),
       Paint()..color = hexToColor(backgroundColor),
     );
 
-    // Draw grid if enabled
-    if (showGrid) {
-      drawGrid(canvas, size.width, size.height, gridSize, Colors.grey);
-    }
-
-    // Apply zoom and pan
+    // Apply zoom and pan transformations
     canvas.save();
     canvas.translate(pan.x, pan.y);
     canvas.scale(zoom, zoom);
+
+    // Draw grid if enabled (on virtual canvas)
+    if (showGrid) {
+      drawGrid(
+        canvas, 
+        virtualCanvasSize.width, 
+        virtualCanvasSize.height, 
+        gridSize, 
+        Colors.grey,
+      );
+    }
 
     // Sort actions by layer z-index
     final sortedActions = List<DrawAction>.from(actions);
@@ -999,6 +1210,8 @@ class WhiteboardPainter extends CustomPainter {
         oldDelegate.showGrid != showGrid ||
         oldDelegate.gridSize != gridSize ||
         oldDelegate.zoom != zoom ||
-        oldDelegate.pan != pan;
+        oldDelegate.pan != pan ||
+        oldDelegate.virtualCanvasSize != virtualCanvasSize ||
+        oldDelegate.viewportSize != viewportSize;
   }
 }

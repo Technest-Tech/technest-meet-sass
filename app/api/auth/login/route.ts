@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authenticateSuperAdmin, authenticateClient, createSession } from '@/lib/auth/server-auth';
 import { rateLimit } from '@/lib/middleware/rateLimit';
 import { z } from 'zod';
+import { sanitizeEmail, sanitizeString, detectCommandInjection } from '@/lib/utils/sanitize';
+import { logCommandInjectionAttempt } from '@/lib/utils/securityLogger';
 
 const loginSchema = z.object({
   email: z.string().email('البريد الإلكتروني غير صحيح'),
@@ -32,6 +34,25 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
+    const ip = request.ip || request.headers.get('x-forwarded-for') || 'unknown';
+    const userAgent = request.headers.get('user-agent') || 'unknown';
+
+    // Check for command injection attempts before validation
+    if (typeof body.email === 'string' && detectCommandInjection(body.email)) {
+      logCommandInjectionAttempt(ip, userAgent, `email: ${body.email.substring(0, 50)}`);
+      return NextResponse.json(
+        { error: 'Invalid input detected' },
+        { status: 400 }
+      );
+    }
+    if (typeof body.password === 'string' && detectCommandInjection(body.password)) {
+      logCommandInjectionAttempt(ip, userAgent, 'password field');
+      return NextResponse.json(
+        { error: 'Invalid input detected' },
+        { status: 400 }
+      );
+    }
+
     const validated = loginSchema.safeParse(body);
 
     if (!validated.success) {
@@ -42,13 +63,16 @@ export async function POST(request: NextRequest) {
     }
 
     const { email, password, role } = validated.data;
+    
+    // Sanitize inputs
+    const sanitizedEmail = sanitizeEmail(email);
 
     let session;
 
     if (role === 'SUPER_ADMIN') {
-      session = await authenticateSuperAdmin(email, password);
+      session = await authenticateSuperAdmin(sanitizedEmail, sanitizeString(password));
     } else {
-      session = await authenticateClient(email, password);
+      session = await authenticateClient(sanitizedEmail, sanitizeString(password));
     }
 
     if (!session) {

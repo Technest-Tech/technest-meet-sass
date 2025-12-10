@@ -31,9 +31,14 @@ interface NormalWhiteboardProps {
   onClose: () => void;
 }
 
+// Fixed virtual canvas dimensions - all devices use the same coordinate space
+const VIRTUAL_CANVAS_WIDTH = 1920;
+const VIRTUAL_CANVAS_HEIGHT = 1080;
+
 export function NormalWhiteboard({ isOpen, onClose }: NormalWhiteboardProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
 
   // Tool state
@@ -54,7 +59,7 @@ export function NormalWhiteboard({ isOpen, onClose }: NormalWhiteboardProps) {
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentAction, setCurrentAction] = useState<DrawAction | null>(null);
   const [actions, setActions] = useState<DrawAction[]>([]);
-  
+
   // History state (undo/redo)
   const [history, setHistory] = useState<DrawAction[][]>([[]]);
   const [historyStep, setHistoryStep] = useState(0);
@@ -66,11 +71,20 @@ export function NormalWhiteboard({ isOpen, onClose }: NormalWhiteboardProps) {
   const [activeLayerId, setActiveLayerId] = useState('layer-1');
 
   // Canvas state
-  const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
+  // Virtual canvas size - fixed for all devices to ensure coordinate space consistency
+  const [canvasSize] = useState({ width: VIRTUAL_CANVAS_WIDTH, height: VIRTUAL_CANVAS_HEIGHT });
+  // Viewport size - actual display size of the canvas element
+  const [viewportSize, setViewportSize] = useState({ width: 800, height: 600 });
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState<Point>({ x: 0, y: 0 });
+  
+  // Pinch-to-zoom state
+  const [isPinching, setIsPinching] = useState(false);
+  const [pinchStartDistance, setPinchStartDistance] = useState(0);
+  const [pinchStartZoom, setPinchStartZoom] = useState(1);
+  const [pinchCenter, setPinchCenter] = useState<Point>({ x: 0, y: 0 });
 
   // Background state
   const [backgroundColor, setBackgroundColor] = useState('#ffffff');
@@ -83,17 +97,18 @@ export function NormalWhiteboard({ isOpen, onClose }: NormalWhiteboardProps) {
   // Initialize canvas
   useEffect(() => {
     setMounted(true);
-    if (!canvasRef.current || !containerRef.current || !isOpen) return;
+    if (!canvasRef.current || !canvasContainerRef.current || !isOpen) return;
 
     const canvas = canvasRef.current;
-    const container = containerRef.current;
+    const container = canvasContainerRef.current;
 
     const updateSize = () => {
       const rect = container.getBoundingClientRect();
-      // Set canvas internal resolution to match display size
+      // Set display canvas size to viewport (for rendering)
       canvas.width = Math.floor(rect.width);
       canvas.height = Math.floor(rect.height);
-      setCanvasSize({ width: Math.floor(rect.width), height: Math.floor(rect.height) });
+      // Store viewport size separately (virtual canvas size is fixed)
+      setViewportSize({ width: Math.floor(rect.width), height: Math.floor(rect.height) });
     };
 
     updateSize();
@@ -104,27 +119,90 @@ export function NormalWhiteboard({ isOpen, onClose }: NormalWhiteboardProps) {
     };
   }, [isOpen]);
 
-  // Redraw canvas
+  // Auto-fit function - reusable for initial load and orientation changes
+  const autoFitCanvas = useCallback(() => {
+    if (!canvasContainerRef.current) return;
+    
+    const isMobileDevice = typeof window !== 'undefined' && 
+      (window.innerWidth <= 768 || 'ontouchstart' in window || navigator.maxTouchPoints > 0);
+    
+    if (isMobileDevice) {
+      // Use canvas container (not the main container which includes toolbar)
+      const canvasContainer = canvasContainerRef.current;
+      const rect = canvasContainer.getBoundingClientRect();
+      const containerWidth = rect.width;
+      const containerHeight = rect.height;
+      
+      // Only proceed if we have valid dimensions
+      if (containerWidth > 0 && containerHeight > 0) {
+        // Calculate zoom to fit entire virtual canvas
+        const zoomX = containerWidth / canvasSize.width;
+        const zoomY = containerHeight / canvasSize.height;
+        const fitZoom = Math.min(zoomX, zoomY) * 0.95; // 95% to add some padding
+        
+        // Center the canvas
+        const centerX = (containerWidth - canvasSize.width * fitZoom) / 2;
+        const centerY = (containerHeight - canvasSize.height * fitZoom) / 2;
+        
+        setZoom(fitZoom);
+        setPan({ x: centerX, y: centerY });
+      }
+    }
+  }, [canvasSize]);
+
+  // Auto-fit virtual canvas on mobile when whiteboard opens or orientation changes
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    const isMobileDevice = typeof window !== 'undefined' && 
+      (window.innerWidth <= 768 || 'ontouchstart' in window || navigator.maxTouchPoints > 0);
+    
+    if (isMobileDevice) {
+      // Initial fit with delay to ensure DOM is ready
+      const timeoutId = setTimeout(() => {
+        autoFitCanvas();
+      }, 100);
+      
+      // Handle orientation changes and window resize
+      const handleResize = () => {
+        // Small delay to let browser finish resizing
+        setTimeout(() => {
+          autoFitCanvas();
+        }, 150);
+      };
+      
+      window.addEventListener('resize', handleResize);
+      window.addEventListener('orientationchange', handleResize);
+      
+      return () => {
+        clearTimeout(timeoutId);
+        window.removeEventListener('resize', handleResize);
+        window.removeEventListener('orientationchange', handleResize);
+      };
+    }
+  }, [isOpen, autoFitCanvas]);
+
+  // Redraw canvas - renders virtual canvas content with zoom/pan
   const redrawCanvas = useCallback(() => {
     if (!canvasRef.current) return;
     const ctx = canvasRef.current.getContext('2d');
     if (!ctx) return;
 
-    // Clear canvas
-    clearCanvas(ctx, canvasSize.width, canvasSize.height);
+    // Clear display canvas (viewport size)
+    clearCanvas(ctx, viewportSize.width, viewportSize.height);
 
-    // Fill background
-    fillCanvas(ctx, canvasSize.width, canvasSize.height, backgroundColor);
-
-    // Draw grid if enabled
-    if (showGrid) {
-      drawGrid(ctx, canvasSize.width, canvasSize.height, gridSize, '#cccccc');
-    }
-
-    // Apply zoom and pan
+    // Apply zoom and pan transformations
     ctx.save();
     ctx.translate(pan.x, pan.y);
     ctx.scale(zoom, zoom);
+
+    // Fill background of virtual canvas
+    fillCanvas(ctx, canvasSize.width, canvasSize.height, backgroundColor);
+
+    // Draw grid if enabled (on virtual canvas)
+    if (showGrid) {
+      drawGrid(ctx, canvasSize.width, canvasSize.height, gridSize, '#cccccc');
+    }
 
     // Sort actions by layer z-index
     const sortedActions = [...actions].sort((a, b) => {
@@ -193,7 +271,7 @@ export function NormalWhiteboard({ isOpen, onClose }: NormalWhiteboardProps) {
     // Draw current action if drawing
     if (currentAction) {
       ctx.globalAlpha = currentAction.opacity;
-      
+
       switch (currentAction.type) {
         case 'stroke':
           if (currentAction.points && currentAction.points.length > 0) {
@@ -231,19 +309,19 @@ export function NormalWhiteboard({ isOpen, onClose }: NormalWhiteboardProps) {
     }
 
     ctx.restore();
-  }, [actions, currentAction, layers, backgroundColor, showGrid, gridSize, zoom, pan, canvasSize]);
+  }, [actions, currentAction, layers, backgroundColor, showGrid, gridSize, zoom, pan, canvasSize, viewportSize]);
 
   // Redraw when dependencies change
   useEffect(() => {
     redrawCanvas();
   }, [redrawCanvas]);
 
-  // Get mouse/touch position
+  // Get mouse/touch position - converts viewport coordinates to virtual canvas coordinates
   const getCanvasPoint = useCallback((e: React.MouseEvent | React.TouchEvent): Point => {
     if (!canvasRef.current) return { x: 0, y: 0 };
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
-    
+
     let clientX: number, clientY: number;
     if ('touches' in e) {
       clientX = e.touches[0].clientX;
@@ -253,25 +331,59 @@ export function NormalWhiteboard({ isOpen, onClose }: NormalWhiteboardProps) {
       clientY = e.clientY;
     }
 
-    // Calculate the position relative to the canvas
-    const canvasX = clientX - rect.left;
-    const canvasY = clientY - rect.top;
+    // Get position relative to canvas viewport
+    const viewportX = clientX - rect.left;
+    const viewportY = clientY - rect.top;
 
-    // Account for the canvas internal resolution vs display size
+    // Account for device pixel ratio if canvas is scaled
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
 
-    // Transform screen coordinates to canvas coordinates
-    // Account for zoom and pan transformations
-    const x = (canvasX * scaleX - pan.x) / zoom;
-    const y = (canvasY * scaleY - pan.y) / zoom;
+    // Transform viewport coordinates to virtual canvas coordinates
+    // Formula: virtualX = (viewportX - pan.x) / zoom
+    const x = (viewportX * scaleX - pan.x) / zoom;
+    const y = (viewportY * scaleY - pan.y) / zoom;
 
     return { x, y };
   }, [zoom, pan]);
 
+  // Calculate distance between two touch points
+  const getTouchDistance = useCallback((touches: TouchList): number => {
+    if (touches.length < 2) return 0;
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }, []);
+
+  // Get center point between two touches
+  const getTouchCenter = useCallback((touches: TouchList, rect: DOMRect): Point => {
+    if (touches.length < 2) return { x: 0, y: 0 };
+    const x = (touches[0].clientX + touches[1].clientX) / 2 - rect.left;
+    const y = (touches[0].clientY + touches[1].clientY) / 2 - rect.top;
+    return { x, y };
+  }, []);
+
   // Mouse/touch handlers
   const handlePointerDown = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
+    
+    // Handle pinch-to-zoom (two fingers)
+    if ('touches' in e && e.touches.length === 2) {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      
+      const distance = getTouchDistance(e.touches);
+      const center = getTouchCenter(e.touches, rect);
+      
+      setIsPinching(true);
+      setPinchStartDistance(distance);
+      setPinchStartZoom(zoom);
+      setPinchCenter(center);
+      setIsPanning(false);
+      setIsDrawing(false);
+      return;
+    }
+    
     const point = getCanvasPoint(e);
 
     // Check if we're in pan mode (space key or pointer tool with middle mouse)
@@ -318,16 +430,41 @@ export function NormalWhiteboard({ isOpen, onClose }: NormalWhiteboardProps) {
     };
 
     setCurrentAction(newAction);
-  }, [currentTool, currentColor, currentWidth, currentOpacity, fillShapes, activeLayerId, layers, getCanvasPoint]);
+  }, [currentTool, currentColor, currentWidth, currentOpacity, fillShapes, activeLayerId, layers, getCanvasPoint, getTouchDistance, getTouchCenter]);
 
   const handlePointerMove = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
+    
+    // Handle pinch-to-zoom
+    if ('touches' in e && e.touches.length === 2 && isPinching) {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      
+      const distance = getTouchDistance(e.touches);
+      const center = getTouchCenter(e.touches, rect);
+      
+      if (pinchStartDistance > 0) {
+        // Calculate zoom based on distance change
+        const scale = distance / pinchStartDistance;
+        const newZoom = Math.max(0.1, Math.min(3, pinchStartZoom * scale));
+        
+        // Adjust pan to zoom around the pinch center
+        const zoomChange = newZoom / zoom;
+        const newPanX = center.x - (center.x - pan.x) * zoomChange;
+        const newPanY = center.y - (center.y - pan.y) * zoomChange;
+        
+        setZoom(newZoom);
+        setPan({ x: newPanX, y: newPanY });
+      }
+      return;
+    }
+    
     const point = getCanvasPoint(e);
 
     if (isPanning && panStart) {
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
-      
+
       let clientX: number, clientY: number;
       if ('touches' in e) {
         clientX = e.touches[0].clientX;
@@ -336,17 +473,27 @@ export function NormalWhiteboard({ isOpen, onClose }: NormalWhiteboardProps) {
         clientX = e.clientX;
         clientY = e.clientY;
       }
-      
+
       const currentScreenX = clientX - rect.left;
       const currentScreenY = clientY - rect.top;
       const startScreenX = panStart.x * zoom + pan.x;
       const startScreenY = panStart.y * zoom + pan.y;
+
+      // Calculate new pan position
+      let newPanX = pan.x + (currentScreenX - startScreenX);
+      let newPanY = pan.y + (currentScreenY - startScreenY);
       
-      setPan({
-        x: pan.x + (currentScreenX - startScreenX),
-        y: pan.y + (currentScreenY - startScreenY)
-      });
+      // Apply boundary constraints to keep virtual canvas visible
+      const maxPanX = 0;
+      const minPanX = rect.width - canvasSize.width * zoom;
+      const maxPanY = 0;
+      const minPanY = rect.height - canvasSize.height * zoom;
       
+      newPanX = Math.max(minPanX, Math.min(maxPanX, newPanX));
+      newPanY = Math.max(minPanY, Math.min(maxPanY, newPanY));
+
+      setPan({ x: newPanX, y: newPanY });
+
       setPanStart({
         x: (currentScreenX - pan.x) / zoom,
         y: (currentScreenY - pan.y) / zoom
@@ -367,9 +514,16 @@ export function NormalWhiteboard({ isOpen, onClose }: NormalWhiteboardProps) {
         endPoint: point,
       }));
     }
-  }, [isDrawing, isPanning, currentAction, getCanvasPoint, panStart, zoom]);
+  }, [isDrawing, isPanning, isPinching, currentAction, getCanvasPoint, panStart, zoom, pan, getTouchDistance, getTouchCenter, pinchStartDistance, pinchStartZoom]);
 
-  const handlePointerUp = useCallback(() => {
+  const handlePointerUp = useCallback((e?: React.MouseEvent | React.TouchEvent) => {
+    // Handle pinch end
+    if (isPinching) {
+      setIsPinching(false);
+      setPinchStartDistance(0);
+      return;
+    }
+    
     if (isPanning) {
       setIsPanning(false);
       return;
@@ -382,7 +536,7 @@ export function NormalWhiteboard({ isOpen, onClose }: NormalWhiteboardProps) {
     // Add action to history
     const newActions = [...actions, currentAction];
     setActions(newActions);
-    
+
     // Update history for undo/redo
     const newHistory = history.slice(0, historyStep + 1);
     newHistory.push(newActions);
@@ -480,12 +634,33 @@ export function NormalWhiteboard({ isOpen, onClose }: NormalWhiteboardProps) {
   const handleClear = useCallback(() => {
     const newActions: DrawAction[] = [];
     setActions(newActions);
-    
+
     const newHistory = history.slice(0, historyStep + 1);
     newHistory.push(newActions);
     setHistory(newHistory);
     setHistoryStep(newHistory.length - 1);
   }, [history, historyStep]);
+
+  // Fit to screen handler
+  const handleFitToScreen = useCallback(() => {
+    if (!canvasContainerRef.current) return;
+    const container = canvasContainerRef.current;
+    const rect = container.getBoundingClientRect();
+    const containerWidth = rect.width;
+    const containerHeight = rect.height;
+    
+    // Calculate zoom to fit entire virtual canvas
+    const zoomX = containerWidth / canvasSize.width;
+    const zoomY = containerHeight / canvasSize.height;
+    const fitZoom = Math.min(zoomX, zoomY) * 0.95; // 95% to add some padding
+    
+    // Center the canvas
+    const centerX = (containerWidth - canvasSize.width * fitZoom) / 2;
+    const centerY = (containerHeight - canvasSize.height * fitZoom) / 2;
+    
+    setZoom(fitZoom);
+    setPan({ x: centerX, y: centerY });
+  }, [canvasSize]);
 
   // Export canvas
   const handleExport = useCallback((format: 'png' | 'jpg' = 'png') => {
@@ -580,6 +755,7 @@ export function NormalWhiteboard({ isOpen, onClose }: NormalWhiteboardProps) {
           onGridSizeChange={setGridSize}
           zoom={zoom}
           onZoomChange={setZoom}
+          onFitToScreen={handleFitToScreen}
           canUndo={historyStep > 0}
           canRedo={historyStep < history.length - 1}
           onUndo={undo}
@@ -593,7 +769,7 @@ export function NormalWhiteboard({ isOpen, onClose }: NormalWhiteboardProps) {
         />
 
         {/* Canvas Container */}
-        <div ref={containerRef} className={styles.canvasContainer}>
+        <div ref={canvasContainerRef} className={styles.canvasContainer}>
           <canvas
             ref={canvasRef}
             className={styles.canvas}
@@ -604,6 +780,7 @@ export function NormalWhiteboard({ isOpen, onClose }: NormalWhiteboardProps) {
             onTouchStart={handlePointerDown}
             onTouchMove={handlePointerMove}
             onTouchEnd={handlePointerUp}
+            onTouchCancel={handlePointerUp}
           />
 
           {/* Text Input Overlay */}

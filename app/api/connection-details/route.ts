@@ -8,14 +8,27 @@ import { checkTrialExpiration, isSubscriptionActive } from '@/lib/utils/trial-ch
 import { extractDeviceInfo } from '@/lib/utils/deviceDetection';
 import { logParticipantJoined } from '@/lib/services/roomActivityLogger';
 import { sanitizeRoomIdentifier, sanitizeStringLenient } from '@/lib/utils/sanitize';
+import { getSecrets } from '@/lib/config/secrets';
 
-const API_KEY = process.env.LIVEKIT_API_KEY || 'devkey';
-const API_SECRET = process.env.LIVEKIT_API_SECRET || 'secret';
-// For local development, use local IP instead of localhost for mobile devices
+// Use centralized secrets management (with fallback for development)
+let API_KEY: string;
+let API_SECRET: string;
+try {
+  const secrets = getSecrets();
+  API_KEY = secrets.livekitApiKey;
+  API_SECRET = secrets.livekitApiSecret;
+} catch {
+  // Fallback for development/local environments
+  API_KEY = process.env.LIVEKIT_API_KEY || 'devkey';
+  API_SECRET = process.env.LIVEKIT_API_SECRET || 'secret';
+}
+// For local development, use local IP instead of localhost for Docker networking
 // Check if we're in development mode (using devkey or NODE_ENV)
 const isDevelopment = (process.env.NODE_ENV === 'development' || process.env.NODE_ENV !== 'production') && API_KEY === 'devkey';
+// Use local IP for development to work with Docker networking on macOS
+// This IP should match the advertise_ip in livekit.yaml
 const defaultLivekitUrl = isDevelopment 
-  ? 'ws://192.168.1.13:7880' 
+  ? 'ws://192.168.1.23:7880' 
   : 'ws://localhost:7880';
 const LIVEKIT_URL = process.env.LIVEKIT_URL || defaultLivekitUrl;
 const PUBLIC_LIVEKIT_URL = process.env.NEXT_PUBLIC_LIVEKIT_URL || defaultLivekitUrl;
@@ -29,8 +42,13 @@ function getLiveKitServerForRoom(roomName: string): {
   serverUrl: string;
 } {
   // Get LiveKit server URLs from env (backward compatible)
-  const livekit1Client = process.env.LIVEKIT_1_CLIENT_URL || process.env.NEXT_PUBLIC_LIVEKIT_URL || 'wss://rtc.acadmyq.com';
-  const livekit1Server = process.env.LIVEKIT_1_SERVER_URL || process.env.LIVEKIT_URL || 'http://178.128.78.195:7880';
+  // For local development, use local IP; for production, use production URLs
+  const isDevelopment = (process.env.NODE_ENV === 'development' || process.env.NODE_ENV !== 'production') && (process.env.LIVEKIT_API_KEY === 'devkey');
+  const defaultClientUrl = isDevelopment ? 'ws://192.168.1.23:7880' : 'wss://rtc.acadmyq.com';
+  const defaultServerUrl = isDevelopment ? 'ws://192.168.1.23:7880' : 'http://178.128.78.195:7880';
+  
+  const livekit1Client = process.env.LIVEKIT_1_CLIENT_URL || process.env.NEXT_PUBLIC_LIVEKIT_URL || defaultClientUrl;
+  const livekit1Server = process.env.LIVEKIT_1_SERVER_URL || process.env.LIVEKIT_URL || defaultServerUrl;
   
   const livekit2Client = process.env.LIVEKIT_2_CLIENT_URL;
   const livekit2Server = process.env.LIVEKIT_2_SERVER_URL;

@@ -51,7 +51,7 @@ export function SimpleRecordingControl({
         },
         audio: true // Include system audio
       });
-      
+
       // Also get microphone audio for better quality
       let audioStream: MediaStream | null = null;
       try {
@@ -68,12 +68,12 @@ export function SimpleRecordingControl({
 
       // Combine screen and audio streams
       const combinedStream = new MediaStream();
-      
+
       // Add screen video tracks
       screenStream.getVideoTracks().forEach(track => {
         combinedStream.addTrack(track);
       });
-      
+
       // Add audio tracks (prefer microphone, fallback to system audio)
       if (audioStream) {
         audioStream.getAudioTracks().forEach(track => {
@@ -84,7 +84,7 @@ export function SimpleRecordingControl({
           combinedStream.addTrack(track);
         });
       }
-      
+
       streamRef.current = combinedStream;
       recordedChunksRef.current = [];
 
@@ -151,12 +151,12 @@ export function SimpleRecordingControl({
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop();
     }
-    
+
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
-    
+
     setIsRecording(false);
     toast.success('Recording stopped!', {
       icon: '⏹️',

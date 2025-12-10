@@ -109,12 +109,14 @@ export interface PdfAnnotationData {
 
 // Screen Annotation types
 export interface ScreenAnnotationData {
-  type: 'screen_annotation_stroke' | 'screen_annotation_clear' | 'screen_pointer_position';
+  type: 'screen_annotation_stroke' | 'screen_annotation_clear' | 'screen_pointer_position' | 'screen_annotation_enable' | 'screen_annotation_disable' | 'screen_annotation_delete_stroke';
   stroke?: DrawingStroke;
   position?: { x: number; y: number };
   sender: string;
   timestamp: number;
   id: string;
+  strokeId?: string; // For deleting specific strokes
+  enabled?: boolean; // For host control messages
 }
 
 // Waiting Room types
@@ -133,6 +135,21 @@ export interface ChatMessageData {
   timestamp: number;
   recipientType: 'all' | 'host' | 'specific'; // Who can see this message
   recipientId?: string; // For specific recipient
+  isPrivate: boolean;
+}
+
+// Chat File Message types
+export interface ChatFileMessage {
+  type: 'chat_file';
+  id: string;
+  sender: string;
+  fileId: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  timestamp: number;
+  recipientType: 'all' | 'host' | 'specific';
+  recipientId?: string;
   isPrivate: boolean;
 }
 

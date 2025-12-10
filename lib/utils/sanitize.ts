@@ -169,3 +169,45 @@ export function sanitizeEmail(input: string): string {
   return input.replace(/[;&|`$()<>]/g, '').trim().toLowerCase();
 }
 
+/**
+ * Detect command injection patterns in input
+ * Returns true if suspicious patterns are found
+ */
+export function detectCommandInjection(input: string): boolean {
+  if (typeof input !== 'string') {
+    return false;
+  }
+  
+  const patterns = [
+    /wget\s+/i,
+    /curl\s+/i,
+    /bash\s+-c/i,
+    /sh\s+-c/i,
+    /\$\(.*\)/,
+    /`.*`/,
+    /;\s*(wget|curl|bash|sh|nc|netcat|python|perl|ruby|node)/i,
+    /\|\s*(wget|curl|bash|sh|nc|netcat|python|perl|ruby|node)/i,
+    /&&\s*(wget|curl|bash|sh|nc|netcat|python|perl|ruby|node)/i,
+    /\|\|\s*(wget|curl|bash|sh|nc|netcat|python|perl|ruby|node)/i,
+    /exec\s*\(/i,
+    /eval\s*\(/i,
+    /system\s*\(/i,
+    /spawn\s*\(/i,
+    /child_process/i,
+    /\.exec\s*\(/i,
+    /\.spawn\s*\(/i,
+  ];
+  
+  return patterns.some(pattern => pattern.test(input));
+}
+
+/**
+ * Sanitize and validate input, throwing error if command injection detected
+ */
+export function sanitizeWithInjectionCheck(input: string, fieldName: string = 'input'): string {
+  if (detectCommandInjection(input)) {
+    throw new Error(`Potential command injection detected in ${fieldName}`);
+  }
+  return sanitizeString(input);
+}
+

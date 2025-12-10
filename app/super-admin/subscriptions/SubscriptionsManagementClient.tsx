@@ -582,21 +582,19 @@ function SubscriptionsManagementContent({ userEmail }: { userEmail: string }) {
             <div className="flex flex-wrap items-center justify-end gap-2">
               <button
                 onClick={() => setStatMode('status')}
-                className={`rounded-full px-4 py-2 text-sm font-medium ${
-                  statMode === 'status'
-                    ? 'bg-indigo-100 text-indigo-700'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
+                className={`rounded-full px-4 py-2 text-sm font-medium ${statMode === 'status'
+                  ? 'bg-indigo-100 text-indigo-700'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
               >
                 مؤشرات الاشتراكات
               </button>
               <button
                 onClick={() => setStatMode('financial')}
-                className={`rounded-full px-4 py-2 text-sm font-medium ${
-                  statMode === 'financial'
-                    ? 'bg-indigo-100 text-indigo-700'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
+                className={`rounded-full px-4 py-2 text-sm font-medium ${statMode === 'financial'
+                  ? 'bg-indigo-100 text-indigo-700'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
               >
                 المؤشرات المالية
               </button>
@@ -749,11 +747,10 @@ function SubscriptionsManagementContent({ userEmail }: { userEmail: string }) {
                           </div>
                           <button
                             onClick={() => handleToggleSourceActive(source.id, !source.isActive)}
-                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                              source.isActive
-                                ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                            }`}
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${source.isActive
+                              ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                              }`}
                           >
                             {source.isActive ? 'نشط' : 'موقوف'}
                           </button>
@@ -988,118 +985,116 @@ function SubscriptionsManagementContent({ userEmail }: { userEmail: string }) {
                           className={`${isOverdue ? 'bg-red-50/80' : ''} cursor-pointer hover:bg-gray-50/70`}
                           onClick={() => handleRowSelect(subscription)}
                         >
-                        <td className="px-6 py-4 align-top">
-                          <div className="space-y-1">
-                            <p className="font-semibold text-gray-900">{subscription.client.name}</p>
-                            <p className="text-sm text-gray-500">{subscription.client.email}</p>
-                            <p className="text-xs text-gray-400">
-                              {subscription.client.roomStats?.totalRooms ?? 0} غرفة / حد {subscription.client.maxRooms}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              واتساب: {subscription.client.whatsappNumber || 'غير مضاف'}
-                            </p>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 align-top text-sm text-gray-700">
-                          <p className="font-medium text-gray-900">{subscription.plan?.name ?? 'بدون خطة'}</p>
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                            <span
-                              className={`rounded-full px-2 py-0.5 font-medium ${
-                                capacityColor(subscription.client.roomStats?.capacityUtilization ?? 0)
-                              }`}
-                            >
-                              استخدام الغرف{' '}
-                              {Math.round((subscription.client.roomStats?.capacityUtilization ?? 0) * 100)}%
-                            </span>
-                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">
-                              فعال الآن: {subscription.client.roomStats?.activeNow ?? 0}
-                            </span>
-                          </div>
-                          <div className="mt-3 space-y-1 text-xs text-gray-500">
-                            <p>تاريخ البداية: {formatDate(subscription.startDate)}</p>
-                            <p>تاريخ الانتهاء: {formatDate(subscription.endDate)}</p>
-                            <p>قيمة الاشتراك: {formatCurrency(subscription.amountEGP)}</p>
-                            <p>
-                              المصدر:{' '}
-                              {subscription.source?.label ? (
-                                <span className="font-semibold text-gray-800">
-                                  {subscription.source.label}
+                          <td className="px-6 py-4 align-top">
+                            <div className="space-y-1">
+                              <p className="font-semibold text-gray-900">{subscription.client.name}</p>
+                              <p className="text-sm text-gray-500">{subscription.client.email}</p>
+                              <p className="text-xs text-gray-400">
+                                {subscription.client.roomStats?.totalRooms ?? 0} غرفة / حد {subscription.client.maxRooms}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                واتساب: {subscription.client.whatsappNumber || 'غير مضاف'}
+                              </p>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 align-top text-sm text-gray-700">
+                            <p className="font-medium text-gray-900">{subscription.plan?.name ?? 'بدون خطة'}</p>
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                              <span
+                                className={`rounded-full px-2 py-0.5 font-medium ${capacityColor(subscription.client.roomStats?.capacityUtilization ?? 0)
+                                  }`}
+                              >
+                                استخدام الغرف{' '}
+                                {Math.round((subscription.client.roomStats?.capacityUtilization ?? 0) * 100)}%
+                              </span>
+                              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">
+                                فعال الآن: {subscription.client.roomStats?.activeNow ?? 0}
+                              </span>
+                            </div>
+                            <div className="mt-3 space-y-1 text-xs text-gray-500">
+                              <p>تاريخ البداية: {formatDate(subscription.startDate)}</p>
+                              <p>تاريخ الانتهاء: {formatDate(subscription.endDate)}</p>
+                              <p>قيمة الاشتراك: {formatCurrency(subscription.amountEGP)}</p>
+                              <p>
+                                المصدر:{' '}
+                                {subscription.source?.label ? (
+                                  <span className="font-semibold text-gray-800">
+                                    {subscription.source.label}
+                                  </span>
+                                ) : (
+                                  'غير محدد'
+                                )}
+                              </p>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 align-top">
+                            <div className="flex flex-col gap-2">
+                              <span
+                                className={`inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${statusClasses[subscription.status as SubscriptionStatus] ??
+                                  'bg-gray-100 text-gray-700'
+                                  }`}
+                              >
+                                {statusLabels[subscription.status as SubscriptionStatus] ?? subscription.status}
+                              </span>
+                              {subscription.metrics?.trialDaysRemaining !== null && (
+                                <span className="text-xs text-gray-500">
+                                  تبقى {subscription.metrics?.trialDaysRemaining} يوم للتجربة
                                 </span>
-                              ) : (
-                                'غير محدد'
                               )}
-                            </p>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 align-top">
-                          <div className="flex flex-col gap-2">
-                            <span
-                              className={`inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${
-                                statusClasses[subscription.status as SubscriptionStatus] ??
-                                'bg-gray-100 text-gray-700'
-                              }`}
-                            >
-                              {statusLabels[subscription.status as SubscriptionStatus] ?? subscription.status}
-                            </span>
-                            {subscription.metrics?.trialDaysRemaining !== null && (
-                              <span className="text-xs text-gray-500">
-                                تبقى {subscription.metrics?.trialDaysRemaining} يوم للتجربة
-                              </span>
-                            )}
-                            {isOverdue && (
-                              <span className="text-xs font-semibold text-red-600">
-                                انتهى الاشتراك ويحتاج إجراء يدوي
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 align-top text-sm text-gray-600">
-                          {formatDate(subscription.createdAt)}
-                        </td>
-                        <td className="px-6 py-4 align-top">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleStatusChange(
-                                  subscription.id,
-                                  subscription.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
-                                );
-                              }}
-                              className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:border-indigo-200 hover:text-indigo-600"
-                            >
-                              {subscription.status === 'ACTIVE' ? 'تعطيل' : 'تفعيل'}
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleQuickResend(subscription);
-                              }}
-                              className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:border-indigo-200 hover:text-indigo-600"
-                            >
-                              إرسال فاتورة
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenCreate(subscription);
-                              }}
-                              className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:border-indigo-200 hover:text-indigo-600"
-                            >
-                              تعديل
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDelete(subscription.id, subscription.client.name);
-                              }}
-                              className="flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-xs text-red-600 hover:border-red-300 hover:bg-red-50"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                              حذف
-                            </button>
-                          </div>
-                        </td>
+                              {isOverdue && (
+                                <span className="text-xs font-semibold text-red-600">
+                                  انتهى الاشتراك ويحتاج إجراء يدوي
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 align-top text-sm text-gray-600">
+                            {formatDate(subscription.createdAt)}
+                          </td>
+                          <td className="px-6 py-4 align-top">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleStatusChange(
+                                    subscription.id,
+                                    subscription.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
+                                  );
+                                }}
+                                className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:border-indigo-200 hover:text-indigo-600"
+                              >
+                                {subscription.status === 'ACTIVE' ? 'تعطيل' : 'تفعيل'}
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleQuickResend(subscription);
+                                }}
+                                className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:border-indigo-200 hover:text-indigo-600"
+                              >
+                                إرسال فاتورة
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenCreate(subscription);
+                                }}
+                                className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:border-indigo-200 hover:text-indigo-600"
+                              >
+                                تعديل
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(subscription.id, subscription.client.name);
+                                }}
+                                className="flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-xs text-red-600 hover:border-red-300 hover:bg-red-50"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                                حذف
+                              </button>
+                            </div>
+                          </td>
                         </tr>
                       );
                     })
@@ -1351,11 +1346,10 @@ function CreateSubscriptionModal({
                   {filteredClients.map((client) => (
                     <label
                       key={client.id}
-                      className={`flex cursor-pointer items-center justify-between rounded-xl border px-3 py-2 text-sm ${
-                        formData.clientId === client.id
-                          ? 'border-indigo-500 bg-white text-gray-900'
-                          : 'border-gray-200 bg-white hover:border-indigo-200'
-                      }`}
+                      className={`flex cursor-pointer items-center justify-between rounded-xl border px-3 py-2 text-sm ${formData.clientId === client.id
+                        ? 'border-indigo-500 bg-white text-gray-900'
+                        : 'border-gray-200 bg-white hover:border-indigo-200'
+                        }`}
                     >
                       <div>
                         <p className="font-semibold text-gray-900">{client.name}</p>
@@ -1402,11 +1396,10 @@ function CreateSubscriptionModal({
                   {plans.map((plan) => (
                     <label
                       key={plan.id}
-                      className={`flex cursor-pointer flex-col rounded-xl border bg-white p-3 text-sm ${
-                        formData.planId === plan.id
-                          ? 'border-indigo-500 shadow-sm'
-                          : 'border-gray-200 hover:border-indigo-200'
-                      }`}
+                      className={`flex cursor-pointer flex-col rounded-xl border bg-white p-3 text-sm ${formData.planId === plan.id
+                        ? 'border-indigo-500 shadow-sm'
+                        : 'border-gray-200 hover:border-indigo-200'
+                        }`}
                     >
                       <div className="flex items-center justify-between">
                         <p className="font-semibold text-gray-900">{plan.name}</p>
@@ -1437,11 +1430,10 @@ function CreateSubscriptionModal({
                       key={preset.id}
                       type="button"
                       onClick={() => applyPreset(preset.id)}
-                      className={`rounded-2xl border px-3 py-3 text-right ${
-                        presetId === preset.id
-                          ? 'border-indigo-500 bg-white text-gray-900 shadow-sm'
-                          : 'border-gray-200 bg-white hover:border-indigo-200'
-                      }`}
+                      className={`rounded-2xl border px-3 py-3 text-right ${presetId === preset.id
+                        ? 'border-indigo-500 bg-white text-gray-900 shadow-sm'
+                        : 'border-gray-200 bg-white hover:border-indigo-200'
+                        }`}
                     >
                       <p className="text-sm font-semibold text-gray-900">{preset.label}</p>
                       <p className="text-xs text-gray-600">{preset.description}</p>
@@ -1509,25 +1501,25 @@ function CreateSubscriptionModal({
 
                 <div className="space-y-4 rounded-2xl border border-gray-100 p-4">
                   <h3 className="text-lg font-semibold text-gray-900">معاينة سريعة</h3>
-                      <div className="space-y-2">
-                        <p className="text-sm text-gray-600">العميل</p>
-                        <p className="font-semibold text-gray-900">{selectedClient?.name ?? 'لم يتم اختيار عميل'}</p>
-                        <p className="text-xs text-gray-600">{selectedClient?.email}</p>
-                      </div>
-                      <div className="space-y-2">
-                        <p className="text-sm text-gray-600">الخطة</p>
-                        <p className="font-semibold text-gray-900">{selectedPlan?.name ?? 'اختر خطة'}</p>
-                        <p className="text-xs text-gray-600">
-                          {selectedPlan?.features?.filter((f) => f.enabled).length ?? 0} ميزة مفعلة
-                        </p>
-                      </div>
-                      <div className="space-y-2">
-                        <p className="text-sm text-gray-600">حدود العميل</p>
-                        <p className="text-xs text-gray-600">
-                          غرف: {selectedClient?.maxRooms ?? '-'} • مشاركون: {selectedClient?.maxParticipants ?? '-'}
-                        </p>
+                  <div className="space-y-2">
+                    <p className="text-sm text-gray-600">العميل</p>
+                    <p className="font-semibold text-gray-900">{selectedClient?.name ?? 'لم يتم اختيار عميل'}</p>
+                    <p className="text-xs text-gray-600">{selectedClient?.email}</p>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-sm text-gray-600">الخطة</p>
+                    <p className="font-semibold text-gray-900">{selectedPlan?.name ?? 'اختر خطة'}</p>
                     <p className="text-xs text-gray-600">
-                      واتساب: {selectedClient?.whatsappNumber ?? clientWhatsapp || 'غير مضاف'}
+                      {selectedPlan?.features?.filter((f) => f.enabled).length ?? 0} ميزة مفعلة
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-sm text-gray-600">حدود العميل</p>
+                    <p className="text-xs text-gray-600">
+                      غرف: {selectedClient?.maxRooms ?? '-'} • مشاركون: {selectedClient?.maxParticipants ?? '-'}
+                    </p>
+                    <p className="text-xs text-gray-600">
+                      واتساب: {(selectedClient?.whatsappNumber ?? clientWhatsapp) || 'غير مضاف'}
                     </p>
                   </div>
                 </div>
@@ -1563,7 +1555,7 @@ function CreateSubscriptionModal({
                       }
                       className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
                     />
-                      </div>
+                  </div>
                   <div>
                     <label className="mb-1 block text-sm text-gray-600">مصدر الاشتراك</label>
                     <select

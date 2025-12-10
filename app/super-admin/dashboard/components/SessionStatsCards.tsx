@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, Clock, Users, TrendingUp, Zap, BarChart3 } from 'lucide-react';
+import { Activity, Users, Zap } from 'lucide-react';
 import StatCard from '@/lib/components/StatCard';
 
 interface SessionStats {
@@ -19,16 +19,11 @@ interface RealtimeStats {
 
 interface SessionStatsCardsProps {
   stats: SessionStats;
-  roomsUtilization: number;
+  roomsUtilization?: number; // Kept for backward compatibility but no longer used
   realtimeStats?: RealtimeStats;
 }
 
-export default function SessionStatsCards({ stats, roomsUtilization, realtimeStats }: SessionStatsCardsProps) {
-  const peakHourText =
-    stats.peakHours.length > 0
-      ? `${stats.peakHours[0].hour}:00 - ${stats.peakHours[0].hour + 1}:00`
-      : 'N/A';
-
+export default function SessionStatsCards({ stats, realtimeStats }: SessionStatsCardsProps) {
   // Use real-time stats if available, otherwise fall back to regular stats
   const activeSessions = realtimeStats?.activeSessions ?? stats.active;
   const totalParticipants = realtimeStats?.totalParticipants ?? stats.totalParticipants;
@@ -74,30 +69,6 @@ export default function SessionStatsCards({ stats, roomsUtilization, realtimeSta
         icon={Activity}
         color="purple"
         description="Started in last 24 hours"
-      />
-
-      <StatCard
-        title="Avg Duration"
-        value={`${stats.averageDuration}m`}
-        icon={Clock}
-        color="indigo"
-        description="Average session length"
-      />
-
-      <StatCard
-        title="Rooms Utilization"
-        value={`${roomsUtilization.toFixed(1)}%`}
-        icon={BarChart3}
-        color="orange"
-        description="Active vs total rooms"
-      />
-
-      <StatCard
-        title="Peak Hours"
-        value={peakHourText}
-        icon={TrendingUp}
-        color="red"
-        description="Most active time"
       />
     </div>
   );

@@ -820,7 +820,7 @@ Are you sure you want to end the meeting for everyone?`;
         <FloatingReactions />
         
         {/* Student Monitor PiP - Shows students when teacher is screen sharing (Host only) */}
-        <StudentMonitorPiP isHost={props.isHost} disabled={false} showProBadge={false} />
+        <StudentMonitorPiP isHost={props.isHost} disabled={false} showProBadge={false} roomName={props.roomName} />
         
         {/* Picture-in-Picture for remote participants with both screen share and camera */}
         <PictureInPicture room={room} />

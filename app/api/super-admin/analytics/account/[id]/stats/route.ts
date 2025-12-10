@@ -2,11 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireSuperAdmin } from '@/lib/auth/server-auth';
 import { prisma } from '@/lib/database';
 import { ActivityEventType } from '@prisma/client';
-import { RoomServiceClient } from 'livekit-server-sdk';
-
-const API_KEY = process.env.LIVEKIT_API_KEY || 'devkey';
-const API_SECRET = process.env.LIVEKIT_API_SECRET || 'secret';
-const LIVEKIT_URL = process.env.LIVEKIT_URL || 'ws://localhost:7880';
+import { queryRoomsByLinks } from '@/lib/utils/livekit-multi-server';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -39,56 +35,25 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const roomIds = account.client.rooms.map((r) => r.id);
 
     // Get real-time active sessions and participants from LiveKit
+    // Collect all room links (hostLink and guestLink) to query across all servers
+    const roomLinks: string[] = [];
+    account.client.rooms.forEach((room) => {
+      roomLinks.push(room.hostLink);
+      if (room.guestLink !== room.hostLink) {
+        roomLinks.push(room.guestLink);
+      }
+    });
+
     let activeSessionsNow = 0;
     let activeParticipantsNow = 0;
 
     try {
-      const roomService = new RoomServiceClient(LIVEKIT_URL, API_KEY, API_SECRET);
-      const livekitRooms = await roomService.listRooms();
-
-      // Create a map of room links to room IDs for quick lookup
-      const roomLinksMap = new Map<string, string>();
-      account.client.rooms.forEach((room) => {
-        // Both hostLink and guestLink might be the same or different
-        // LiveKit room name is the actual room link (hostLink or guestLink)
-        roomLinksMap.set(room.hostLink, room.id);
-        if (room.guestLink !== room.hostLink) {
-          roomLinksMap.set(room.guestLink, room.id);
-        }
-      });
-
-      // Track which rooms we've already counted (to avoid double counting)
-      const countedRooms = new Set<string>();
-
-      // Check which LiveKit rooms match our client's rooms
-      for (const livekitRoom of livekitRooms) {
-        const roomId = roomLinksMap.get(livekitRoom.name);
-        if (roomId && !countedRooms.has(roomId)) {
-          try {
-            const participants = await roomService.listParticipants(livekitRoom.name);
-            
-            // Filter out observers
-            const nonObserverParticipants = participants.filter((p: any) => {
-              try {
-                const metadata = p.metadata ? JSON.parse(p.metadata) : {};
-                return metadata.type !== 'observer';
-              } catch {
-                return !p.identity?.toLowerCase().includes('observer');
-              }
-            });
-
-            if (nonObserverParticipants.length > 0) {
-              activeSessionsNow++;
-              activeParticipantsNow += nonObserverParticipants.length;
-              countedRooms.add(roomId);
-            }
-          } catch (error) {
-            console.error(`Error fetching participants for room ${livekitRoom.name}:`, error);
-          }
-        }
-      }
+      // Query all LiveKit servers for rooms matching this account's room links
+      const matchedRooms = await queryRoomsByLinks(roomLinks);
+      activeSessionsNow = matchedRooms.activeSessions;
+      activeParticipantsNow = matchedRooms.totalParticipants;
     } catch (error) {
-      console.error('Error fetching LiveKit rooms:', error);
+      console.error('Error fetching LiveKit rooms from all servers:', error);
       // Continue with database stats even if LiveKit fails
     }
 

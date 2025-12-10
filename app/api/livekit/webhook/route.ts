@@ -2,14 +2,25 @@ import { NextRequest, NextResponse } from 'next/server';
 import { WebhookReceiver } from 'livekit-server-sdk';
 import { prisma } from '@/lib/database';
 import { logParticipantLeft, logRoomEnded } from '@/lib/services/roomActivityLogger';
+import { sanitizeRoomIdentifier } from '@/lib/utils/sanitize';
+import { getSecrets } from '@/lib/config/secrets';
 
-const API_KEY = process.env.LIVEKIT_API_KEY || 'devkey';
-const API_SECRET = process.env.LIVEKIT_API_SECRET || 'secret';
-const receiver = new WebhookReceiver(API_KEY, API_SECRET);
+const receiver = new WebhookReceiver(
+  getSecrets().livekitApiKey,
+  getSecrets().livekitApiSecret
+);
 
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get('authorization') || '';
   const body = await request.text();
+  
+  // Validate webhook payload size (prevent DoS)
+  if (body.length > 100000) { // 100KB max
+    return NextResponse.json(
+      { error: 'Payload too large' },
+      { status: 413 }
+    );
+  }
 
   try {
     const event = await receiver.receive(body, authHeader);
@@ -19,9 +30,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing room information' }, { status: 400 });
     }
 
+    // Sanitize room name to prevent injection
+    const sanitizedRoomName = sanitizeRoomIdentifier(roomName);
+
     const room = await prisma.room.findFirst({
       where: {
-        OR: [{ hostLink: roomName }, { guestLink: roomName }, { observerLink: roomName }],
+        OR: [{ hostLink: sanitizedRoomName }, { guestLink: sanitizedRoomName }, { observerLink: sanitizedRoomName }],
       },
       select: { id: true, clientId: true },
     });
