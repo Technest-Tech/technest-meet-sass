@@ -1,0 +1,42 @@
+# LiveKit Server Configuration for Digital Ocean
+# Production configuration
+
+# Server settings
+port: 7880
+bind_addresses: ["0.0.0.0"]
+
+# API keys for authentication - MUST MATCH env.do
+keys:
+  almajd-meet-api-key-prod-2024: almajd-meet-api-secret-production-2024-secure-key
+
+# Logging
+log_level: info
+
+# Room settings
+room:
+  auto_create: true
+  empty_timeout: 5m
+  max_duration: 2h
+
+# RTC configuration
+rtc:
+  use_external_ip: true
+  tcp_port: 7881
+  udp_port: 7882
+  # STUN servers for NAT traversal
+  stun_servers:
+    - stun.l.google.com:19302
+    - stun1.l.google.com:19302
+    - stun2.l.google.com:19302
+
+# Development mode disabled for production
+development: false
+
+# Redis configuration (optional - for multi-node setup)
+# redis:
+#   address: "redis:6379"
+
+# Logging configuration
+log:
+  level: info
+  json: false

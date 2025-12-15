@@ -1,0 +1,135 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: almajd-postgres
+    environment:
+      POSTGRES_DB: almajd_meet
+      POSTGRES_USER: almajd_user
+      POSTGRES_PASSWORD: almajd_secure_password_2024
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U almajd_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # LiveKit Server
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: livekit-server
+    ports:
+      - "7880:7880"  # API and WebSocket signaling
+      - "7881:7881"  # TCP fallback
+      - "7882:7882/udp"  # UDP for media traffic
+    environment:
+      LIVEKIT_PORT: "7880"
+      LIVEKIT_BIND_ADDRESSES: "0.0.0.0:7880"
+      LIVEKIT_TCP_PORT: "7881"
+      LIVEKIT_TCP_BIND_ADDRESSES: "0.0.0.0:7881"
+      LIVEKIT_UDP_PORT: "7882"
+      LIVEKIT_UDP_BIND_ADDRESSES: "0.0.0.0:7882"
+    volumes:
+      - ./livekit.do.yaml:/config.yaml
+    command: ["--config", "/config.yaml"]
+    restart: unless-stopped
+    networks:
+      - app-network
+    depends_on:
+      - postgres
+
+  # Almajd Meet Backend
+  newmeet-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: newmeet-backend
+    ports:
+      - "3000:3000"
+    env_file:
+      - env.do
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://almajd_user:almajd_secure_password_2024@postgres:5432/almajd_meet
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      livekit:
+        condition: service_started
+    networks:
+      - app-network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=100m
+      - /var/tmp:noexec,nosuid,nodev,size=100m
+      - /app/.next/cache:noexec,nosuid,nodev,size=500m
+      - /home/nextjs/.npm:noexec,nosuid,nodev,size=100m
+    user: "1001:1001"
+    ulimits:
+      nproc: 512
+      nofile: 1024
+      memlock: 67108864
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.do.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    restart: unless-stopped
+    depends_on:
+      - newmeet-backend
+      - livekit
+    networks:
+      - app-network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
