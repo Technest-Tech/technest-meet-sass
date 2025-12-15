@@ -14,8 +14,8 @@ JWT_SECRET=almajd-meet-jwt-secret-2024-production-key-64chars-minimum
 # LiveKit Configuration
 # Internal URL for server-to-server communication
 LIVEKIT_URL=http://livekit:7880
-# Public URL for clients (use IP)
-NEXT_PUBLIC_LIVEKIT_URL=ws://152.42.249.147/rtc
+# Public URL for clients (use IP with HTTPS)
+NEXT_PUBLIC_LIVEKIT_URL=wss://152.42.249.147/rtc
 LIVEKIT_API_KEY=almajd-meet-api-key-prod-2024
 LIVEKIT_API_SECRET=almajd-meet-api-secret-production-2024-secure-key
 
@@ -29,8 +29,8 @@ R2_ENDPOINT=https://3eb7ab379add240613a41c5ea0a1e9e5.r2.cloudflarestorage.com
 R2_BUCKET_NAME=academiq-meet
 R2_ENABLED=true
 
-# Base URL used in generated links (use IP)
-APP_URL=http://152.42.249.147
+# Base URL used in generated links (use IP with HTTPS)
+APP_URL=https://152.42.249.147
 
 # Optional path that referral links should open
 REFERRAL_TARGET_PATH=/subscription-request
