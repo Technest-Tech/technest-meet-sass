@@ -107,6 +107,7 @@ services:
     volumes:
       - ./nginx.do.conf:/etc/nginx/nginx.conf:ro
       - ./ssl:/etc/nginx/ssl:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     restart: unless-stopped
     depends_on:
       - newmeet-backend
