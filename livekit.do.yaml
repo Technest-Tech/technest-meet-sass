@@ -15,8 +15,7 @@ log_level: info
 # Room settings
 room:
   auto_create: true
-  empty_timeout: 5m
-  max_duration: 2h
+  empty_timeout: 300
 
 # RTC configuration
 rtc:
@@ -35,8 +34,3 @@ development: false
 # Redis configuration (optional - for multi-node setup)
 # redis:
 #   address: "redis:6379"
-
-# Logging configuration
-log:
-  level: info
-  json: false
