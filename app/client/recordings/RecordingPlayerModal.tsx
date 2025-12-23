@@ -120,12 +120,13 @@ export default function RecordingPlayerModal({ recording, onClose }: RecordingPl
           <video
             key={recording.id} // Force re-render when recording changes
             ref={videoRef}
-            src={`${recording.streamUrl}?t=${Date.now()}`} // Add cache busting parameter
+            src={`${recording.streamUrl}${recording.streamUrl.includes('?') ? '&' : '?'}t=${Date.now()}`} // Add cache busting parameter (handle existing query params)
             controls
             className="w-full h-auto max-h-[70vh]"
             onLoadedData={() => setIsLoading(false)}
             onError={(e) => {
               console.error('Video error:', e);
+              console.error('Failed to load video from:', recording.streamUrl);
               setIsLoading(false);
             }}
           />

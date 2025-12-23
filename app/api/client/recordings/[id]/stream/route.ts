@@ -65,18 +65,47 @@ export async function GET(
     // Verify file exists
     if (!existsSync(localFilePath)) {
       console.error(`[Stream Recording] ❌ File not found at: ${localFilePath}`);
-      console.error(`[Stream Recording] Available files in recordings directory:`);
-      try {
-        const { readdir } = await import('fs/promises');
-        const recordingsDir = join(process.cwd(), 'recordings');
-        const files = await readdir(recordingsDir);
-        const mp4Files = files.filter(f => f.endsWith('.mp4'));
-        console.error(`  Total MP4 files: ${mp4Files.length}`);
-        console.error(`  Files: ${mp4Files.slice(0, 10).join(', ')}${mp4Files.length > 10 ? '...' : ''}`);
-      } catch (e) {
-        console.error(`  Could not list files: ${e}`);
+      console.error(`[Stream Recording] Filename in DB: ${recording.filename}`);
+      console.error(`[Stream Recording] EgressId: ${recording.egressId}`);
+      
+      // Try to find file by egressId if filename doesn't match
+      if (recording.egressId && recording.filename === 'recording.mp4') {
+        console.log(`[Stream Recording] 🔍 Filename is generic 'recording.mp4', searching by egressId: ${recording.egressId}`);
+        try {
+          const { readdir } = await import('fs/promises');
+          const recordingsDir = join(process.cwd(), 'recordings');
+          const files = await readdir(recordingsDir);
+          const matchingFile = files.find(f => 
+            f.endsWith('.mp4') && 
+            (f.includes(recording.egressId) || f.includes(recording.egressId.replace('EG_', '')))
+          );
+          
+          if (matchingFile) {
+            localFilePath = join(recordingsDir, matchingFile);
+            console.log(`[Stream Recording] ✅ Found file by egressId: ${matchingFile}`);
+          } else {
+            console.error(`[Stream Recording] ❌ No file found matching egressId: ${recording.egressId}`);
+          }
+        } catch (e) {
+          console.error(`[Stream Recording] Error searching for file: ${e}`);
+        }
       }
-      return new NextResponse('Recording file not found', { status: 404 });
+      
+      // If still not found, list available files
+      if (!existsSync(localFilePath)) {
+        console.error(`[Stream Recording] Available files in recordings directory:`);
+        try {
+          const { readdir } = await import('fs/promises');
+          const recordingsDir = join(process.cwd(), 'recordings');
+          const files = await readdir(recordingsDir);
+          const mp4Files = files.filter(f => f.endsWith('.mp4'));
+          console.error(`  Total MP4 files: ${mp4Files.length}`);
+          console.error(`  Files: ${mp4Files.slice(0, 10).join(', ')}${mp4Files.length > 10 ? '...' : ''}`);
+        } catch (e) {
+          console.error(`  Could not list files: ${e}`);
+        }
+        return new NextResponse('Recording file not found', { status: 404 });
+      }
     }
     
     const fileStat = await stat(localFilePath);
