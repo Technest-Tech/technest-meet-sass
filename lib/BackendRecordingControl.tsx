@@ -73,13 +73,19 @@ export function BackendRecordingControl({
           // PRIORITY: Check for ACTIVE recordings first (status 1 or 0)
           // DO NOT show download modal on mount - only show it after user explicitly stops recording
           if (data.status === 0 || data.status === 1) {
+            // Only restore if we have a valid egressId
+            if (!data.egressId) {
+              console.warn('[Recording Control] Found active recording but no egressId, skipping restore');
+              return;
+            }
+            
             const status: RecordingStatus = data.status === 0 ? 'starting' : 'active';
             const startedAt = data.startedAt 
               ? (typeof data.startedAt === 'string' ? new Date(data.startedAt).getTime() : data.startedAt)
               : (data.createdAt ? new Date(data.createdAt).getTime() : Date.now());
             
             setRecordingInfo({
-              egressId: data.egressId || '',
+              egressId: data.egressId,
               status: status,
               filename: data.filename,
               startedAt: startedAt,
@@ -96,10 +102,15 @@ export function BackendRecordingControl({
             // No download modal to close
             
             console.log('[Recording Control] Restored ACTIVE recording state:', status, data.egressId, 'Started at:', new Date(startedAt).toISOString());
+          } else if (data.status === 2 || data.status === 3 || data.status === 4) {
+            // Completed/failed/aborted recordings - clear state to avoid showing as active
+            console.log('[Recording Control] Found completed/failed recording, clearing state. Status:', data.status);
+            setRecordingInfo(null);
           } else {
             // Don't show download modal on mount - only show it when user explicitly stops recording
             // Completed recordings from previous sessions should not auto-show the modal
-            console.log('[Recording Control] Found completed/failed recording, but not showing modal on mount. Status:', data.status);
+            console.log('[Recording Control] Found recording with status:', data.status, '- clearing state');
+            setRecordingInfo(null);
           }
         } else {
           console.log('[Recording Control] Status check failed:', response.status);
@@ -672,7 +683,45 @@ export function BackendRecordingControl({
   }, [roomName, isProcessing, hasActiveParticipants]);
 
   const stopRecording = useCallback(async () => {
-    if (!roomName || !recordingInfo?.egressId || isProcessing) return;
+    if (!roomName || isProcessing) {
+      console.warn('[Recording Control] Cannot stop: missing roomName or already processing');
+      return;
+    }
+    
+    // If no egressId, try to get it from status check first
+    if (!recordingInfo?.egressId) {
+      console.log('[Recording Control] No egressId, checking status first...');
+      try {
+        const statusResponse = await fetch(`/api/record/backend-status?roomName=${encodeURIComponent(roomName)}`);
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json();
+          if (statusData.egressId) {
+            setRecordingInfo(prev => prev ? { ...prev, egressId: statusData.egressId } : { egressId: statusData.egressId, status: 'active' });
+          } else {
+            // No active recording found, clear state
+            setRecordingInfo(null);
+            toast.error('No Active Recording', {
+              description: 'No active recording found to stop.',
+              duration: 3000,
+            });
+            return;
+          }
+        }
+      } catch (error) {
+        console.error('[Recording Control] Error checking status before stop:', error);
+      }
+    }
+    
+    if (!recordingInfo?.egressId) {
+      console.warn('[Recording Control] Cannot stop: no egressId available');
+      // Clear the recording state if we can't stop it
+      setRecordingInfo(null);
+      toast.error('Recording Error', {
+        description: 'Unable to stop recording: no recording ID found.',
+        duration: 3000,
+      });
+      return;
+    }
 
     setIsProcessing(true);
     try {
@@ -768,7 +817,8 @@ export function BackendRecordingControl({
 
   const isRecording = recordingInfo?.status === 'active' || recordingInfo?.status === 'starting';
   const isStopping = recordingInfo?.status === 'stopping';
-  const isDisabled = !isFeatureEnabled || isProcessing || isStopping;
+  // Allow stopping when recording is active, but disable when stopping or if feature is disabled
+  const isDisabled = !isFeatureEnabled || isProcessing || (isStopping && !isRecording);
 
   return (
     <>
