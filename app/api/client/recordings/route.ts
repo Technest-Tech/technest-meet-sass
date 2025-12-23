@@ -94,6 +94,119 @@ export async function GET(request: NextRequest) {
       }
     }
     
+    // Auto-sync orphaned files (files without database records)
+    // This ensures all recording files are visible in the UI
+    const mp4Files = allFiles.filter(f => f.endsWith('.mp4'));
+    const existingFilenames = new Set(recordings.map(r => r.filename));
+    const orphanedFiles = mp4Files.filter(f => !existingFilenames.has(f));
+    
+    if (orphanedFiles.length > 0) {
+      console.log(`[Recordings API] Found ${orphanedFiles.length} orphaned recording files, attempting to sync...`);
+      
+      // Get all rooms for this client to match orphaned files
+      const clientRooms = await prisma.room.findMany({
+        where: { clientId: session.clientId },
+        select: { id: true, name: true, hostLink: true },
+      });
+      
+      // Try to create database records for orphaned files
+      for (const filename of orphanedFiles) {
+        try {
+          // Extract room name from filename
+          let matchedRoom = clientRooms.find(room => 
+            filename.includes(room.hostLink) || filename.includes(room.name)
+          );
+          
+          // If no match, use first room as fallback (better than nothing)
+          if (!matchedRoom && clientRooms.length > 0) {
+            matchedRoom = clientRooms[0];
+            console.log(`[Recordings API] ⚠️ No room match for ${filename}, using fallback room: ${matchedRoom.name}`);
+          }
+          
+          if (!matchedRoom) {
+            console.warn(`[Recordings API] ⚠️ No rooms found for client, skipping orphaned file: ${filename}`);
+            continue;
+          }
+          
+          // Extract timestamp from filename
+          const timestampMatch = filename.match(/(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d+)/);
+          let fileStartTime = new Date();
+          
+          if (timestampMatch) {
+            try {
+              const timestampStr = timestampMatch[1];
+              const isoStr = timestampStr.replace(/(\d{4}-\d{2}-\d{2}T)(\d{2})-(\d{2})-(\d{2})-(\d+)/, 
+                (_, date, hour, min, sec, ms) => {
+                  const msFormatted = ms.length === 3 ? ms : ms.padStart(3, '0').slice(0, 3);
+                  return `${date}${hour}:${min}:${sec}.${msFormatted}Z`;
+                });
+              fileStartTime = new Date(isoStr);
+            } catch (e) {
+              console.warn(`[Recordings API] Could not parse timestamp from ${filename}`);
+            }
+          }
+          
+          // Check if recording already exists for this room at similar time
+          const existingSimilar = await prisma.recording.findFirst({
+            where: {
+              roomId: matchedRoom.id,
+              startedAt: {
+                gte: new Date(fileStartTime.getTime() - 5 * 60 * 1000), // 5 minutes before
+                lte: new Date(fileStartTime.getTime() + 5 * 60 * 1000), // 5 minutes after
+              },
+            },
+          });
+          
+          if (existingSimilar) {
+            console.log(`[Recordings API] Skipping ${filename} - similar recording exists: ${existingSimilar.id}`);
+            continue;
+          }
+          
+          // Get file stats
+          const filePath = pathJoin(recordingsDir, filename);
+          const fileStat = await stat(filePath);
+          
+          // Generate unique egressId
+          const egressId = `SYNCED_${Date.now()}_${filename.substring(0, 20)}`;
+          
+          // Create recording record
+          const syncedRecording = await prisma.recording.create({
+            data: {
+              roomId: matchedRoom.id,
+              egressId: egressId,
+              filename: filename,
+              originalName: `${matchedRoom.name} - ${fileStartTime.toISOString().split('T')[0]}`,
+              fileSize: fileStat.size,
+              status: 'COMPLETED',
+              storageType: 'LOCAL',
+              storagePath: filePath,
+              startedAt: fileStartTime,
+              endedAt: fileStat.mtime,
+            },
+          });
+          
+          console.log(`[Recordings API] ✅ Auto-synced orphaned file: ${filename} -> recording ${syncedRecording.id}`);
+          
+          // Add to recordings array so it appears in this response
+          recordings.push({
+            ...syncedRecording,
+            room: {
+              id: matchedRoom.id,
+              name: matchedRoom.name,
+              hostLink: matchedRoom.hostLink,
+            },
+          });
+        } catch (syncError) {
+          console.error(`[Recordings API] Error syncing orphaned file ${filename}:`, syncError);
+        }
+      }
+      
+      // Re-sort recordings after adding synced ones
+      recordings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      total = recordings.length;
+      console.log(`[Recordings API] After sync: ${recordings.length} recordings (total: ${total})`);
+    }
+    
     // Track which files have been assigned to avoid duplicates
     const assignedFiles = new Set<string>();
     
