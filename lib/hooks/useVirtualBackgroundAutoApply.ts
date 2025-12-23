@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocalParticipant } from '@livekit/components-react';
 import { isLocalTrack, Track } from 'livekit-client';
+import { trackLock } from '../utils/trackLock';
+import { logger } from '../utils/logger';
 
 // Dynamically import track processors
 let BackgroundBlur: any, VirtualBackground: any;
@@ -125,6 +127,37 @@ export function useVirtualBackgroundAutoApply(
 
     // Function to apply the background
     const applyBackground = async () => {
+      const trackId = `camera-vbg-${track.sid}`;
+      
+      // CRITICAL FIX: Check if track was modified in last 5 seconds (quality change, etc.)
+      if (trackLock.wasRecentlyModified(trackId)) {
+        const timeUntilModifiable = trackLock.getTimeUntilModifiable(trackId);
+        logger.debug('Track recently modified, waiting before applying background', {
+          timeUntilModifiable,
+        });
+        
+        // Wait until track is stable
+        await new Promise(resolve => setTimeout(resolve, timeUntilModifiable + 100));
+        
+        // Re-check if track is still valid
+        if (!isTrackReady()) {
+          logger.debug('Track no longer ready after waiting, skipping background application');
+          return;
+        }
+      }
+      
+      // Check if another component is modifying this track
+      if (trackLock.isLocked(trackId)) {
+        logger.debug('Track locked, skipping auto-apply');
+        return;
+      }
+      
+      const acquired = await trackLock.acquire(trackId);
+      if (!acquired) {
+        logger.debug('Could not acquire lock for auto-apply');
+        return;
+      }
+      
       try {
         // Check if track is ready
         if (!isTrackReady()) {
@@ -140,6 +173,11 @@ export function useVirtualBackgroundAutoApply(
           throw new Error('Track became unavailable during delay');
         }
 
+        // Check one more time that track is still valid before applying
+        if (!track || !track.mediaStreamTrack || track.mediaStreamTrack.readyState !== 'live') {
+          throw new Error('Track is closed or invalid');
+        }
+
         // Apply the processor
         if (savedType === 'blur') {
           await track.setProcessor(BackgroundBlur());
@@ -153,14 +191,36 @@ export function useVirtualBackgroundAutoApply(
         hasAutoAppliedRef.current = trackSid;
         applyRetryCountRef.current = 0;
       } catch (error: any) {
-        // Don't retry on "Empty video frame" errors - track might not be ready yet
-        if (error.message?.includes('Empty video frame') || error.message?.includes('Empty')) {
-          console.warn('⚠️ Track not ready yet, will retry:', error.message);
+        // Don't retry on stream closed errors or empty frame errors - track might not be ready yet
+        // Check multiple variations of the error
+        const isStreamClosed = 
+          error?.name === 'InvalidStateError' ||
+          error?.message?.includes('Stream closed') ||
+          error?.message?.includes('stream closed') ||
+          error?.message?.includes('stream is closed') ||
+          error?.toString()?.includes('Stream closed') ||
+          error?.toString()?.includes('stream closed');
+        const isEmptyFrame = 
+          error?.message?.includes('Empty video frame') || 
+          error?.message?.includes('Empty');
+        
+        if (isStreamClosed || isEmptyFrame) {
+          // These are expected during track transitions, don't spam console
+          if (applyRetryCountRef.current === 0) {
+            console.warn('⚠️ Track not ready yet, will retry:', error.message || error.name);
+          }
         } else {
-          console.warn('⚠️ Error auto-applying background, will retry:', error.message);
+          console.warn('⚠️ Error auto-applying background, will retry:', error.message || error.name);
         }
         
-        // Retry logic
+        // Retry logic - but don't retry if stream is closed and we've tried a few times
+        if (isStreamClosed && applyRetryCountRef.current >= 2) {
+          // Stream is closed, likely track was replaced - reset and wait for new track
+          hasAutoAppliedRef.current = null;
+          applyRetryCountRef.current = 0;
+          return;
+        }
+        
         if (applyRetryCountRef.current < maxApplyRetries) {
           applyRetryCountRef.current += 1;
           const delay = Math.min(1000 * applyRetryCountRef.current, 3000); // Exponential backoff, max 3s
@@ -172,6 +232,8 @@ export function useVirtualBackgroundAutoApply(
           console.error('❌ Failed to auto-apply background after', maxApplyRetries, 'retries');
           applyRetryCountRef.current = 0;
         }
+      } finally {
+        trackLock.release(trackId);
       }
     };
 

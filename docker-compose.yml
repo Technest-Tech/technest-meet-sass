@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   livekit:
-    image: livekit/livekit-server:latest
+    image: livekit/livekit-server:v1.9.9
     container_name: livekit-server
     ports:
       - "7880:7880"  # API and WebSocket signaling
@@ -16,10 +16,60 @@ services:
       LIVEKIT_TCP_BIND_ADDRESSES: "0.0.0.0:7881"
       LIVEKIT_UDP_PORT: "7882"
       LIVEKIT_UDP_BIND_ADDRESSES: "0.0.0.0:7882"
-      # Force LiveKit to use local network IP for Docker on macOS
-      # This IP should match your local network IP (check with: ipconfig getifaddr en0)
-      LIVEKIT_NAT_1TO1_IPS: "0.0.0.0/0=192.168.1.23"
+      # Don't force external IP - let LiveKit auto-detect for better Docker network compatibility
+      # This allows egress browser to connect via Docker network
     volumes:
       - ./livekit.yaml:/config.yaml
-    command: ["--config", "/config.yaml", "--node-ip", "192.168.1.23"]
+    command: ["--config", "/config.yaml"]
     restart: unless-stopped
+    networks:
+      - livekit-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: livekit-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - livekit-network
+    command: redis-server --appendonly yes
+
+  egress-server1:
+    image: livekit/egress:latest
+    container_name: livekit-egress-server1
+    ports:
+      - "8080:8080"  # Health check port
+    environment:
+      - EGRESS_CONFIG_FILE=/config/egress-config-server1.yaml
+    volumes:
+      - ./egress-config-server1.yaml:/config/egress-config-server1.yaml:ro
+      - ./recordings:/recordings  # Mount recordings directory
+    cap_add:
+      - SYS_ADMIN  # Required for Chrome sandboxing
+    restart: unless-stopped
+    network_mode: host  # Use host networking to access production Redis
+    # Egress service for Server 1 (178.128.78.195 / rtc.acadmyq.com)
+    # Note: Using host networking to allow connection to production Redis
+
+  egress-server2:
+    image: livekit/egress:latest
+    container_name: livekit-egress-server2
+    ports:
+      - "8081:8081"  # Health check port (different to avoid conflict)
+    environment:
+      - EGRESS_CONFIG_FILE=/config/egress-config-server2.yaml
+    volumes:
+      - ./egress-config-server2.yaml:/config/egress-config-server2.yaml:ro
+      - ./recordings:/recordings  # Mount recordings directory
+    cap_add:
+      - SYS_ADMIN  # Required for Chrome sandboxing
+    restart: unless-stopped
+    network_mode: host  # Use host networking to access production Redis
+    # Egress service for Server 2 (167.99.107.128 / rtc2.acadmyq.com)
+    # Note: Using host networking to allow connection to production Redis
+
+networks:
+  livekit-network:
+    driver: bridge
+

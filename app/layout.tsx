@@ -59,7 +59,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ar" dir="rtl" className={almarai.variable}>
-      <body data-lk-theme="default" className={almarai.className}>
+      <body 
+        data-lk-theme="default" 
+        className={almarai.className}
+        suppressHydrationWarning
+      >
         <GlobalErrorHandler>
           <Toaster 
             position="top-left"
@@ -71,6 +75,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             containerStyle={{
               zIndex: 9999999,
             }}
+            // Make toasts dismissible by clicking on them
+            // Click outside functionality is handled in individual toast calls
           />
           {children}
         </GlobalErrorHandler>

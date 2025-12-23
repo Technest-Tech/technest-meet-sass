@@ -32,7 +32,15 @@ const storageTierBounds: Record<
 export async function GET(request: NextRequest) {
   try {
     await requireSuperAdmin();
+  } catch (error) {
+    console.error('Accounts auth error:', error);
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401 }
+    );
+  }
 
+  try {
     const { searchParams } = new URL(request.url);
     const page = Math.max(1, Number(searchParams.get('page') || '1'));
     const pageSize = Math.min(100, Math.max(1, Number(searchParams.get('pageSize') || String(DEFAULT_PAGE_SIZE))));

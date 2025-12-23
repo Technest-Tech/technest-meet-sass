@@ -2,11 +2,11 @@
 const nextConfig = {
   reactStrictMode: false, // Keep false if needed for compatibility
   productionBrowserSourceMaps: true,
-  
+
   // Production optimizations
   compress: true,
   poweredByHeader: false,
-  
+
   typescript: {
     // !! WARN !!
     // Dangerously allow production builds to successfully complete even if
@@ -19,14 +19,14 @@ const nextConfig = {
     // your project has ESLint errors.
     ignoreDuringBuilds: true,
   },
-  
+
   // Enhanced image optimization
   images: {
     formats: ['image/avif', 'image/webp'],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
   },
-  
+
   webpack: (config, { buildId, dev, isServer, defaultLoaders, nextRuntime, webpack }) => {
     // Important: return the modified config
     config.module.rules.push({
@@ -34,7 +34,7 @@ const nextConfig = {
       enforce: 'pre',
       use: ['source-map-loader'],
     });
-    
+
     // Code splitting optimization for client-side bundles
     if (!isServer) {
       config.optimization = {
@@ -64,7 +64,7 @@ const nextConfig = {
 
     return config;
   },
-  
+
   // Enhanced security headers
   headers: async () => {
     return [
@@ -107,12 +107,14 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net",
+              "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com https://static.cloudflareinsights.com",
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com data:",
               "img-src 'self' data: https: blob:",
               "connect-src 'self' https: wss: ws:",
               "media-src 'self' blob:",
+              "worker-src 'self' blob:",
+              "child-src 'self' blob:",
               "object-src 'none'",
               "base-uri 'self'",
               "form-action 'self'",
@@ -124,7 +126,7 @@ const nextConfig = {
       },
     ];
   },
-  
+
   // Experimental features for better performance
   experimental: {
     optimizePackageImports: ['@livekit/components-react', 'livekit-client'],

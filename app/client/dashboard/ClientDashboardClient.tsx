@@ -13,6 +13,7 @@ import {
   Plus,
   ArrowUpRight,
   Gift,
+  Film,
 } from 'lucide-react';
 import Sidebar from '@/lib/components/Sidebar';
 import Header from '@/lib/components/Header';
@@ -92,6 +93,7 @@ function ClientDashboardContent({
   const menuItems = [
     { href: '/client/dashboard', label: 'لوحة التحكم', icon: Video },
     { href: '/client/rooms', label: 'إدارة الغرف', icon: Video },
+    { href: '/client/recordings', label: 'التسجيلات', icon: Film },
     { href: '/client/subscription', label: 'الاشتراك', icon: CreditCard },
     { href: '/client/settings', label: 'الإعدادات', icon: Settings },
     { href: '/client/referral-center', label: 'مركز الإحالات', icon: Gift },

@@ -105,6 +105,20 @@ enum ActivityEventType {
   SYSTEM_ALERT
 }
 
+enum RecordingStatus {
+  STARTING
+  ACTIVE
+  COMPLETED
+  FAILED
+  ABORTED
+  UPLOADING
+}
+
+enum StorageType {
+  LOCAL
+  R2
+}
+
 enum InvoiceStatus {
   DRAFT
   OPEN
@@ -132,16 +146,16 @@ model SuperAdmin {
 
 // Account - Unified account model for all users
 model Account {
-  id        String        @id @default(cuid())
-  email     String        @unique
-  password  String // Hashed with bcrypt
-  role      AccountRole
-  status    AccountStatus @default(ACTIVE)
-  clientId  String? // Only set if role is CLIENT
-  client    Client?
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  notes     AccountNote[]
+  id           String            @id @default(cuid())
+  email        String            @unique
+  password     String // Hashed with bcrypt
+  role         AccountRole
+  status       AccountStatus     @default(ACTIVE)
+  clientId     String? // Only set if role is CLIENT
+  client       Client?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  notes        AccountNote[]
   activityLogs RoomActivityLog[]
 
   @@index([clientId])
@@ -151,12 +165,12 @@ model Account {
 
 // Client - Tenant organization
 model Client {
-  id        String  @id @default(cuid())
-  name      String
-  email     String  @unique
+  id             String  @id @default(cuid())
+  name           String
+  email          String  @unique
   whatsappNumber String?
-  accountId String  @unique // Link to Account
-  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accountId      String  @unique // Link to Account
+  account        Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   // Limits (set by super admin)
   maxRooms            Int     @default(10)
@@ -167,13 +181,13 @@ model Client {
   subscription Subscription?
 
   // Relations
-  rooms          Room[]
-  hostAccounts   HostAccount[]
-  guestAccounts  GuestAccount[]
-  referralLink   ReferralLink?
-  redeemRequests RedeemRequest[]
-  activityLogs   RoomActivityLog[]
-  invoices       BillingInvoice[]
+  rooms            Room[]
+  hostAccounts     HostAccount[]
+  guestAccounts    GuestAccount[]
+  referralLink     ReferralLink?
+  redeemRequests   RedeemRequest[]
+  activityLogs     RoomActivityLog[]
+  invoices         BillingInvoice[]
   storageSnapshots StorageSnapshot[]
 
   createdAt     DateTime        @default(now())
@@ -216,12 +230,12 @@ model PlanFeature {
 
 // Subscription - Client's active subscription
 model Subscription {
-  id       String             @id @default(cuid())
-  clientId String             @unique
-  client   Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id       String              @id @default(cuid())
+  clientId String              @unique
+  client   Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
   planId   String
-  plan     Plan               @relation(fields: [planId], references: [id])
-  status   SubscriptionStatus @default(INACTIVE)
+  plan     Plan                @relation(fields: [planId], references: [id])
+  status   SubscriptionStatus  @default(INACTIVE)
   invoices BillingInvoice[]
   sourceId String?
   source   SubscriptionSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
@@ -247,12 +261,12 @@ model Subscription {
 }
 
 model SubscriptionSource {
-  id          String          @id @default(cuid())
-  label       String
-  description String?
-  isActive    Boolean         @default(true)
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  id            String         @id @default(cuid())
+  label         String
+  description   String?
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
   subscriptions Subscription[]
 
   @@index([isActive])
@@ -310,6 +324,7 @@ model Room {
   hostAccounts        HostAccount[]
   guestAccounts       GuestAccount[]
   activityLogs        RoomActivityLog[]
+  recordings          Recording[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -349,6 +364,37 @@ model RoomFile {
 
   @@index([roomId])
   @@map("room_files")
+}
+
+// Recording - Backend recordings from LiveKit Egress
+model Recording {
+  id     String @id @default(cuid())
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  // Recording metadata
+  egressId     String  @unique // LiveKit egress ID
+  filename     String  // Original filename from egress
+  originalName String? // Human-readable name (room name + timestamp) - optional for backward compatibility
+  fileSize     Int?    // Size in bytes
+  duration     Int?    // Duration in seconds
+
+  // Status tracking
+  status    RecordingStatus @default(COMPLETED)
+  startedAt DateTime
+  endedAt   DateTime?
+
+  // Storage info
+  storageType StorageType @default(LOCAL) // LOCAL or R2
+  storagePath String? // R2 key (e.g., "recordings/{clientId}/{roomId}/{filename}") or local path
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([roomId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("recordings")
 }
 
 // WaitingParticipant - Waiting room participants
@@ -435,24 +481,24 @@ model RoomActivityLog {
 }
 
 model BillingInvoice {
-  id              String        @id @default(cuid())
-  clientId        String
-  client          Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  subscriptionId  String?
-  subscription    Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
-  status          InvoiceStatus @default(OPEN)
-  amountCents     Int
-  currency        String        @default("EGP")
-  issuedAt        DateTime      @default(now())
-  dueAt           DateTime?
-  paidAt          DateTime?
-  periodStart     DateTime?
-  periodEnd       DateTime?
-  description     String?
-  metadata        Json?
-  pdfUrl          String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id             String        @id @default(cuid())
+  clientId       String
+  client         Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  status         InvoiceStatus @default(OPEN)
+  amountCents    Int
+  currency       String        @default("EGP")
+  issuedAt       DateTime      @default(now())
+  dueAt          DateTime?
+  paidAt         DateTime?
+  periodStart    DateTime?
+  periodEnd      DateTime?
+  description    String?
+  metadata       Json?
+  pdfUrl         String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
   @@index([clientId, status])
   @@index([subscriptionId])
@@ -460,16 +506,16 @@ model BillingInvoice {
 }
 
 model StorageSnapshot {
-  id            String   @id @default(cuid())
-  clientId      String
-  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  totalBytes    BigInt   @default(0)
-  totalFiles    Int      @default(0)
-  totalRooms    Int      @default(0)
-  activeRooms   Int      @default(0)
-  capturedAt    DateTime @default(now())
-  breakdown     Json?
-  createdAt     DateTime @default(now())
+  id          String   @id @default(cuid())
+  clientId    String
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  totalBytes  BigInt   @default(0)
+  totalFiles  Int      @default(0)
+  totalRooms  Int      @default(0)
+  activeRooms Int      @default(0)
+  capturedAt  DateTime @default(now())
+  breakdown   Json?
+  createdAt   DateTime @default(now())
 
   @@index([clientId, capturedAt])
   @@map("storage_snapshots")

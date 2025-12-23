@@ -1,0 +1,35 @@
+# LiveKit Egress Service Configuration
+log_level: info
+
+# LiveKit server connection
+# Use production keys to match the app configuration
+api_key: almajd-meet-api-key-prod-2024
+api_secret: almajd-meet-api-secret-production-2024-secure-key
+
+# Connect to production LiveKit server (Server 1 - primary server)
+# This avoids Docker networking issues - production server has proper network configuration
+# Note: Room routing uses consistent hashing - rooms may be on Server 1 or Server 2
+# For now, pointing to Server 1. Long-term solution: run two egress services or use load balancer
+ws_url: ws://178.128.78.195:7880
+
+# Public URL for room composite recordings
+# Egress browser connects to production server which has proper network setup
+# Production server handles all networking correctly (host networking or proper NAT)
+# Note: This must match the server where the room is located (determined by consistent hashing)
+web_base_url: wss://rtc.acadmyq.com
+
+# Redis configuration (required for egress service)
+redis:
+  address: redis:6379
+
+# Health check port
+health_port: 8080
+
+# Output configuration
+# For local development, files are stored in the container
+# In production, configure S3 or other storage
+output:
+  # Local file storage
+  file:
+    path: /recordings
+

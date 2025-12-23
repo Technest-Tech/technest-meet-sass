@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { CreditCard, CheckCircle, AlertCircle, Video, Settings, Gift } from 'lucide-react';
+import { CreditCard, CheckCircle, AlertCircle, Video, Settings, Gift, Film } from 'lucide-react';
 import Sidebar from '@/lib/components/Sidebar';
 import Header from '@/lib/components/Header';
 import Card from '@/lib/components/Card';
@@ -104,6 +104,7 @@ function SubscriptionPageContent({
   const menuItems = [
     { href: '/client/dashboard', label: 'لوحة التحكم', icon: Video },
     { href: '/client/rooms', label: 'إدارة الغرف', icon: Video },
+    { href: '/client/recordings', label: 'التسجيلات', icon: Film },
     { href: '/client/subscription', label: 'الاشتراك', icon: CreditCard },
     { href: '/client/settings', label: 'الإعدادات', icon: Settings },
     { href: '/client/referral-center', label: 'مركز الإحالات', icon: Gift },

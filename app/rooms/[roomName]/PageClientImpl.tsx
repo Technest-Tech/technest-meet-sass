@@ -18,6 +18,7 @@ import { RaiseHandIndicator } from '@/lib/RaiseHandIndicator';
 import { RaiseHandSync } from '@/lib/RaiseHandSync';
 import { FileSharingButton } from '@/lib/FileSharingButton';
 import { ScreenAnnotationButton } from '@/lib/ScreenAnnotationButton';
+import { BackendRecordingControl } from '@/lib/BackendRecordingControl';
 import { FileSharing } from '@/lib/FileSharing';
 import { PdfViewer } from '@/lib/PdfViewer';
 import { ScreenAnnotation } from '@/lib/ScreenAnnotation';
@@ -52,6 +53,8 @@ import {
   Track,
   ParticipantEvent,
   TrackPublication,
+  LocalTrack,
+  Participant,
 } from 'livekit-client';
 import { useRouter } from 'next/navigation';
 import { useSetupE2EE } from '@/lib/useSetupE2EE';
@@ -62,6 +65,7 @@ import { useVirtualBackgroundAutoApply } from '@/lib/hooks/useVirtualBackgroundA
 import { useAudioVolumeBoost } from '@/lib/hooks/useAudioVolumeBoost';
 import { useAudioTrackHealth } from '@/lib/hooks/useAudioTrackHealth';
 import { useAudioStability } from '@/lib/hooks/useAudioStability';
+import { useVideoTrackHealth } from '@/lib/hooks/useVideoTrackHealth';
 import toast from 'react-hot-toast';
 
 // Custom SettingsMenu wrapper that can receive canRecord prop
@@ -71,11 +75,11 @@ function CustomSettingsMenu(props: any) {
 
 // Wrapper component for virtual background auto-apply hook
 // This component must be inside RoomContext.Provider to access useLocalParticipant
-function VirtualBackgroundAutoApplyWrapper({ 
-  isHost, 
-  isVirtualBackgroundEnabled 
-}: { 
-  isHost: boolean; 
+function VirtualBackgroundAutoApplyWrapper({
+  isHost,
+  isVirtualBackgroundEnabled
+}: {
+  isHost: boolean;
   isVirtualBackgroundEnabled: boolean;
 }) {
   useVirtualBackgroundAutoApply(isHost, isVirtualBackgroundEnabled);
@@ -752,11 +756,17 @@ export function PageClientImpl(props: {
 // Custom Control Buttons Component
 function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
   const { localParticipant } = useLocalParticipant();
+  const room = useRoomContext();
   const [isMicEnabled, setIsMicEnabled] = React.useState(false);
   const [isCameraEnabled, setIsCameraEnabled] = React.useState(false);
   const [isScreenSharing, setIsScreenSharing] = React.useState(false);
   const [isTogglingScreenShare, setIsTogglingScreenShare] = React.useState(false);
   const [showLeaveDialog, setShowLeaveDialog] = React.useState(false);
+
+  // Screen share track monitoring refs
+  const screenShareTrackRef = React.useRef<LocalTrack | null>(null);
+  const screenShareLockRef = React.useRef(false);
+  const screenShareHealthCheckRef = React.useRef<NodeJS.Timeout | null>(null);
 
   // Track participant state changes
   React.useEffect(() => {
@@ -766,6 +776,10 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
       setIsScreenSharing(localParticipant.isScreenShareEnabled);
     }
   }, [localParticipant]);
+
+  // Track pending unpublished timeouts to prevent race conditions
+  const cameraUnpublishedTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  const isRepublishingRef = React.useRef(false);
 
   // Listen for remote mute/unmute commands to keep UI synced
   React.useEffect(() => {
@@ -819,6 +833,13 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
           setIsScreenSharing(true);
         }
       } else if (publication.source === Track.Source.Camera) {
+        // CRITICAL FIX: Cancel any pending unpublished timeout
+        if (cameraUnpublishedTimeoutRef.current) {
+          clearTimeout(cameraUnpublishedTimeoutRef.current);
+          cameraUnpublishedTimeoutRef.current = null;
+        }
+        isRepublishingRef.current = false;
+        
         // Update camera state when camera track is published
         try {
           const actualState = localParticipant.isCameraEnabled;
@@ -851,34 +872,71 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
 
     const handleTrackUnpublished = (publication: TrackPublication) => {
       if (publication.source === Track.Source.ScreenShare) {
-        try {
-          // Verify state matches actual screen share status
-          const actualState = localParticipant.isScreenShareEnabled;
-          setIsScreenSharing(actualState);
-
-          if (actualState) {
-            logger.debug('Screen share track unpublished but isScreenShareEnabled is true', {
-              trackSid: publication.trackSid,
-            });
-          }
-        } catch (error) {
-          logger.error('Error in handleTrackUnpublished for screen share:', error);
-          // Fallback to setting false if we can't verify
-          setIsScreenSharing(false);
+        // Clean up track reference
+        if (screenShareTrackRef.current) {
+          const cleanup = (screenShareTrackRef.current as any).__cleanupEnded;
+          if (cleanup) cleanup();
+          screenShareTrackRef.current = null;
         }
+        
+        // Don't immediately update UI - might be temporary
+        setTimeout(() => {
+          try {
+            const actualState = localParticipant.isScreenShareEnabled;
+            setIsScreenSharing(actualState);
+            
+            if (actualState) {
+              logger.warn('Screen share track unpublished but isScreenShareEnabled is true - possible browser stop', {
+                trackSid: publication.trackSid,
+              });
+              // Browser might have stopped sharing
+              toast.error('Screen sharing was stopped. Click the button to share again.', {
+                duration: 4000,
+              });
+            }
+          } catch (error) {
+            logger.error('Error in handleTrackUnpublished for screen share:', error);
+            setIsScreenSharing(false);
+          }
+        }, 300);
       } else if (publication.source === Track.Source.Camera) {
-        // Update camera state when camera track is unpublished
-        try {
-          const actualState = localParticipant.isCameraEnabled;
-          setIsCameraEnabled(actualState);
-          logger.debug('Camera track unpublished, updating camera state:', {
-            trackSid: publication.trackSid,
-            isCameraEnabled: actualState,
-          });
-        } catch (error) {
-          logger.error('Error in handleTrackUnpublished for camera:', error);
-          // Fallback to setting false if we can't verify
+        // CRITICAL FIX: Clear any pending timeout
+        if (cameraUnpublishedTimeoutRef.current) {
+          clearTimeout(cameraUnpublishedTimeoutRef.current);
+          cameraUnpublishedTimeoutRef.current = null;
+        }
+        
+        // Check if this is a republish (quality change) vs actual disable
+        // If camera is still enabled in state, it's likely a republish
+        const currentState = localParticipant.isCameraEnabled;
+        
+        if (currentState) {
+          // Likely a republish - don't update UI immediately
+          isRepublishingRef.current = true;
+          cameraUnpublishedTimeoutRef.current = setTimeout(() => {
+            // Check again after delay
+            try {
+              const stillEnabled = localParticipant.isCameraEnabled;
+              if (stillEnabled) {
+                // Was a republish, keep UI state as enabled
+                setIsCameraEnabled(true);
+                logger.debug('Camera track republished, keeping enabled state');
+              } else {
+                // Actually disabled
+                setIsCameraEnabled(false);
+                logger.debug('Camera track actually disabled');
+              }
+            } catch (error) {
+              logger.error('Error checking camera state after unpublished:', error);
+              // Don't update UI on error - might be temporary
+            }
+            isRepublishingRef.current = false;
+            cameraUnpublishedTimeoutRef.current = null;
+          }, 300); // Reduced to 300ms for faster response
+        } else {
+          // Actually disabled by user
           setIsCameraEnabled(false);
+          logger.debug('Camera track unpublished and disabled');
         }
       } else if (publication.source === Track.Source.Microphone) {
         // Update microphone state when microphone track is unpublished
@@ -903,12 +961,110 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
     localParticipant.on(ParticipantEvent.LocalTrackUnpublished, handleTrackUnpublished);
 
     return () => {
+      // Clean up pending timeout
+      if (cameraUnpublishedTimeoutRef.current) {
+        clearTimeout(cameraUnpublishedTimeoutRef.current);
+        cameraUnpublishedTimeoutRef.current = null;
+      }
+      isRepublishingRef.current = false;
+      
       localParticipant.off(ParticipantEvent.TrackMuted, handleTrackMuted);
       localParticipant.off(ParticipantEvent.TrackUnmuted, handleTrackUnmuted);
       localParticipant.off(ParticipantEvent.LocalTrackPublished, handleTrackPublished);
       localParticipant.off(ParticipantEvent.LocalTrackUnpublished, handleTrackUnpublished);
+      
+      // Clean up screen share track listeners
+      if (screenShareTrackRef.current) {
+        const cleanup = (screenShareTrackRef.current as any).__cleanupEnded;
+        if (cleanup) cleanup();
+        screenShareTrackRef.current = null;
+      }
+      
+      // Clean up health check
+      if (screenShareHealthCheckRef.current) {
+        clearInterval(screenShareHealthCheckRef.current);
+        screenShareHealthCheckRef.current = null;
+      }
     };
   }, [localParticipant]);
+
+  // Screen share health monitoring
+  React.useEffect(() => {
+    // CRITICAL FIX: Also check room state - don't run health check if room disconnected
+    if (!localParticipant || !isScreenSharing || !room || room.state !== 'connected') {
+      // Clear health check if screen share is not active or room disconnected
+      if (screenShareHealthCheckRef.current) {
+        clearInterval(screenShareHealthCheckRef.current);
+        screenShareHealthCheckRef.current = null;
+      }
+      return;
+    }
+
+    const healthCheckInterval = setInterval(() => {
+      try {
+        // CRITICAL FIX: Check room state before accessing participant
+        if (!room || room.state !== 'connected' || !localParticipant) {
+          logger.debug('Room disconnected or participant unavailable, stopping health check');
+          if (screenShareHealthCheckRef.current) {
+            clearInterval(screenShareHealthCheckRef.current);
+            screenShareHealthCheckRef.current = null;
+          }
+          return;
+        }
+
+        const screenSharePublication = localParticipant.getTrackPublication(Track.Source.ScreenShare);
+        const track = screenSharePublication?.track;
+        
+        if (!track) {
+          // Track disappeared - browser might have stopped it
+          logger.warn('Screen share track disappeared during health check');
+          setIsScreenSharing(false);
+          screenShareLockRef.current = false;
+          if (screenShareTrackRef.current) {
+            const cleanup = (screenShareTrackRef.current as any).__cleanupEnded;
+            if (cleanup) cleanup();
+            screenShareTrackRef.current = null;
+          }
+          toast.error('Screen sharing was stopped unexpectedly.', {
+            duration: 4000,
+          });
+          return;
+        }
+
+        // Check if MediaStreamTrack is still active
+        const mediaStreamTrack = track.mediaStreamTrack;
+        if (mediaStreamTrack && mediaStreamTrack.readyState === 'ended') {
+          logger.warn('Screen share MediaStreamTrack ended');
+          setIsScreenSharing(false);
+          screenShareLockRef.current = false;
+          if (screenShareTrackRef.current) {
+            const cleanup = (screenShareTrackRef.current as any).__cleanupEnded;
+            if (cleanup) cleanup();
+            screenShareTrackRef.current = null;
+          }
+          toast.error('Screen sharing was stopped by your browser.', {
+            duration: 4000,
+          });
+        }
+      } catch (error) {
+        logger.error('Error in screen share health check:', error);
+        // CRITICAL FIX: Stop health check on error to prevent repeated failures
+        if (screenShareHealthCheckRef.current) {
+          clearInterval(screenShareHealthCheckRef.current);
+          screenShareHealthCheckRef.current = null;
+        }
+      }
+    }, 2000); // Check every 2 seconds
+
+    screenShareHealthCheckRef.current = healthCheckInterval;
+
+    return () => {
+      if (screenShareHealthCheckRef.current) {
+        clearInterval(screenShareHealthCheckRef.current);
+        screenShareHealthCheckRef.current = null;
+      }
+    };
+  }, [localParticipant, isScreenSharing, room]);
 
   // Toggle microphone
   const toggleMicrophone = async () => {
@@ -940,19 +1096,62 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
 
       // Handle specific error types with user-friendly messages
       if (error instanceof Error) {
-        if (error.name === 'NotAllowedError' || error.message.includes('Permission denied') || error.message.includes('permission')) {
+        const errorMessage = error.message.toLowerCase();
+        const errorName = error.name;
+        
+        // CRITICAL FIX: Handle invalid deviceId errors specifically
+        if (errorMessage.includes('constraint') || 
+            errorMessage.includes('deviceid') || 
+            errorMessage.includes('device id') ||
+            errorMessage.includes('invalid device') ||
+            (errorName === 'OverconstrainedError') ||
+            (errorName === 'ConstraintNotSatisfiedError')) {
+          logger.warn('Invalid deviceId detected, attempting fallback to default device', {
+            error: error.message,
+            storedDeviceId: props.userChoices.audioDeviceId
+          });
+          
+          // Try to enable with default device (no deviceId constraint)
+          try {
+            toast.error('Microphone device error. Trying default microphone...', {
+              duration: 3000,
+            });
+            
+            // First ensure it's disabled
+            await localParticipant.setMicrophoneEnabled(false);
+            await new Promise(resolve => setTimeout(resolve, 200));
+            
+            // Try enabling without deviceId constraint
+            // LiveKit should fall back to default device if deviceId fails
+            await localParticipant.setMicrophoneEnabled(true);
+            
+            // Verify it worked
+            if (localParticipant.isMicrophoneEnabled) {
+              setIsMicEnabled(true);
+              toast.success('Microphone enabled with default device', {
+                duration: 3000,
+              });
+              return; // Success, exit early
+            }
+          } catch (retryError) {
+            logger.error('Failed to enable microphone with default device:', retryError);
+            // Fall through to show error message below
+          }
+        }
+        
+        if (errorName === 'NotAllowedError' || errorMessage.includes('permission denied') || errorMessage.includes('permission')) {
           toast.error('Microphone permission denied. Please allow microphone access in your browser settings to use audio.', {
             duration: 5000,
           });
-        } else if (error.name === 'NotFoundError' || error.message.includes('NotFoundError') || error.message.includes('not found')) {
+        } else if (errorName === 'NotFoundError' || errorMessage.includes('notfounderror') || errorMessage.includes('not found')) {
           toast.error('No microphone detected. Please connect a microphone and try again.', {
             duration: 5000,
           });
-        } else if (error.name === 'NotReadableError' || error.message.includes('NotReadableError') || error.message.includes('not readable')) {
+        } else if (errorName === 'NotReadableError' || errorMessage.includes('notreadableerror') || errorMessage.includes('not readable')) {
           toast.error('Microphone is currently in use by another application. Please close other apps and try again.', {
             duration: 5000,
           });
-        } else if (error.message.includes('getUserMedia') || error.message.includes('MediaDevices')) {
+        } else if (errorMessage.includes('getusermedia') || errorMessage.includes('mediadevices')) {
           toast.error('Microphone access is not supported in this browser. Please use a modern browser like Chrome, Firefox, or Edge.', {
             duration: 5000,
           });
@@ -1003,19 +1202,62 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
 
       // Handle specific error types with user-friendly messages
       if (error instanceof Error) {
-        if (error.name === 'NotAllowedError' || error.message.includes('Permission denied') || error.message.includes('permission')) {
+        const errorMessage = error.message.toLowerCase();
+        const errorName = error.name;
+        
+        // CRITICAL FIX: Handle invalid deviceId errors specifically
+        if (errorMessage.includes('constraint') || 
+            errorMessage.includes('deviceid') || 
+            errorMessage.includes('device id') ||
+            errorMessage.includes('invalid device') ||
+            (errorName === 'OverconstrainedError') ||
+            (errorName === 'ConstraintNotSatisfiedError')) {
+          logger.warn('Invalid deviceId detected, attempting fallback to default device', {
+            error: error.message,
+            storedDeviceId: props.userChoices.videoDeviceId
+          });
+          
+          // Try to enable with default device (no deviceId constraint)
+          try {
+            toast.error('Camera device error. Trying default camera...', {
+              duration: 3000,
+            });
+            
+            // First ensure it's disabled
+            await localParticipant.setCameraEnabled(false);
+            await new Promise(resolve => setTimeout(resolve, 200));
+            
+            // Try enabling without deviceId constraint
+            // LiveKit should fall back to default device if deviceId fails
+            await localParticipant.setCameraEnabled(true);
+            
+            // Verify it worked
+            if (localParticipant.isCameraEnabled) {
+              setIsCameraEnabled(true);
+              toast.success('Camera enabled with default device', {
+                duration: 3000,
+              });
+              return; // Success, exit early
+            }
+          } catch (retryError) {
+            logger.error('Failed to enable camera with default device:', retryError);
+            // Fall through to show error message below
+          }
+        }
+        
+        if (errorName === 'NotAllowedError' || errorMessage.includes('permission denied') || errorMessage.includes('permission')) {
           toast.error('Camera permission denied. Please allow camera access in your browser settings to use video.', {
             duration: 5000,
           });
-        } else if (error.name === 'NotFoundError' || error.message.includes('NotFoundError') || error.message.includes('not found')) {
+        } else if (errorName === 'NotFoundError' || errorMessage.includes('notfounderror') || errorMessage.includes('not found')) {
           toast.error('No camera detected. Please connect a camera and try again.', {
             duration: 5000,
           });
-        } else if (error.name === 'NotReadableError' || error.message.includes('NotReadableError') || error.message.includes('not readable')) {
+        } else if (errorName === 'NotReadableError' || errorMessage.includes('notreadableerror') || errorMessage.includes('not readable')) {
           toast.error('Camera is currently in use by another application. Please close other apps and try again.', {
             duration: 5000,
           });
-        } else if (error.message.includes('getUserMedia') || error.message.includes('MediaDevices')) {
+        } else if (errorMessage.includes('getusermedia') || errorMessage.includes('mediadevices')) {
           toast.error('Camera access is not supported in this browser. Please use a modern browser like Chrome, Firefox, or Edge.', {
             duration: 5000,
           });
@@ -1038,11 +1280,13 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
 
   // Toggle screen share
   const toggleScreenShare = async () => {
-    if (!localParticipant || isTogglingScreenShare) return;
+    if (!localParticipant || isTogglingScreenShare || screenShareLockRef.current) return;
 
     const enabled = localParticipant.isScreenShareEnabled;
     const newState = !enabled;
 
+    // Acquire lock
+    screenShareLockRef.current = true;
     setIsTogglingScreenShare(true);
 
     try {
@@ -1057,12 +1301,67 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
           video: true,
         });
 
-        // Publish the tracks
-        tracks.forEach((track) => {
-          localParticipant.publishTrack(track);
-        });
+        // Store track reference for monitoring
+        const videoTrack = tracks.find(t => t.kind === Track.Kind.Video);
+        if (videoTrack) {
+          screenShareTrackRef.current = videoTrack as LocalTrack;
+          
+          // CRITICAL: Monitor for browser-initiated stops
+          const mediaStreamTrack = videoTrack.mediaStreamTrack;
+          if (mediaStreamTrack) {
+            const handleTrackEnded = () => {
+              logger.warn('Screen share track ended unexpectedly (browser stop detected)');
+              // Browser stopped sharing - clean up state
+              screenShareTrackRef.current = null;
+              setIsScreenSharing(false);
+              setIsTogglingScreenShare(false);
+              screenShareLockRef.current = false;
+              
+              // Notify user
+              toast.error('Screen sharing was stopped by your browser. Click the button to share again.', {
+                duration: 5000,
+              });
+            };
+
+            mediaStreamTrack.addEventListener('ended', handleTrackEnded);
+            
+            // Store cleanup function
+            (videoTrack as any).__cleanupEnded = () => {
+              mediaStreamTrack.removeEventListener('ended', handleTrackEnded);
+            };
+          }
+        }
+
+        // Publish the tracks with error handling
+        for (const track of tracks) {
+          try {
+            await localParticipant.publishTrack(track);
+          } catch (publishError) {
+            logger.error('Failed to publish screen share track:', publishError);
+            // Clean up already published tracks
+            tracks.forEach(t => {
+              if (t !== track && t.mediaStreamTrack) {
+                t.mediaStreamTrack.stop();
+              }
+            });
+            // Clean up track reference
+            if (screenShareTrackRef.current) {
+              const cleanup = (screenShareTrackRef.current as any).__cleanupEnded;
+              if (cleanup) cleanup();
+              screenShareTrackRef.current = null;
+            }
+            throw publishError;
+          }
+        }
       } else {
         // Disable screen share
+        // Clean up track reference
+        if (screenShareTrackRef.current) {
+          const cleanup = (screenShareTrackRef.current as any).__cleanupEnded;
+          if (cleanup) cleanup();
+          screenShareTrackRef.current = null;
+        }
+        
         await localParticipant.setScreenShareEnabled(false);
       }
 
@@ -1078,6 +1377,13 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
     } catch (error) {
       // Revert optimistic update on failure
       setIsScreenSharing(enabled);
+      
+      // Clean up any partial tracks
+      if (screenShareTrackRef.current) {
+        const cleanup = (screenShareTrackRef.current as any).__cleanupEnded;
+        if (cleanup) cleanup();
+        screenShareTrackRef.current = null;
+      }
 
       logger.error('Failed to toggle screen share:', error);
 
@@ -1093,6 +1399,8 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
           toast.error('Screen sharing is not supported in this browser. Please use a modern browser.');
         } else if (error.message.includes('network') || error.message.includes('connection')) {
           toast.error('Network error while starting screen share. Please check your connection and try again.');
+        } else if (error.message.includes('ended') || error.message.includes('stopped')) {
+          toast.error('Screen sharing was stopped unexpectedly. Please try again.');
         } else {
           toast.error('Failed to start screen sharing. Please try again.');
         }
@@ -1101,6 +1409,7 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
       }
     } finally {
       setIsTogglingScreenShare(false);
+      screenShareLockRef.current = false;
     }
   };
 
@@ -1975,6 +2284,139 @@ function VideoConferenceComponent(props: {
     };
   }, [room]);
 
+  // CRITICAL FIX: Ensure tracks are immediately subscribed when published
+  // This prevents the issue where teacher/student can't see each other when joining
+  React.useEffect(() => {
+    if (!room || room.state !== 'connected') return;
+
+    const handleRemoteTrackPublished = (publication: TrackPublication, participant: Participant) => {
+      // Only handle remote participants
+      if (participant === room.localParticipant) return;
+
+      // CRITICAL: Immediately subscribe to video tracks when published
+      if (publication.kind === Track.Kind.Video && publication.source === Track.Source.Camera) {
+        if (publication.track && !publication.isSubscribed && !publication.isMuted) {
+          try {
+            logger.debug('Immediately subscribing to newly published video track', {
+              participant: participant.identity,
+              trackSid: publication.trackSid,
+            });
+            publication.setSubscribed(true);
+          } catch (error) {
+            logger.warn('Failed to subscribe to newly published video track:', error);
+          }
+        }
+      }
+
+      // CRITICAL: Immediately subscribe to audio tracks when published
+      if (publication.kind === Track.Kind.Audio && publication.source === Track.Source.Microphone) {
+        if (publication.track && !publication.isSubscribed && !publication.isMuted) {
+          try {
+            logger.debug('Immediately subscribing to newly published audio track', {
+              participant: participant.identity,
+              trackSid: publication.trackSid,
+            });
+            publication.setSubscribed(true);
+          } catch (error) {
+            logger.warn('Failed to subscribe to newly published audio track:', error);
+          }
+        }
+      }
+    };
+
+    // Listen for track published events on room level
+    room.on(RoomEvent.TrackPublished, handleRemoteTrackPublished);
+
+    // Store participant track published handlers for cleanup
+    const participantHandlers = new Map<Participant, (publication: TrackPublication) => void>();
+
+    // Helper to create participant-specific handler
+    const createParticipantHandler = (participant: Participant) => {
+      return (publication: TrackPublication) => {
+        handleRemoteTrackPublished(publication, participant);
+      };
+    };
+
+    // Also set up listeners for existing participants
+    room.remoteParticipants.forEach((participant) => {
+      const handler = createParticipantHandler(participant);
+      participantHandlers.set(participant, handler);
+      participant.on('trackPublished', handler);
+    });
+
+    // Handle new participants joining
+    const handleParticipantConnected = (participant: Participant) => {
+      // Set up listener for this participant
+      const handler = createParticipantHandler(participant);
+      participantHandlers.set(participant, handler);
+      participant.on('trackPublished', handler);
+
+      // CRITICAL: Check for existing tracks that might not be subscribed
+      setTimeout(() => {
+        participant.videoTrackPublications.forEach((publication) => {
+          if (publication.track && !publication.isSubscribed && !publication.isMuted) {
+            try {
+              publication.setSubscribed(true);
+            } catch (error) {
+              logger.debug('Could not subscribe to existing video track:', error);
+            }
+          }
+        });
+
+        participant.audioTrackPublications.forEach((publication) => {
+          if (publication.track && !publication.isSubscribed && !publication.isMuted) {
+            try {
+              publication.setSubscribed(true);
+            } catch (error) {
+              logger.debug('Could not subscribe to existing audio track:', error);
+            }
+          }
+        });
+      }, 100); // Small delay to ensure participant is fully initialized
+    };
+
+    room.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
+
+    // CRITICAL FIX: Handle participant disconnect to clean up handlers
+    const handleParticipantDisconnected = (participant: Participant) => {
+      const handler = participantHandlers.get(participant);
+      if (handler) {
+        try {
+          participant.off('trackPublished', handler);
+        } catch (error) {
+          logger.debug('Error removing participant handler (ignored):', error);
+        }
+        participantHandlers.delete(participant);
+      }
+    };
+    room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
+
+    return () => {
+      // CRITICAL FIX: Add null checks before cleanup
+      try {
+        if (room && typeof room.off === 'function') {
+          room.off(RoomEvent.TrackPublished, handleRemoteTrackPublished);
+          room.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
+          room.off(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected);
+        }
+      } catch (error) {
+        logger.debug('Error removing room event listeners (ignored):', error);
+      }
+      
+      // CRITICAL FIX: Cleanup participant handlers with error handling
+      participantHandlers.forEach((handler, participant) => {
+        try {
+          if (participant && typeof participant.off === 'function') {
+            participant.off('trackPublished', handler);
+          }
+        } catch (error) {
+          logger.debug('Error removing participant handler (ignored):', error);
+        }
+      });
+      participantHandlers.clear();
+    };
+  }, [room]);
+
   React.useEffect(() => {
     logger.debug('E2EE setup effect running:', { e2eeEnabled, hasRoom: !!room });
     if (e2eeEnabled) {
@@ -2027,8 +2469,12 @@ function VideoConferenceComponent(props: {
   const connectOptions = React.useMemo((): RoomConnectOptions => {
     return {
       autoSubscribe: true,
+      publishDefaults: {
+        videoEnabled: props.userChoices.videoEnabled,
+        audioEnabled: props.userChoices.audioEnabled,
+      },
     };
-  }, []);
+  }, [props.userChoices.videoEnabled, props.userChoices.audioEnabled]);
 
   // Ensure observer never sees their own tile even if LiveKit updates DOM structure
   React.useEffect(() => {
@@ -2102,27 +2548,9 @@ function VideoConferenceComponent(props: {
 
       logger.debug('Starting connection process', { isObserver });
 
-      // Request media permissions first (only if at least one is enabled and not observer)
-      if (!isObserver && (props.userChoices.videoEnabled || props.userChoices.audioEnabled)) {
-        logger.debug('Requesting media permissions...');
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: props.userChoices.videoEnabled,
-            audio: props.userChoices.audioEnabled
-          });
-
-          // Stop the stream immediately as we just needed permission
-          stream.getTracks().forEach(track => track.stop());
-          logger.debug('Media permissions granted');
-        } catch (permissionError) {
-          logger.error('Media permission denied:', permissionError);
-          // Continue anyway - LiveKit will handle the case where permissions are denied
-        }
-      } else if (isObserver) {
-        logger.debug('Observer mode - skipping media permissions request (read-only)');
-      } else {
-        logger.debug('Skipping media permissions request - both audio and video are disabled');
-      }
+      // NOTE: Removed getUserMedia pre-check that stops tracks
+      // LiveKit will request permissions when needed during connection
+      // This prevents camera/mic from being released and then failing to re-enable
 
       // Clean up any existing connection first
       if (room && room.state !== 'disconnected') {
@@ -2132,10 +2560,8 @@ function VideoConferenceComponent(props: {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
 
-      // Set up event listeners
-      room.on(RoomEvent.Disconnected, handleOnLeave);
-      room.on(RoomEvent.EncryptionError, handleEncryptionError);
-      room.on(RoomEvent.MediaDevicesError, handleError);
+      // CRITICAL FIX: Event listeners are now set up in useEffect, not here
+      // This prevents duplicate listeners and ensures proper cleanup
 
       logger.debug('Connecting to room...', {
         serverUrl: props.connectionDetails.serverUrl,
@@ -2154,33 +2580,9 @@ function VideoConferenceComponent(props: {
       setIsConnecting(false);
       setReconnectAttempts(0);
 
-      // Add a small delay before enabling camera and microphone to prevent placeholder issues
-      setTimeout(() => {
-        // Enable camera and microphone based on user choices (camera off, microphone on by default)
-        if (props.userChoices.videoEnabled) {
-          room.localParticipant.setCameraEnabled(true).catch((error) => {
-            logger.warn('Failed to enable camera:', error);
-            // Don't treat camera enable failure as a critical error
-          });
-        } else {
-          // Ensure camera is disabled if not wanted
-          room.localParticipant.setCameraEnabled(false).catch((error) => {
-            logger.warn('Failed to disable camera:', error);
-          });
-        }
-
-        if (props.userChoices.audioEnabled) {
-          room.localParticipant.setMicrophoneEnabled(true).catch((error) => {
-            logger.warn('Failed to enable microphone:', error);
-            // Don't treat microphone enable failure as a critical error
-          });
-        } else {
-          // Ensure microphone is disabled if not wanted
-          room.localParticipant.setMicrophoneEnabled(false).catch((error) => {
-            logger.warn('Failed to disable microphone:', error);
-          });
-        }
-      }, 1000); // 1 second delay
+      // NOTE: Tracks are enabled via publishDefaults during connection
+      // No need to enable them after connection - this prevents race conditions
+      // and ensures tracks are ready immediately when room connects
 
     } catch (error) {
       logger.error('Connection failed:', error);
@@ -2198,38 +2600,29 @@ function VideoConferenceComponent(props: {
     }
   }, [isConnecting, isConnected, room, props.connectionDetails.serverUrl, props.connectionDetails.participantToken, props.userChoices.videoEnabled, props.userChoices.audioEnabled, connectOptions, router, reconnectAttempts]);
 
-  // Cleanup event listeners when component unmounts
-  React.useEffect(() => {
-    return () => {
-      room.off(RoomEvent.Disconnected, handleOnLeave);
-      room.off(RoomEvent.EncryptionError, handleEncryptionError);
-      room.off(RoomEvent.MediaDevicesError, handleError);
-    };
-  }, [room]);
-
-  const lowPowerMode = useLowCPUOptimizer(room);
-  useAdaptiveStreamManager(room);
-  // Audio improvements: volume boost, health monitoring, and stability
-  useAudioVolumeBoost(room, 1.5); // 50% volume boost for remote audio (like Zoom)
-  useAudioTrackHealth(room); // Monitor and fix intermittent audio issues
-  useAudioStability(room); // Enhanced stability - prevents lag and disconnections
-
+  // CRITICAL FIX: Define error handlers BEFORE useEffect that uses them
   const handleError = React.useCallback((error: Error) => {
     logger.error('LiveKit error:', error);
 
     // Handle microphone/camera errors gracefully without disconnecting room
     // This must be checked BEFORE AudioContext and other connection errors
+    const errorMessageLower = error.message.toLowerCase();
+    
     const isMicrophoneError =
       error.message.includes('Microphone') ||
       error.message.includes('microphone') ||
       (error.message.includes('audio') && (error.message.includes('NotAllowedError') || error.message.includes('Permission denied'))) ||
-      (error.message.includes('getUserMedia') && error.message.includes('audio'));
+      (error.message.includes('getUserMedia') && error.message.includes('audio')) ||
+      (errorMessageLower.includes('deviceid') && errorMessageLower.includes('audio')) ||
+      (errorMessageLower.includes('constraint') && errorMessageLower.includes('audio'));
 
     const isCameraError =
       error.message.includes('Camera') ||
       error.message.includes('camera') ||
       (error.message.includes('video') && (error.message.includes('NotAllowedError') || error.message.includes('Permission denied'))) ||
-      (error.message.includes('getUserMedia') && error.message.includes('video'));
+      (error.message.includes('getUserMedia') && error.message.includes('video')) ||
+      (errorMessageLower.includes('deviceid') && errorMessageLower.includes('video')) ||
+      (errorMessageLower.includes('constraint') && errorMessageLower.includes('video'));
 
     if (isMicrophoneError || isCameraError) {
       logger.warn('Microphone/Camera error detected - handling gracefully without disconnecting room', {
@@ -2384,6 +2777,12 @@ function VideoConferenceComponent(props: {
   const handleOnLeave = React.useCallback((reason?: DisconnectReason) => {
     logger.debug('Room disconnected, reason:', reason);
 
+    // CRITICAL FIX: Add null check - room might be null if component unmounted
+    if (!room) {
+      logger.debug('Room is null in handleOnLeave, skipping');
+      return;
+    }
+
     // If disconnected due to being removed by host, don't auto-reconnect
     if (reason === DisconnectReason.PARTICIPANT_REMOVED) {
       logger.info('Participant was removed by host, not reconnecting');
@@ -2414,24 +2813,61 @@ function VideoConferenceComponent(props: {
     setUserInteractionRequired(false); // Keep auto-connect enabled
     setReconnectAttempts(0);
 
-    // Clean up event listeners
-    room.off(RoomEvent.Disconnected, handleOnLeave);
-    room.off(RoomEvent.EncryptionError, handleEncryptionError);
-    room.off(RoomEvent.MediaDevicesError, handleError);
+    // CRITICAL FIX: Don't remove event listeners here - they're cleaned up in useEffect
+    // Removing them here causes race conditions and prevents proper cleanup
 
     // Only redirect if this was an intentional leave (not a page reload)
-    if (room.state === 'disconnected' && !document.hidden) {
+    // Add null check before accessing room.state
+    if (room && room.state === 'disconnected' && !document.hidden) {
       logger.info('Intentional leave detected, redirecting to home...');
       props.setMeetingEnded(true); // Mark as ended to prevent reconnection
       router.push('/meeting-ended');
     }
-  }, [router, room, handleEncryptionError, handleError, props.meetingEnded, props.setMeetingEnded]);
+  }, [router, room, props.meetingEnded, props.setMeetingEnded]);
+
+  // Cleanup event listeners when component unmounts
+  // CRITICAL FIX: This must come AFTER handleOnLeave, handleEncryptionError, and handleError are defined
+  React.useEffect(() => {
+    if (!room) return;
+    
+    // Set up event listeners
+    room.on(RoomEvent.Disconnected, handleOnLeave);
+    room.on(RoomEvent.EncryptionError, handleEncryptionError);
+    room.on(RoomEvent.MediaDevicesError, handleError);
+    
+    return () => {
+      // CRITICAL FIX: Add null check before removing listeners
+      if (room && typeof room.off === 'function') {
+        try {
+          room.off(RoomEvent.Disconnected, handleOnLeave);
+          room.off(RoomEvent.EncryptionError, handleEncryptionError);
+          room.off(RoomEvent.MediaDevicesError, handleError);
+        } catch (error) {
+          // Ignore errors during cleanup - room might already be disconnected
+          logger.debug('Error removing event listeners during cleanup (ignored):', error);
+        }
+      }
+    };
+  }, [room, handleOnLeave, handleEncryptionError, handleError]);
+
+  const lowPowerMode = useLowCPUOptimizer(room);
+  useAdaptiveStreamManager(room);
+  // Audio improvements: volume boost, health monitoring, and stability
+  useAudioVolumeBoost(room, 1.5); // 50% volume boost for remote audio (like Zoom)
+  useAudioTrackHealth(room); // Monitor and fix intermittent audio issues
+  useAudioStability(room); // Enhanced stability - prevents lag and disconnections
+  // CRITICAL FIX: Add video track health monitoring
+  useVideoTrackHealth(room); // Monitor and fix intermittent video issues
+
+  // CRITICAL FIX: Use ref to prevent race conditions in auto-connect
+  const autoConnectAttemptedRef = React.useRef(false);
 
   // Check if room is already connected when connection details are available
   React.useEffect(() => {
     // Don't auto-connect if meeting ended or user left
     if (props.meetingEnded) {
       logger.debug('Meeting ended or user left, not auto-connecting');
+      autoConnectAttemptedRef.current = false;
       return;
     }
 
@@ -2449,7 +2885,8 @@ function VideoConferenceComponent(props: {
       isConnecting,
       e2eeSetupComplete,
       participantType: props.participantType,
-      roomState: room?.state
+      roomState: room?.state,
+      alreadyAttempted: autoConnectAttemptedRef.current
     });
 
     if (props.connectionDetails && !isConnected && !isConnecting && e2eeSetupComplete) {
@@ -2457,6 +2894,13 @@ function VideoConferenceComponent(props: {
       if (room && room.state === 'connected') {
         logger.debug('Room already connected, skipping auto-connect');
         setIsConnected(true);
+        autoConnectAttemptedRef.current = false; // Reset since we're connected
+        return;
+      }
+
+      // CRITICAL FIX: Prevent multiple connection attempts
+      if (autoConnectAttemptedRef.current) {
+        logger.debug('Auto-connect already attempted, skipping');
         return;
       }
 
@@ -2464,9 +2908,19 @@ function VideoConferenceComponent(props: {
         participantType: props.participantType,
         serverUrl: props.connectionDetails.serverUrl
       });
-      handleUserInteraction();
+      
+      autoConnectAttemptedRef.current = true;
+      handleUserInteraction().finally(() => {
+        // Reset flag after connection attempt completes (success or failure)
+        setTimeout(() => {
+          autoConnectAttemptedRef.current = false;
+        }, 2000);
+      });
     } else if (props.connectionDetails && !e2eeSetupComplete) {
       logger.debug('Waiting for E2EE setup to complete before connecting...');
+    } else {
+      // Reset flag if conditions aren't met
+      autoConnectAttemptedRef.current = false;
     }
   }, [props.connectionDetails, props.participantType, isConnected, isConnecting, e2eeSetupComplete, handleUserInteraction, room, props.meetingEnded]);
 
@@ -2481,7 +2935,12 @@ function VideoConferenceComponent(props: {
   React.useEffect(() => {
     if (!room) return;
 
-    const handleDataReceived = (data: Uint8Array, participant?: any) => {
+    const handleDataReceived = (data: Uint8Array, participant?: any, kind?: any, topic?: string) => {
+      // CRITICAL FIX: Filter by topic to avoid conflicts with other data channels
+      if (topic && topic !== 'pdf-viewer') {
+        return;
+      }
+      
       try {
         const messageString = new TextDecoder().decode(data);
         const messageData = JSON.parse(messageString);
@@ -2511,10 +2970,10 @@ function VideoConferenceComponent(props: {
       }
     };
 
-    room.on('dataReceived', handleDataReceived);
+    room.on(RoomEvent.DataReceived, handleDataReceived);
 
     return () => {
-      room.off('dataReceived', handleDataReceived);
+      room.off(RoomEvent.DataReceived, handleDataReceived);
     };
   }, [room, props.participantType, props.setSelectedPdfFile, props.setIsPdfViewerOpen]);
 
@@ -2535,11 +2994,49 @@ function VideoConferenceComponent(props: {
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        logger.debug('Page hidden, but keeping room connection active for screen sharing...');
-        // Don't disconnect when switching tabs - this allows screen sharing to continue
-        // The room will only disconnect when the page is actually unloaded (beforeunload)
+        logger.debug('Page hidden, checking screen share status...');
+        
+        // Check if screen share is active
+        if (room && room.localParticipant) {
+          const screenSharePublication = room.localParticipant.getTrackPublication(Track.Source.ScreenShare);
+          if (screenSharePublication?.track) {
+            const mediaStreamTrack = screenSharePublication.track.mediaStreamTrack;
+            if (mediaStreamTrack && mediaStreamTrack.readyState === 'live') {
+              logger.debug('Screen share active, keeping connection alive');
+              // Screen share is active - don't disconnect
+              return;
+            }
+          }
+        }
+        
+        logger.debug('Page hidden, but keeping room connection active...');
       } else {
-        logger.debug('Page visible again');
+        logger.debug('Page visible again, verifying screen share...');
+        
+        // When page becomes visible, verify screen share is still active
+        if (room && room.localParticipant) {
+          setTimeout(() => {
+            // CRITICAL FIX: Add null checks - room might have disconnected during timeout
+            if (!room || !room.localParticipant) {
+              logger.debug('Room or localParticipant no longer available after visibility change');
+              return;
+            }
+            
+            const screenSharePublication = room.localParticipant.getTrackPublication(Track.Source.ScreenShare);
+            if (!screenSharePublication?.track) {
+              logger.warn('Screen share lost when page became visible');
+              // Screen share was lost - update UI
+              setHasScreenShare(false);
+            } else {
+              // Verify track is still live
+              const mediaStreamTrack = screenSharePublication.track.mediaStreamTrack;
+              if (mediaStreamTrack && mediaStreamTrack.readyState === 'ended') {
+                logger.warn('Screen share track ended when page became visible');
+                setHasScreenShare(false);
+              }
+            }
+          }, 500);
+        }
       }
     };
 
@@ -3174,6 +3671,19 @@ The meeting has been terminated for all participants and the room has been delet
               showProBadge={!(props.roomFeatures?.enableFileSharing ?? false)}
             />
           </div>
+
+          {/* Backend Recording Button - Icon only - Host Only */}
+          {props.participantType === 'host' && (
+            <div style={{ position: 'relative' }}>
+              <BackendRecordingControl
+                isHost={props.participantType === 'host'}
+                roomName={props.roomName}
+                isFeatureEnabled={props.canRecord ?? false}
+                showProBadge={!(props.canRecord ?? false)}
+                iconOnly={true}
+              />
+            </div>
+          )}
 
           {/* Screen Annotation Button - Icon only */}
           <div style={{ position: 'relative' }}>

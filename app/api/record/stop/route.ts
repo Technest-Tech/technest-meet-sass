@@ -2,6 +2,52 @@ import { EgressClient } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/database';
 import { sanitizeRoomIdentifier } from '@/lib/utils/sanitize';
+import { uploadRecordingToR2 } from '@/lib/services/recordingStorage';
+import { join } from 'path';
+import { stat, readdir } from 'fs/promises';
+import { existsSync } from 'fs';
+
+// Consistent hashing for LiveKit server routing - same as connection-details and start
+function getLiveKitServerForRoom(roomName: string): { 
+  clientUrl: string; 
+  serverUrl: string;
+} {
+  const livekit1Client = process.env.LIVEKIT_1_CLIENT_URL || process.env.NEXT_PUBLIC_LIVEKIT_URL || 'wss://rtc.acadmyq.com';
+  const livekit1Server = process.env.LIVEKIT_1_SERVER_URL || process.env.LIVEKIT_URL || 'http://178.128.78.195:7880';
+  
+  const livekit2Client = process.env.LIVEKIT_2_CLIENT_URL;
+  const livekit2Server = process.env.LIVEKIT_2_SERVER_URL;
+  
+  // If second server not configured, use single server (backward compatible)
+  if (!livekit2Client || !livekit2Server) {
+    return { 
+      clientUrl: livekit1Client, 
+      serverUrl: livekit1Server 
+    };
+  }
+  
+  // Consistent hashing: same room always goes to same server
+  let hash = 0;
+  for (let i = 0; i < roomName.length; i++) {
+    hash = ((hash << 5) - hash) + roomName.charCodeAt(i);
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  
+  // Route based on hash (0 or 1)
+  const serverIndex = Math.abs(hash) % 2;
+  
+  if (serverIndex === 0) {
+    return { 
+      clientUrl: livekit1Client, 
+      serverUrl: livekit1Server 
+    };
+  } else {
+    return { 
+      clientUrl: livekit2Client, 
+      serverUrl: livekit2Server 
+    };
+  }
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -45,42 +91,360 @@ export async function GET(req: NextRequest) {
       return new NextResponse('Room access denied', { status: 403 });
     }
 
-    const { LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_URL } = process.env;
+    const { LIVEKIT_API_KEY, LIVEKIT_API_SECRET } = process.env;
 
-    const hostURL = new URL(LIVEKIT_URL!);
-    // Keep the original protocol for local development
-    if (!hostURL.hostname.includes('localhost') && !hostURL.hostname.includes('127.0.0.1')) {
+    if (!LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
+      return new NextResponse(JSON.stringify({ 
+        error: 'LiveKit configuration missing',
+        details: 'LiveKit API credentials are not configured'
+      }), { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // CRITICAL: Use hostLink as the actual LiveKit room name (same as start endpoint)
+    // All participants (host, guest, observer) join the same LiveKit room using hostLink
+    const actualLiveKitRoomName = room.hostLink;
+    
+    // CRITICAL: Use consistent hashing to determine which server this room is on
+    // The recording was started on a specific server, we must stop it on the same server
+    const livekitRouting = getLiveKitServerForRoom(actualLiveKitRoomName);
+    const serverUrl = livekitRouting.serverUrl;
+    
+    console.log(`[Recording Stop] Server routing: ${actualLiveKitRoomName} -> ${serverUrl}`);
+    
+    const hostURL = new URL(serverUrl);
+    // Keep the original protocol - don't force HTTPS for IP addresses
+    // Production servers may use HTTP for internal API calls (port 7880)
+    if (hostURL.protocol === 'http:' && 
+        !hostURL.hostname.match(/^\d+\.\d+\.\d+\.\d+$/) && 
+        !hostURL.hostname.includes('localhost') && 
+        !hostURL.hostname.includes('127.0.0.1')) {
       hostURL.protocol = 'https:';
     }
 
     const egressClient = new EgressClient(hostURL.origin, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
-    const activeEgresses = (await egressClient.listEgress({ roomName })).filter(
+    const activeEgresses = (await egressClient.listEgress({ roomName: actualLiveKitRoomName })).filter(
       (info) => info.status < 2,
     );
     if (activeEgresses.length === 0) {
-      return new NextResponse('No active recording found', { status: 404 });
+      return new NextResponse(JSON.stringify({ 
+        error: 'No active recording found',
+        message: 'No active recording found for this room'
+      }), { 
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
+    
     const stoppedEgresses = await Promise.all(
       activeEgresses.map(async (info) => {
-        await egressClient.stopEgress(info.egressId);
-        return {
-          egressId: info.egressId,
-          filename: info.file?.filepath || 'unknown.mp4',
-          status: 'stopped'
-        };
+        try {
+          await egressClient.stopEgress(info.egressId);
+          
+          // Wait a bit for the file to be finalized (egress needs time to write the file)
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          // Get updated egress info after stopping - use listEgress and filter
+          const updatedEgresses = await egressClient.listEgress({ roomName: actualLiveKitRoomName });
+          const updatedInfo = updatedEgresses.find((e: any) => e.egressId === info.egressId) || info;
+          
+          // Get startedAt from egress info FIRST (before file search) to use for timestamp matching
+          let startedAt = new Date();
+          if (updatedInfo.startedAt) {
+            if (typeof updatedInfo.startedAt === 'number') {
+              startedAt = new Date(updatedInfo.startedAt);
+            } else if (updatedInfo.startedAt instanceof Date) {
+              startedAt = updatedInfo.startedAt;
+            } else if (typeof updatedInfo.startedAt.getTime === 'function') {
+              startedAt = updatedInfo.startedAt;
+            } else if (typeof updatedInfo.startedAt === 'string') {
+              startedAt = new Date(updatedInfo.startedAt);
+            }
+          } else if (updatedInfo.createdAt) {
+            if (typeof updatedInfo.createdAt === 'number') {
+              startedAt = new Date(updatedInfo.createdAt);
+            } else if (updatedInfo.createdAt instanceof Date) {
+              startedAt = updatedInfo.createdAt;
+            } else if (typeof updatedInfo.createdAt.getTime === 'function') {
+              startedAt = updatedInfo.createdAt;
+            } else if (typeof updatedInfo.createdAt === 'string') {
+              startedAt = new Date(updatedInfo.createdAt);
+            }
+          }
+          
+          const recordingStartTime = startedAt.getTime();
+          console.log(`[Recording Stop] Recording started at: ${startedAt.toISOString()} (egressId: ${info.egressId})`);
+          
+          let filename = updatedInfo.file?.filepath || info.file?.filepath || '';
+          
+          // If no filename from egress info, try to find it in the filesystem using timestamp matching
+          if (!filename || filename === 'recording.mp4') {
+            console.log(`[Recording Stop] No filename from egress info, searching filesystem for egressId: ${info.egressId}`);
+            const recordingsDir = join(process.cwd(), 'recordings');
+            try {
+              if (existsSync(recordingsDir)) {
+                const files = await readdir(recordingsDir);
+                
+                // First, try to match by egressId (most specific)
+                let matchingFile = files.find(file => 
+                  file.endsWith('.mp4') && file.includes(info.egressId)
+                );
+                
+                if (matchingFile) {
+                  filename = matchingFile;
+                  console.log(`[Recording Stop] ✅ Found file by egressId: ${filename}`);
+                } else {
+                  // Match by room name + timestamp (find file created closest to recording start time)
+                  const roomFiles = files
+                    .filter(file => 
+                      file.endsWith('.mp4') && file.includes(actualLiveKitRoomName)
+                    )
+                    .map(file => {
+                      // Extract timestamp from filename (format: YYYY-MM-DDTHH-MM-SS-milliseconds-roomName.mp4)
+                      // Example: 2025-12-22T23-52-36-543Z-9h3t0u5.mp4
+                      const timestampMatch = file.match(/(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d+)/);
+                      let fileTime = 0;
+                      
+                      if (timestampMatch) {
+                        try {
+                          const timestampStr = timestampMatch[1];
+                          // Convert to ISO format: 2025-12-22T23-52-36-543 -> 2025-12-22T23:20:36.543Z
+                          const isoStr = timestampStr.replace(/(\d{4}-\d{2}-\d{2}T)(\d{2})-(\d{2})-(\d{2})-(\d+)/, 
+                            (_, date, hour, min, sec, ms) => {
+                              const msFormatted = ms.length === 3 ? ms : ms.padStart(3, '0').slice(0, 3);
+                              return `${date}${hour}:${min}:${sec}.${msFormatted}Z`;
+                            });
+                          fileTime = new Date(isoStr).getTime();
+                        } catch (e) {
+                          // If parsing fails, try simpler format
+                          try {
+                            const simpleMatch = file.match(/(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})/);
+                            if (simpleMatch) {
+                              const simpleStr = simpleMatch[1].replace(/(\d{4}-\d{2}-\d{2}T)(\d{2})-(\d{2})-(\d{2})/, 
+                                '$1$2:$3:$4');
+                              fileTime = new Date(simpleStr).getTime();
+                            }
+                          } catch (e2) {
+                            // If all parsing fails, fileTime remains 0
+                          }
+                        }
+                      }
+                      
+                      return { 
+                        file, 
+                        time: fileTime, 
+                        diff: fileTime > 0 ? Math.abs(fileTime - recordingStartTime) : Infinity 
+                      };
+                    })
+                    .filter(f => f.diff !== Infinity) // Only files with valid timestamps
+                    .sort((a, b) => a.diff - b.diff); // Sort by time difference (closest first)
+                  
+                  if (roomFiles.length > 0) {
+                    matchingFile = roomFiles[0].file;
+                    const diffSeconds = Math.round(roomFiles[0].diff / 1000);
+                    filename = matchingFile;
+                    console.log(`[Recording Stop] ✅ Found file by timestamp (diff: ${diffSeconds}s): ${filename}`);
+                  } else {
+                    // Last resort: use file modification time
+                    console.log(`[Recording Stop] ⚠️ No timestamp match, trying file modification time...`);
+                    const roomFilesByMtime = await Promise.all(
+                      files
+                        .filter(file => 
+                          file.endsWith('.mp4') && file.includes(actualLiveKitRoomName)
+                        )
+                        .map(async (file) => {
+                          try {
+                            const filePath = join(recordingsDir, file);
+                            const fileStat = await stat(filePath);
+                            const fileTime = fileStat.mtime.getTime();
+                            const diff = Math.abs(fileTime - recordingStartTime);
+                            return { file, time: fileTime, diff };
+                          } catch {
+                            return { file, time: 0, diff: Infinity };
+                          }
+                        })
+                    );
+                    
+                    const sortedByMtime = roomFilesByMtime
+                      .filter(f => f.diff !== Infinity)
+                      .sort((a, b) => a.diff - b.diff);
+                    
+                    if (sortedByMtime.length > 0) {
+                      matchingFile = sortedByMtime[0].file;
+                      const diffSeconds = Math.round(sortedByMtime[0].diff / 1000);
+                      filename = matchingFile;
+                      console.log(`[Recording Stop] ✅ Found file by modification time (diff: ${diffSeconds}s): ${filename}`);
+                    } else {
+                      console.warn(`[Recording Stop] ⚠️ Could not find file for egressId ${info.egressId}, using default`);
+                      filename = 'recording.mp4';
+                    }
+                  }
+                }
+              }
+            } catch (fsError) {
+              console.error(`[Recording Stop] Error searching filesystem:`, fsError);
+              filename = filename || 'recording.mp4';
+            }
+          }
+          
+          // Extract filename from path (remove /recordings/ prefix if present)
+          const baseFilename = filename.split('/').pop() || filename;
+          
+          // Generate human-readable name: room name + date
+          const date = new Date();
+          const dateStr = new Intl.DateTimeFormat('ar-SA', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+          }).format(date);
+          const originalName = `${room.name} - ${dateStr}`;
+          
+          // Get file size if file exists locally
+          let fileSize: number | null = null;
+          const localFilePath = join(process.cwd(), 'recordings', baseFilename);
+          try {
+            const fileStat = await stat(localFilePath);
+            fileSize = fileStat.size;
+            console.log(`[Recording Stop] Found file: ${baseFilename}, size: ${fileSize} bytes`);
+          } catch {
+            // File might not exist yet or might be in different location
+            console.log(`[Recording Stop] File not found locally yet: ${localFilePath}`);
+          }
+          
+          // startedAt was already extracted above for file matching
+          
+          // Save recording to database
+          let recording;
+          try {
+            console.log(`[Recording Stop] Attempting to save recording:`, {
+              roomId: room.id,
+              clientId: room.clientId,
+              egressId: info.egressId,
+              filename: baseFilename,
+            });
+            
+            recording = await prisma.recording.create({
+              data: {
+                roomId: room.id,
+                egressId: info.egressId,
+                filename: baseFilename,
+                originalName: originalName,
+                fileSize: fileSize,
+                status: 'COMPLETED', // Will be updated when R2 upload completes
+                storageType: 'LOCAL',
+                storagePath: localFilePath,
+                startedAt: startedAt,
+                endedAt: new Date(),
+              }
+            });
+            
+            console.log(`[Recording Stop] ✅ Successfully saved recording to database:`, {
+              recordingId: recording.id,
+              roomId: room.id,
+              clientId: room.clientId,
+              egressId: info.egressId,
+            });
+          } catch (dbError: any) {
+            console.error(`[Recording Stop] ❌ Failed to save recording to database:`, dbError);
+            console.error(`[Recording Stop] Error details:`, {
+              message: dbError.message,
+              code: dbError.code,
+              meta: dbError.meta,
+            });
+            
+            // Check if it's a unique constraint violation (duplicate egressId)
+            if (dbError.code === 'P2002' || (dbError instanceof Error && dbError.message.includes('Unique constraint'))) {
+              console.log(`[Recording Stop] Recording with egressId ${info.egressId} already exists, fetching existing record`);
+              // Try to get existing recording
+              recording = await prisma.recording.findUnique({
+                where: { egressId: info.egressId },
+              });
+              if (recording) {
+                console.log(`[Recording Stop] Found existing recording: ${recording.id}`);
+              }
+            } else {
+              // Re-throw if it's not a duplicate error
+              throw dbError;
+            }
+          }
+          
+          // CRITICAL: Ensure recording was saved before proceeding
+          if (!recording) {
+            console.error(`[Recording Stop] ❌ CRITICAL: Failed to create recording record for egressId: ${info.egressId}`);
+            throw new Error(`Failed to save recording to database for egressId: ${info.egressId}`);
+          }
+
+          console.log(`[Recording Stop] ✅ Recording saved successfully: ${recording.id} for room ${room.id} (clientId: ${room.clientId})`);
+
+          // Trigger background R2 upload (non-blocking)
+          uploadRecordingToR2(
+            recording.id,
+            localFilePath,
+            room.clientId,
+            room.id,
+            baseFilename
+          ).catch((uploadError) => {
+            console.error(`[Recording Stop] Background R2 upload failed for ${recording.id}:`, uploadError);
+            // Don't throw - recording is still available from local storage
+          });
+
+          return {
+            egressId: info.egressId,
+            recordingId: recording.id,
+            filename: filename,
+            status: 'stopped',
+            message: 'Recording saved to your account. You can find it in your recordings page.'
+          };
+        } catch (stopError) {
+          console.error('Error stopping egress:', stopError);
+          return {
+            egressId: info.egressId,
+            filename: info.file?.filepath || 'unknown.mp4',
+            status: 'error',
+            error: stopError instanceof Error ? stopError.message : 'Failed to stop recording'
+          };
+        }
       })
     );
 
+    // Return the first stopped recording (most common case)
+    const primaryRecording = stoppedEgresses[0];
+
     return new NextResponse(JSON.stringify({ 
       recordings: stoppedEgresses,
-      message: 'Recording stopped successfully'
+      egressId: primaryRecording.egressId,
+      recordingId: primaryRecording.recordingId,
+      filename: primaryRecording.filename,
+      message: 'Recording saved to your account. You can find it in your recordings page.'
     }), { 
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     });
   } catch (error) {
+    console.error('Stop recording error:', error);
+    
+    let errorMessage = 'Failed to stop recording';
+    let details = 'Unknown error occurred';
+    
     if (error instanceof Error) {
-      return new NextResponse(error.message, { status: 500 });
+      errorMessage = error.message;
+      details = error.stack || 'Unknown error';
+      
+      // Check for specific error types
+      if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('connect')) {
+        errorMessage = 'Unable to connect to recording service';
+        details = 'The LiveKit egress service may not be running or accessible.';
+      }
     }
+    
+    return new NextResponse(JSON.stringify({ 
+      error: errorMessage,
+      details: details
+    }), { 
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 }

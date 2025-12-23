@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useRoomContext, useLocalParticipant, useParticipants, VideoTrack } from '@livekit/components-react';
 import { Track, TrackPublication, VideoQuality, RemoteTrackPublication, RemoteTrack } from 'livekit-client';
@@ -20,10 +20,32 @@ interface StudentMonitorPiPProps {
   roomName?: string;
 }
 
-export function StudentMonitorPiP({ isHost = false, disabled = false, showProBadge = false, roomName }: StudentMonitorPiPProps) {
+// Custom hook to get participants that only updates when participants are added/removed, not on track events
+function useStableParticipants() {
+  const allParticipants = useParticipants();
+  const [stableParticipants, setStableParticipants] = useState(allParticipants);
+  const sidsRef = useRef<string>('');
+  
+  const currentSids = useMemo(() => 
+    allParticipants.map(p => p.sid).sort().join(','), 
+    [allParticipants.length, allParticipants.map(p => p.sid).join(',')]
+  );
+  
+  useEffect(() => {
+    // Only update if participant SIDs changed (participant added/removed)
+    if (currentSids !== sidsRef.current) {
+      sidsRef.current = currentSids;
+      setStableParticipants(allParticipants);
+    }
+  }, [currentSids, allParticipants]);
+  
+  return stableParticipants;
+}
+
+function StudentMonitorPiPComponent({ isHost = false, disabled = false, showProBadge = false, roomName }: StudentMonitorPiPProps) {
   const room = useRoomContext();
   const { localParticipant } = useLocalParticipant();
-  const participants = useParticipants();
+  const participants = useStableParticipants();
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isManuallyEnabled, setIsManuallyEnabled] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -186,24 +208,39 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
     }
   };
 
-  // Only show for hosts
-  if (!isHost) {
-    return null;
-  }
-
   // Helper function to clean participant names (remove _host_, _guest_ suffixes and roomname)
-  const getCleanName = (identity: string): string => {
+  // Moved outside component logic - pure function, doesn't need to be recreated
+  const getCleanName = useCallback((identity: string): string => {
     // Remove patterns like _guest_roomname or _host_roomname
     // Handles formats like: "215_guest_romname" -> "215"
     return identity.replace(/_(host|guest)_.*$/, '').trim();
-  };
+  }, []);
 
   // Filter students (all remote participants, excluding local and observers)
-  const students = participants.filter(participant => {
-    return participant.identity !== localParticipant?.identity && 
-           participant.identity !== 'observer' &&
-           !participant.isLocal;
-  });
+  // Use ref to track participant SIDs and only update when they actually change
+  const participantsRef = useRef<string>('');
+  const studentsRef = useRef<any[]>([]);
+  
+  const currentParticipantSids = participants
+    .filter(p => p.identity !== localParticipant?.identity && 
+                  p.identity !== 'observer' &&
+                  !p.isLocal)
+    .map(p => p.sid)
+    .sort()
+    .join(',');
+  
+  // Only update students when participant SIDs actually change
+  const students = useMemo(() => {
+    if (participantsRef.current !== currentParticipantSids) {
+      participantsRef.current = currentParticipantSids;
+      studentsRef.current = participants.filter(participant => {
+        return participant.identity !== localParticipant?.identity && 
+               participant.identity !== 'observer' &&
+               !participant.isLocal;
+      });
+    }
+    return studentsRef.current;
+  }, [currentParticipantSids, participants, localParticipant?.identity]);
 
   // Handle manual enable
   const handleManualEnable = useCallback((e: React.MouseEvent) => {
@@ -490,72 +527,6 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
   const persistedEnabled = typeof window !== 'undefined' && sessionStorage.getItem(STORAGE_KEY) === 'true';
   const shouldShow = (isManuallyEnabled || manualEnableRef.current || persistedEnabled);
 
-  // Show toggle button if monitor is not shown
-  if (!shouldShow && !isScreenSharing) {
-    const toggleButton = (
-      <div
-        style={{
-          position: 'fixed',
-          top: '80px',
-          right: '20px',
-          zIndex: 9000,
-          background: disabled ? 'rgba(17, 24, 39, 0.5)' : 'rgba(17, 24, 39, 0.95)',
-          backdropFilter: 'blur(12px)',
-          borderRadius: '12px',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          padding: '12px 16px',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          transition: 'all 0.2s ease',
-          opacity: disabled ? 0.6 : 1
-        }}
-        onClick={disabled ? undefined : handleManualEnable}
-        onMouseEnter={(e) => {
-          if (!disabled) {
-            e.currentTarget.style.background = 'rgba(17, 24, 39, 1)';
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (!disabled) {
-            e.currentTarget.style.background = 'rgba(17, 24, 39, 0.95)';
-          }
-        }}
-        title={disabled ? "This feature requires an upgrade" : "Show Student Monitor"}
-      >
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          color: 'white',
-          fontSize: '14px',
-          fontWeight: '500'
-        }}>
-          <span>👥</span>
-          <span>Show Student Monitor{students.length > 0 ? ` (${students.length})` : ''}</span>
-          {showProBadge && (
-            <span style={{
-              padding: '2px 8px',
-              background: 'linear-gradient(to right, #a855f7, #ec4899)',
-              color: 'white',
-              fontSize: '10px',
-              fontWeight: 'bold',
-              borderRadius: '4px',
-              marginLeft: '4px'
-            }}>
-              PRO
-            </span>
-          )}
-        </div>
-      </div>
-    );
-    return mounted && typeof document !== 'undefined' ? createPortal(toggleButton, document.body) : null;
-  }
-
-  // Don't show if conditions not met or feature is disabled
-  if (!shouldShow || disabled) {
-    return null;
-  }
-
   // Calculate container dimensions for column layout
   const headerHeight = 50;
   const padding = 4; // Minimal padding
@@ -570,81 +541,6 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
   const visibleCards = Math.min(cardCount, maxVisibleCards);
   const cardsHeight = cardHeight * visibleCards + gap * Math.max(0, visibleCards - 1);
   const containerHeight = headerHeight + cardsHeight + padding * 2;
-
-  if (isMinimized) {
-    const minimizedContainer = (
-      <div
-        ref={containerRef}
-        className={styles.container}
-        style={{
-          transform: `translate(${position.x}px, ${position.y}px)`,
-          width: '200px',
-          height: '40px',
-          cursor: 'pointer',
-          zIndex: 999999,
-          ...(lockedDimensions && {
-            width: `${lockedDimensions.width}px`,
-            height: `${lockedDimensions.height}px`
-          })
-        }}
-        onClick={(e) => {
-          e.stopPropagation();
-          setIsMinimized(false);
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'rgba(17, 24, 39, 1)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'rgba(17, 24, 39, 0.95)';
-        }}
-        title="Click to expand Student Monitor"
-      >
-        <div 
-          className={styles.minimizedBar}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '8px 12px',
-            height: '100%',
-            width: '100%'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span className={styles.minimizedIcon}>👥</span>
-            <span className={styles.minimizedText}>
-              {students.length > 0 
-                ? `${students.length} Student${students.length !== 1 ? 's' : ''}`
-                : 'Student Monitor'}
-            </span>
-          </div>
-          <button
-            className={styles.expandButton}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsMinimized(false);
-            }}
-            title="Expand"
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'white',
-              cursor: 'pointer',
-              fontSize: '16px',
-              padding: '4px'
-            }}
-          >
-            ⬆️
-          </button>
-        </div>
-      </div>
-    );
-    return mounted && typeof document !== 'undefined' ? createPortal(minimizedContainer, document.body) : null;
-  }
 
   // Participant context menu component (for PiP window)
   const ParticipantContextMenu = ({ participant, isOpen, onClose, position, onMute, onVideoControl }: {
@@ -790,15 +686,25 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
     );
   };
 
-  // Participant card component
-  const ParticipantCard = ({ student, onMute, onVideoControl, isInPiP = false }: {
+  // Participant card component - Memoized to prevent unnecessary re-renders
+  const ParticipantCard = memo(({ student, onMute, onVideoControl, isInPiP = false }: {
     student: any;
     onMute: (identity: string, mute: boolean) => void;
     onVideoControl: (identity: string, disable: boolean) => void;
     isInPiP?: boolean;
   }) => {
-    const cameraTrack = student.getTrackPublication(Track.Source.Camera);
-    const audioTrack = student.getTrackPublication(Track.Source.Microphone);
+    // Get tracks - these might change reference but trackSid is stable
+    const cameraTrackPub = student.getTrackPublication(Track.Source.Camera);
+    const audioTrackPub = student.getTrackPublication(Track.Source.Microphone);
+    
+    // Memoize based on trackSid to get stable references
+    const cameraTrack = useMemo(() => {
+      return cameraTrackPub;
+    }, [cameraTrackPub?.trackSid, student.sid]);
+    
+    const audioTrack = useMemo(() => {
+      return audioTrackPub;
+    }, [audioTrackPub?.trackSid, student.sid]);
     
     // Use state hooks to track track state reactively
     const [isMuted, setIsMuted] = useState(() => !audioTrack?.isEnabled || audioTrack?.isMuted);
@@ -810,150 +716,156 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
     const [menuOpen, setMenuOpen] = useState(false);
     const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
     const cardRef = useRef<HTMLDivElement>(null);
+    const videoContainerRef = useRef<HTMLDivElement>(null);
     const qualitySetRef = useRef(false);
-    const visibilityLockedRef = useRef(false);
-
-    // Update track state reactively when tracks change
+    const trackIdRef = useRef<string | null>(null);
+    const cameraTrackRef = useRef(cameraTrack);
+    
+    // Update ref when track changes
     useEffect(() => {
-      const updateTrackState = () => {
+      cameraTrackRef.current = cameraTrack;
+    }, [cameraTrack?.trackSid]);
+
+    // Update track state reactively when tracks change - ONLY FOR AUDIO
+    useEffect(() => {
+      const updateAudioState = () => {
         const currentAudioTrack = student.getTrackPublication(Track.Source.Microphone);
-        const currentCameraTrack = student.getTrackPublication(Track.Source.Camera);
-        
         const newIsMuted = !currentAudioTrack?.isEnabled || currentAudioTrack?.isMuted;
-        // For video: track exists, is enabled, not muted, and has an actual track
+        
+        setIsMuted(prev => {
+          if (prev !== newIsMuted) {
+            return newIsMuted;
+          }
+          return prev;
+        });
+      };
+
+      updateAudioState();
+      
+      // Only listen to audio events
+      const handleTrackMuted = (pub: TrackPublication) => {
+        if (pub.source === Track.Source.Microphone) {
+          updateAudioState();
+        }
+      };
+      const handleTrackUnmuted = (pub: TrackPublication) => {
+        if (pub.source === Track.Source.Microphone) {
+          updateAudioState();
+        }
+      };
+      
+      student.on('trackMuted', handleTrackMuted);
+      student.on('trackUnmuted', handleTrackUnmuted);
+      
+      return () => {
+        student.off('trackMuted', handleTrackMuted);
+        student.off('trackUnmuted', handleTrackUnmuted);
+      };
+    }, [student]);
+
+    // Update VIDEO state separately - ONLY when video track actually changes
+    useEffect(() => {
+      const updateVideoState = () => {
+        const currentCameraTrack = student.getTrackPublication(Track.Source.Camera);
         const newHasVideo = currentCameraTrack && 
                             currentCameraTrack.isEnabled && 
                             !currentCameraTrack.isMuted && 
                             !!currentCameraTrack.track;
         
-        setIsMuted(newIsMuted);
-        setHasVideo(newHasVideo);
+        setHasVideo(prev => {
+          if (prev !== newHasVideo) {
+            return newHasVideo;
+          }
+          return prev;
+        });
       };
 
-      // Update immediately
-      updateTrackState();
+      updateVideoState();
 
-      // Set up listeners for track changes
-      const handleTrackSubscribed = () => updateTrackState();
-      const handleTrackUnsubscribed = () => updateTrackState();
-      const handleTrackMuted = () => updateTrackState();
-      const handleTrackUnmuted = () => updateTrackState();
-      const handleTrackPublished = () => updateTrackState();
-      const handleTrackUnpublished = () => updateTrackState();
+      // Only listen to VIDEO events
+      const handleTrackSubscribed = (track: RemoteTrack, pub: RemoteTrackPublication) => {
+        if (pub.source === Track.Source.Camera) {
+          updateVideoState();
+        }
+      };
+      const handleTrackUnsubscribed = (track: RemoteTrack, pub: RemoteTrackPublication) => {
+        if (pub.source === Track.Source.Camera) {
+          updateVideoState();
+        }
+      };
+      const handleTrackMuted = (pub: TrackPublication) => {
+        if (pub.source === Track.Source.Camera) {
+          updateVideoState();
+        }
+      };
+      const handleTrackUnmuted = (pub: TrackPublication) => {
+        if (pub.source === Track.Source.Camera) {
+          updateVideoState();
+        }
+      };
 
       student.on('trackSubscribed', handleTrackSubscribed);
       student.on('trackUnsubscribed', handleTrackUnsubscribed);
       student.on('trackMuted', handleTrackMuted);
       student.on('trackUnmuted', handleTrackUnmuted);
-      student.on('trackPublished', handleTrackPublished);
-      student.on('trackUnpublished', handleTrackUnpublished);
-
-      // Also update periodically to catch any missed events
-      const interval = setInterval(updateTrackState, 1000);
 
       return () => {
         student.off('trackSubscribed', handleTrackSubscribed);
         student.off('trackUnsubscribed', handleTrackUnsubscribed);
         student.off('trackMuted', handleTrackMuted);
         student.off('trackUnmuted', handleTrackUnmuted);
-        student.off('trackPublished', handleTrackPublished);
-        student.off('trackUnpublished', handleTrackUnpublished);
-        clearInterval(interval);
       };
     }, [student]);
 
-    // Set fixed video quality and keep track always visible to prevent adaptive streaming lag
+    // Set video quality ONCE per track - using trackSid as the key
     useEffect(() => {
-      if (cameraTrack && cameraTrack instanceof RemoteTrackPublication && cameraTrack.track) {
-        try {
-          // Set a fixed medium quality to prevent adaptive streaming from toggling visibility
-          // This reduces lag when someone speaks
-          if (!qualitySetRef.current) {
-            cameraTrack.setVideoQuality(VideoQuality.MEDIUM);
-            qualitySetRef.current = true;
-            console.log('Set fixed video quality for student monitor:', student.identity);
-          }
-          
-          // Keep the track always enabled/visible to prevent adaptive stream from hiding it
-          // This prevents the hide/show behavior when someone speaks
-          if (!visibilityLockedRef.current && cameraTrack.track) {
-            // Ensure track is subscribed and enabled
-            if (!cameraTrack.isSubscribed) {
-              cameraTrack.setSubscribed(true);
-            }
-            // Set track to always be enabled (visible)
-            if (cameraTrack.track instanceof RemoteTrack && !cameraTrack.track.isEnabled) {
-              cameraTrack.track.setEnabled(true);
-            }
-            visibilityLockedRef.current = true;
-            console.log('Locked visibility for student monitor:', student.identity);
-          }
-        } catch (error) {
-          console.error('Failed to set video quality/visibility:', error);
-        }
-      }
-      
-      // Reset when track changes
-      return () => {
-        qualitySetRef.current = false;
-        visibilityLockedRef.current = false;
-      };
-    }, [cameraTrack, student.identity]);
-    
-    // Continuously ensure track stays visible (prevent adaptive stream from hiding it)
-    useEffect(() => {
-      if (!cameraTrack || !(cameraTrack instanceof RemoteTrackPublication) || !cameraTrack.track) {
+      if (!cameraTrack || !(cameraTrack instanceof RemoteTrackPublication)) {
         return;
       }
 
-      const ensureVisible = () => {
+      const currentTrackId = cameraTrack.trackSid;
+      
+      // Only set quality if this is a new track
+      if (trackIdRef.current !== currentTrackId) {
+        trackIdRef.current = currentTrackId;
+        qualitySetRef.current = false;
+      }
+
+      // Set quality once per track
+      if (!qualitySetRef.current && cameraTrack.track) {
         try {
-          // Keep track subscribed
+          cameraTrack.setVideoQuality(VideoQuality.MEDIUM);
           if (!cameraTrack.isSubscribed) {
             cameraTrack.setSubscribed(true);
           }
-          // Keep track enabled
-          if (cameraTrack.track instanceof RemoteTrack && !cameraTrack.track.isEnabled) {
-            cameraTrack.track.setEnabled(true);
-          }
+          qualitySetRef.current = true;
         } catch (error) {
-          // Silently handle errors
+          console.error('[StudentMonitor] Failed to set video quality:', error);
         }
-      };
+      }
+    }, [cameraTrack?.trackSid, student.identity]);
 
-      // Check periodically to ensure track stays visible
-      const interval = setInterval(ensureVisible, 1000);
-      
-      return () => clearInterval(interval);
-    }, [cameraTrack]);
-
-    const handleAudioClick = async (e: React.MouseEvent) => {
+    const handleAudioClick = useCallback(async (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
       try {
-        console.log('Audio button clicked:', { isMuted, participantIdentity: student.identity });
-        // When audio is enabled (not muted), we want to mute (pass true)
-        // When audio is disabled (muted), we want to unmute (pass false)
         await onMute(student.identity, !isMuted);
       } catch (error) {
         console.error('Error in audio button:', error);
       }
-    };
+    }, [student.identity, isMuted, onMute]);
 
-    const handleVideoClick = async (e: React.MouseEvent) => {
+    const handleVideoClick = useCallback(async (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
       try {
-        console.log('Video button clicked:', { hasVideo, participantIdentity: student.identity });
-        // When video is enabled, we want to stop it (pass true to disable)
-        // When video is disabled, we want to start it (pass false to enable)
         await onVideoControl(student.identity, hasVideo);
       } catch (error) {
         console.error('Error in video button:', error);
       }
-    };
+    }, [student.identity, hasVideo, onVideoControl]);
 
-    const handleMenuClick = (e: React.MouseEvent) => {
+    const handleMenuClick = useCallback((e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
       
@@ -962,7 +874,6 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
         const menuLeft = Math.max(10, rect.left);
         const menuTop = rect.top + 35;
         
-        // Ensure menu stays within viewport
         const menuWidth = 180;
         const maxLeft = window.innerWidth - menuWidth - 10;
         const finalLeft = Math.min(menuLeft, maxLeft);
@@ -976,7 +887,24 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
       }
       
       setMenuOpen(!menuOpen);
-    };
+    }, [menuOpen]);
+
+    // Memoize the video track key and trackRef to prevent remounting
+    const videoTrackKey = useMemo(() => {
+      return `video-${student.sid}-${cameraTrack?.trackSid || 'no-track'}`;
+    }, [student.sid, cameraTrack?.trackSid]);
+    
+    // Create stable trackRef object that doesn't change unless track actually changes
+    const trackRef = useMemo(() => {
+      if (!cameraTrack || !cameraTrack.track) {
+        return null;
+      }
+      return {
+        participant: student,
+        publication: cameraTrack,
+        source: Track.Source.Camera as const
+      };
+    }, [student.sid, cameraTrack?.trackSid, cameraTrack?.track]);
 
     return (
       <div
@@ -984,14 +912,19 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
         className={styles.studentCard}
       >
         {/* Video/Avatar fills entire card */}
-        {hasVideo && cameraTrack?.track ? (
-          <div className={styles.videoContainer}>
+        {hasVideo && trackRef ? (
+          <div 
+            ref={videoContainerRef}
+            className={styles.videoContainer}
+            style={{ 
+              minWidth: '1px', 
+              minHeight: '1px',
+              position: 'relative'
+            }}
+          >
             <VideoTrack
-              trackRef={{
-                participant: student,
-                publication: cameraTrack,
-                source: Track.Source.Camera
-              }}
+              key={videoTrackKey}
+              trackRef={trackRef}
               className={styles.studentVideo}
             />
           </div>
@@ -1129,12 +1062,26 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
         </div>
       </div>
     );
-  };
+  }, (prevProps, nextProps) => {
+    // Custom comparison function for memo
+    // Return true if props are equal (skip re-render), false if different (re-render)
+    const studentSame = prevProps.student.sid === nextProps.student.sid &&
+                        prevProps.student.identity === nextProps.student.identity;
+    const isInPiPSame = prevProps.isInPiP === nextProps.isInPiP;
+    const functionsSame = prevProps.onMute === nextProps.onMute &&
+                          prevProps.onVideoControl === nextProps.onVideoControl;
+    
+    // Only re-render if something actually changed
+    return studentSame && isInPiPSame && functionsSame;
+  });
+
+  ParticipantCard.displayName = 'ParticipantCard';
 
   // Check if we're in PiP window
-  const isInPiP = pipWindow && !pipWindow.closed && pipWindow.document && pipWindow.document.body;
+  const isInPiP = !!(pipWindow && !pipWindow.closed && pipWindow.document && pipWindow.document.body);
 
-  const mainContainer = (
+  // Memoize main container to prevent re-renders
+  const mainContainer = useMemo(() => (
     <div
       ref={containerRef}
       className={styles.container}
@@ -1261,15 +1208,18 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
             maxHeight: '100%'
           } : {}}
         >
-          {students.map((student) => (
-            <ParticipantCard
-              key={student.sid}
-              student={student}
-              onMute={muteParticipant}
-              onVideoControl={controlVideo}
-              isInPiP={isInPiP}
-            />
-          ))}
+          {students.map((student) => {
+            // Memoize each card to prevent re-renders
+            return (
+              <ParticipantCard
+                key={student.sid}
+                student={student}
+                onMute={muteParticipant}
+                onVideoControl={controlVideo}
+                isInPiP={isInPiP}
+              />
+            );
+          })}
         </div>
       ) : (
         <div className={styles.emptyState}>
@@ -1286,28 +1236,180 @@ export function StudentMonitorPiP({ isHost = false, disabled = false, showProBad
         </div>
       )}
     </div>
-  );
+  ), [students.length, isInPiP, isMinimized, position.x, position.y, lockedDimensions?.width, lockedDimensions?.height, containerWidth, containerHeight, isScreenSharing, muteParticipant, controlVideo]);
+
+  // Only show for hosts - check AFTER all hooks are called
+  if (!isHost) {
+    return null;
+  }
 
   // Render via portal to document.body to escape all parent constraints
   // This ensures it's completely independent of any parent overflow/positioning constraints
   if (!mounted || typeof document === 'undefined') {
-    console.log('StudentMonitor: Not mounted or document undefined');
     return null;
+  }
+
+  // Show toggle button if monitor is not shown - AFTER all hooks
+  if (!shouldShow && !isScreenSharing) {
+    const toggleButton = (
+      <div
+        style={{
+          position: 'fixed',
+          top: '80px',
+          right: '20px',
+          zIndex: 9000,
+          background: disabled ? 'rgba(17, 24, 39, 0.5)' : 'rgba(17, 24, 39, 0.95)',
+          backdropFilter: 'blur(12px)',
+          borderRadius: '12px',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          padding: '12px 16px',
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          transition: 'all 0.2s ease',
+          opacity: disabled ? 0.6 : 1
+        }}
+        onClick={disabled ? undefined : handleManualEnable}
+        onMouseEnter={(e) => {
+          if (!disabled) {
+            e.currentTarget.style.background = 'rgba(17, 24, 39, 1)';
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (!disabled) {
+            e.currentTarget.style.background = 'rgba(17, 24, 39, 0.95)';
+          }
+        }}
+        title={disabled ? "This feature requires an upgrade" : "Show Student Monitor"}
+      >
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          color: 'white',
+          fontSize: '14px',
+          fontWeight: '500'
+        }}>
+          <span>👥</span>
+          <span>Show Student Monitor{students.length > 0 ? ` (${students.length})` : ''}</span>
+          {showProBadge && (
+            <span style={{
+              padding: '2px 8px',
+              background: 'linear-gradient(to right, #a855f7, #ec4899)',
+              color: 'white',
+              fontSize: '10px',
+              fontWeight: 'bold',
+              borderRadius: '4px',
+              marginLeft: '4px'
+            }}>
+              PRO
+            </span>
+          )}
+        </div>
+      </div>
+    );
+    return createPortal(toggleButton, document.body);
+  }
+
+  // Don't show if conditions not met or feature is disabled - AFTER all hooks
+  if (!shouldShow || disabled) {
+    return null;
+  }
+
+  // Handle minimized state - AFTER all hooks
+  if (isMinimized) {
+    const minimizedContainer = (
+      <div
+        ref={containerRef}
+        className={styles.container}
+        style={{
+          transform: `translate(${position.x}px, ${position.y}px)`,
+          width: '200px',
+          height: '40px',
+          cursor: 'pointer',
+          zIndex: 999999,
+          ...(lockedDimensions && {
+            width: `${lockedDimensions.width}px`,
+            height: `${lockedDimensions.height}px`
+          })
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsMinimized(false);
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = 'rgba(17, 24, 39, 1)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'rgba(17, 24, 39, 0.95)';
+        }}
+        title="Click to expand Student Monitor"
+      >
+        <div 
+          className={styles.minimizedBar}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '8px 12px',
+            height: '100%',
+            width: '100%'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className={styles.minimizedIcon}>👥</span>
+            <span className={styles.minimizedText}>
+              {students.length > 0 
+                ? `${students.length} Student${students.length !== 1 ? 's' : ''}`
+                : 'Student Monitor'}
+            </span>
+          </div>
+          <button
+            className={styles.expandButton}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsMinimized(false);
+            }}
+            title="Expand"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'white',
+              cursor: 'pointer',
+              fontSize: '16px',
+              padding: '4px'
+            }}
+          >
+            ⬆️
+          </button>
+        </div>
+      </div>
+    );
+    return createPortal(minimizedContainer, document.body);
   }
 
   // If PiP window is open and valid, render to PiP window instead
   if (pipWindow && !pipWindow.closed && pipWindow.document && pipWindow.document.body) {
-    console.log('StudentMonitor: Rendering to PiP window');
     return createPortal(mainContainer, pipWindow.document.body);
   }
 
   // Verify portal target exists
   const portalTarget = document.body;
   if (!portalTarget) {
-    console.error('Student Monitor PiP: document.body not available for portal');
     return null;
   }
 
-  console.log('StudentMonitor: Rendering to main document.body');
   return createPortal(mainContainer, portalTarget);
 }
+
+// Export memoized component to prevent re-renders from parent
+export const StudentMonitorPiP = React.memo(StudentMonitorPiPComponent, (prevProps, nextProps) => {
+  // Only re-render if props actually change
+  return prevProps.isHost === nextProps.isHost &&
+         prevProps.disabled === nextProps.disabled &&
+         prevProps.showProBadge === nextProps.showProBadge &&
+         prevProps.roomName === nextProps.roomName;
+});

@@ -1,6 +1,7 @@
-import { Room, VideoPresets, VideoQuality, Track } from 'livekit-client';
+import { Room, VideoPresets, VideoQuality, Track, LocalVideoTrack } from 'livekit-client';
 import { logger } from '../utils/logger';
 import { QualityLevel } from './ConnectionMonitor';
+import { trackLock } from '../utils/trackLock';
 
 export interface AdaptationSettings {
   videoQuality: VideoQuality;
@@ -44,10 +45,8 @@ export class NetworkAdapter {
       // Apply video quality settings
       await this.applyVideoSettings(settings);
       
-      // Apply audio settings if needed
-      if (settings.audioOnly) {
-        await this.switchToAudioOnly();
-      }
+      // NOTE: Removed auto-disable camera feature - never force audio-only mode
+      // Users should decide if they want to turn off camera
 
     } catch (error) {
       logger.error('Failed to adapt network settings:', error);
@@ -86,9 +85,9 @@ export class NetworkAdapter {
       case 'poor':
         return {
           videoQuality: VideoQuality.LOW,
-          maxBitrate: 300000, // 300 kbps
+          maxBitrate: 200000, // Very low but still video (200 kbps)
           simulcast: false,
-          audioOnly: true // Switch to audio-only for poor connections
+          audioOnly: false // NEVER force audio-only - let user decide
         };
 
       default:
@@ -109,6 +108,31 @@ export class NetworkAdapter {
 
     const localParticipant = this.room.localParticipant;
     
+    // Respect the user's current camera preference. If the camera is off we
+    // should not turn it back on just to update quality settings.
+    if (!localParticipant.isCameraEnabled) {
+      logger.debug('Skipping video settings update because camera is disabled', {
+        settings,
+      });
+      return;
+    }
+
+    const trackId = `local-camera-${localParticipant.identity}`;
+    
+    // Check if track was recently modified (cooldown period)
+    if (trackLock.wasRecentlyModified(trackId)) {
+      logger.debug('Skipping video settings - track recently modified', {
+        timeUntilModifiable: trackLock.getTimeUntilModifiable(trackId),
+      });
+      return;
+    }
+    
+    // Check if track is currently locked
+    if (trackLock.isLocked(trackId)) {
+      logger.debug('Skipping video settings - track is locked');
+      return;
+    }
+    
     // Check if screen sharing is active
     const isScreenSharing = localParticipant.isScreenShareEnabled;
     
@@ -120,33 +144,65 @@ export class NetworkAdapter {
         ? VideoQuality.MEDIUM 
         : settings.videoQuality, // Downgrade high to medium when screen sharing
     } : settings;
-    
-    // Respect the user's current camera preference. If the camera is off we
-    // should not turn it back on just to update quality settings.
-    if (!localParticipant.isCameraEnabled) {
-      logger.debug('Skipping video settings update because camera is disabled', {
-        settings: effectiveSettings,
-      });
-      return;
-    }
 
     const cameraPublication = localParticipant.getTrackPublication('camera');
     
     if (cameraPublication && cameraPublication.track) {
+      // Acquire lock before modifying
+      const acquired = await trackLock.acquire(trackId);
+      if (!acquired) {
+        logger.debug('Could not acquire lock for video settings update');
+        return;
+      }
+      
       try {
+        const preset = this.getVideoPreset(effectiveSettings.videoQuality);
+        
+        // CRITICAL FIX: Try to update encoding without republishing if track exists
+        // Note: We can't check current encoding (getVideoEncoding doesn't exist), so we try to update
+        // If it fails (e.g., resolution change needed), we'll fall through to republish
+        if (cameraPublication.track && cameraPublication.track instanceof LocalVideoTrack) {
+          const videoTrack = cameraPublication.track as LocalVideoTrack;
+          
+          // Try to update encoding without republishing
+          // This will work if only bitrate/fps needs to change, but will fail if resolution needs to change
+          try {
+            await videoTrack.setVideoEncoding({
+              maxBitrate: effectiveSettings.maxBitrate,
+              maxFps: preset.maxFps,
+            });
+            
+            logger.debug('Updated video encoding without republishing:', {
+              quality: effectiveSettings.videoQuality,
+              maxBitrate: effectiveSettings.maxBitrate,
+              screenSharing: isScreenSharing,
+            });
+            
+            trackLock.release(trackId);
+            return;
+          } catch (encodingError) {
+            // Encoding update failed - likely needs resolution change, will republish
+            logger.debug('Encoding update failed (may need resolution change), will republish:', encodingError);
+            // Fall through to republish if encoding update fails
+          }
+        }
+        
+        // Resolution change or encoding update failed - republish is necessary
         // Update video encoding parameters while keeping the camera state intact.
         await localParticipant.setCameraEnabled(true, {
-          resolution: this.getVideoPreset(effectiveSettings.videoQuality),
+          resolution: preset,
           maxBitrate: effectiveSettings.maxBitrate,
         });
 
-        logger.debug('Applied video settings:', {
+        logger.debug('Applied video settings (republished):', {
           quality: effectiveSettings.videoQuality,
           maxBitrate: effectiveSettings.maxBitrate,
           screenSharing: isScreenSharing,
         });
       } catch (error) {
         logger.error('Failed to apply video settings:', error);
+      } finally {
+        trackLock.release(trackId);
       }
     }
   }
@@ -167,24 +223,8 @@ export class NetworkAdapter {
     }
   }
 
-  /**
-   * Switch to audio-only mode
-   */
-  private async switchToAudioOnly(): Promise<void> {
-    if (!this.room) return;
-
-    const localParticipant = this.room.localParticipant;
-
-    try {
-      // Disable camera
-      await localParticipant.setCameraEnabled(false);
-      
-      logger.info('Switched to audio-only mode due to poor connection');
-
-    } catch (error) {
-      logger.error('Failed to switch to audio-only mode:', error);
-    }
-  }
+  // NOTE: switchToAudioOnly() function removed - we never auto-disable camera
+  // Users should decide if they want to turn off camera
 
   /**
    * Enable data saver mode (aggressive bandwidth saving)

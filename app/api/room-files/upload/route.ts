@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createWriteStream } from 'node:fs';
-import { mkdtemp, rename, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rename, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -139,38 +139,70 @@ export async function POST(req: NextRequest) {
 
     let storedFilename = filename;
     let uploadedToR2 = false;
+    let uploadedToLocal = false;
+    let fileBuffer: Buffer | null = null;
 
-    // Try uploading to R2 first if enabled
+    // Read file buffer once for both storage locations
+    try {
+      fileBuffer = await readFile(file.tmpPath);
+    } catch (error) {
+      console.error(`[RoomFiles] Failed to read temp file:`, error);
+      await rm(file.tmpPath, { force: true });
+      return NextResponse.json(
+        { error: 'Failed to read uploaded file' },
+        { status: 500 }
+      );
+    }
+
+    // CRITICAL: Always store locally for redundancy (even if R2 succeeds)
+    try {
+      await ensureRoomUploadPath(roomStorageId);
+      const filePath = getRoomFilePath(roomStorageId, filename);
+      await writeFile(filePath, fileBuffer);
+      uploadedToLocal = true;
+      console.log(`[RoomFiles] File stored locally at ${filePath}`);
+    } catch (localError) {
+      console.error(`[RoomFiles] Failed to store file locally:`, localError);
+      // Continue anyway - R2 might still work
+    }
+
+    // Try uploading to R2 if enabled (for redundancy and cloud access)
     if (isR2Enabled()) {
       console.log(`[R2] Attempting to upload ${filename} to R2...`);
       try {
-        const fileBuffer = await readFile(file.tmpPath);
         const r2Key = getR2Key(roomStorageId, filename);
         console.log(`[R2] Uploading to R2 key: ${r2Key}`);
         const success = await uploadToR2(r2Key, fileBuffer, file.mimeType);
 
         if (success) {
-          // Store R2 key in filename field
-          storedFilename = r2Key;
           uploadedToR2 = true;
+          storedFilename = r2Key; // Prefer R2 key in database for cloud access
           console.log(`[R2] Successfully uploaded ${filename} to R2, stored as ${r2Key}`);
-          // Clean up temp file since we uploaded to R2
-          await rm(file.tmpPath, { force: true });
         } else {
-          console.warn(`[R2] Upload failed for ${filename}, falling back to local storage`);
+          console.warn(`[R2] Upload failed for ${filename}, will use local storage`);
         }
       } catch (error) {
-        console.error(`[R2] Error uploading to R2, falling back to local storage:`, error);
+        console.error(`[R2] Error uploading to R2:`, error);
+        // Continue - local storage should be available
       }
     } else {
-      console.log(`[R2] R2 is not enabled or not properly configured, using local storage for ${filename}`);
+      console.log(`[R2] R2 is not enabled, using local storage only for ${filename}`);
     }
 
-    // Fallback to local filesystem if R2 upload failed or R2 is disabled
-    if (!uploadedToR2) {
-      await ensureRoomUploadPath(roomStorageId);
-      const filePath = getRoomFilePath(roomStorageId, filename);
-      await rename(file.tmpPath, filePath);
+    // Ensure at least one storage succeeded
+    if (!uploadedToLocal && !uploadedToR2) {
+      await rm(file.tmpPath, { force: true });
+      return NextResponse.json(
+        { error: 'Failed to store file in any storage location' },
+        { status: 500 }
+      );
+    }
+
+    // Clean up temp file
+    try {
+      await rm(file.tmpPath, { force: true });
+    } catch (cleanupError) {
+      console.warn(`[RoomFiles] Failed to clean up temp file:`, cleanupError);
     }
 
     const roomFile = await prisma.roomFile.create({

@@ -7,6 +7,7 @@ import {
   RemoteTrackPublication,
   RemoteTrack,
   LocalTrackPublication,
+  LocalVideoTrack,
   VideoPresets,
   ConnectionQuality,
   Participant,
@@ -15,6 +16,8 @@ import { ConnectionMonitor, QualityLevel } from './services/ConnectionMonitor';
 import { NetworkAdapter } from './services/NetworkAdapter';
 import { useMediaStore } from './store/mediaStore';
 import { logger } from './utils/logger';
+import { trackLock } from './utils/trackLock';
+import { qualityAdjustmentLock } from './utils/qualityAdjustmentLock';
 
 const qualityFromPreference = (pref: 'low' | 'medium' | 'high' | 'auto') => {
   switch (pref) {
@@ -143,6 +146,17 @@ export function useAdaptiveStreamManager(room: Room | null | undefined) {
       // Generate unique key for this track (include participant identity and track SID for uniqueness)
       const trackSid = publication.trackSid || `${publication.source}-${Date.now()}`;
       const participantKey = `${participantIdentity}-${trackSid}`;
+      const trackId = `${participantIdentity}-${trackSid}`;
+      
+      // Check if track was recently modified (cooldown period)
+      if (trackLock.wasRecentlyModified(trackId)) {
+        logger.debug('Track recently modified, skipping quality update', {
+          participant: participantIdentity,
+          trackSource: publication.source,
+          timeUntilModifiable: trackLock.getTimeUntilModifiable(trackId),
+        });
+        return;
+      }
       
       // Track state validation: check if track is valid
       if (!publication.track || !publication.isSubscribed) {
@@ -384,23 +398,31 @@ export function useAdaptiveStreamManager(room: Room | null | undefined) {
         return;
       }
       
-      // Initialize quality for new participant
-      // Use conservative default (Poor) if quality is unknown (common on initial join)
-      const remoteConnectionQuality = participant.connectionQuality ?? ConnectionQuality.Poor;
-      const remoteQuality = mapLiveKitQuality(remoteConnectionQuality);
-      participantQualityMap.current.set(participant.identity, remoteQuality);
-      
-      // Apply quality to their tracks
-      const effectiveQuality = getEffectiveQuality(lastNetworkQuality.current, remoteQuality);
-      
-      participant.videoTrackPublications.forEach((publication) => {
-        const target = determineTargetQuality(publication, effectiveQuality);
-        if (target) {
-          setVideoQualitySafely(publication, target, participant.identity, {
-            remoteQuality: remoteQuality,
-            effectiveQuality: effectiveQuality,
-          });
-        }
+      // CRITICAL FIX: Use mutex to prevent race conditions when multiple participants join
+      qualityAdjustmentLock.executeSafely(participant.identity, async () => {
+        // Initialize quality for new participant
+        // Use conservative default (Poor) if quality is unknown (common on initial join)
+        const remoteConnectionQuality = participant.connectionQuality ?? ConnectionQuality.Poor;
+        const remoteQuality = mapLiveKitQuality(remoteConnectionQuality);
+        participantQualityMap.current.set(participant.identity, remoteQuality);
+        
+        // Apply quality to their tracks ONLY (don't adjust existing participants' tracks)
+        const effectiveQuality = getEffectiveQuality(lastNetworkQuality.current, remoteQuality);
+        
+        participant.videoTrackPublications.forEach((publication) => {
+          // Only set quality for subscribed tracks of the NEW participant
+          if (publication.isSubscribed && publication.track) {
+            const target = determineTargetQuality(publication, effectiveQuality);
+            if (target) {
+              setVideoQualitySafely(publication, target, participant.identity, {
+                remoteQuality: remoteQuality,
+                effectiveQuality: effectiveQuality,
+              });
+            }
+          }
+        });
+      }).catch((error) => {
+        logger.warn('Error in quality adjustment for new participant:', error);
       });
     };
 
@@ -629,30 +651,81 @@ export function useAdaptiveStreamManager(room: Room | null | undefined) {
 
     const applyCameraQuality = async () => {
       try {
-        const preset = targetQuality === VideoQuality.HIGH 
-          ? VideoPresets.h720 
-          : targetQuality === VideoQuality.MEDIUM 
-          ? VideoPresets.h540 
-          : VideoPresets.h360;
+        const trackId = `local-camera-${localParticipant.identity}`;
+        
+        // Check if track is locked or recently modified
+        if (trackLock.isLocked(trackId) || trackLock.wasRecentlyModified(trackId)) {
+          logger.debug('Skipping camera quality change - track locked or recently modified');
+          return;
+        }
+        
+        const acquired = await trackLock.acquire(trackId);
+        if (!acquired) {
+          logger.debug('Could not acquire lock for camera quality change');
+          return;
+        }
+        
+        try {
+          const preset = targetQuality === VideoQuality.HIGH 
+            ? VideoPresets.h720 
+            : targetQuality === VideoQuality.MEDIUM 
+            ? VideoPresets.h540 
+            : VideoPresets.h360;
 
-        const maxBitrate = targetQuality === VideoQuality.HIGH 
-          ? 2500000 
-          : targetQuality === VideoQuality.MEDIUM 
-          ? 1500000 
-          : 750000;
+          const maxBitrate = targetQuality === VideoQuality.HIGH 
+            ? 2500000 
+            : targetQuality === VideoQuality.MEDIUM 
+            ? 1500000 
+            : 750000;
 
-        await localParticipant.setCameraEnabled(true, {
-          resolution: preset,
-          maxBitrate: maxBitrate,
-        });
+          const cameraPublication = localParticipant.getTrackPublication(Track.Source.Camera);
+          
+          // CRITICAL FIX: Try to update encoding without republishing if track exists
+          // Note: We can't check current encoding (getVideoEncoding doesn't exist), so we try to update
+          // If it fails (e.g., resolution change needed), we'll fall through to republish
+          if (cameraPublication?.track && cameraPublication.track instanceof LocalVideoTrack) {
+            const videoTrack = cameraPublication.track as LocalVideoTrack;
+            
+            // Try to update encoding without republishing
+            // This will work if only bitrate/fps needs to change, but will fail if resolution needs to change
+            try {
+              await videoTrack.setVideoEncoding({
+                maxBitrate: maxBitrate,
+                maxFps: preset.maxFps,
+              });
+              
+              logger.debug('Updated camera encoding without republishing:', {
+                quality: preferredQuality,
+                maxBitrate,
+                resolution: `${preset.width}x${preset.height}`,
+              });
+              
+              trackLock.release(trackId);
+              return;
+            } catch (encodingError) {
+              // Encoding update failed - likely needs resolution change, will republish
+              logger.debug('Encoding update failed (may need resolution change), will republish:', encodingError);
+              // Fall through to republish if encoding update fails
+            }
+          }
+          
+          // Resolution change or encoding update failed - republish is necessary
+          await localParticipant.setCameraEnabled(true, {
+            resolution: preset,
+            maxBitrate: maxBitrate,
+          });
 
-        logger.debug('Applied camera quality change:', {
-          quality: preferredQuality,
-          manualChoice,
-          networkBasedQuality,
-          targetQuality,
-          maxBitrate,
-        });
+          logger.debug('Applied camera quality change (republished):', {
+            quality: preferredQuality,
+            manualChoice,
+            networkBasedQuality,
+            targetQuality,
+            maxBitrate,
+            resolution: `${preset.width}x${preset.height}`,
+          });
+        } finally {
+          trackLock.release(trackId);
+        }
       } catch (error) {
         logger.warn('Failed to apply camera quality change:', error);
       }
@@ -660,13 +733,6 @@ export function useAdaptiveStreamManager(room: Room | null | undefined) {
 
     applyCameraQuality();
   }, [room, preferredQuality, lastNetworkQuality]);
-
-  // Store original camera quality settings to restore later
-  const originalCameraSettingsRef = React.useRef<{
-    quality: VideoQuality | null;
-    preset: typeof VideoPresets.h720;
-    maxBitrate: number;
-  } | null>(null);
 
   // Hook into screen share start events to apply quality settings
   React.useEffect(() => {
@@ -680,50 +746,9 @@ export function useAdaptiveStreamManager(room: Room | null | undefined) {
       if (publication.source === Track.Source.ScreenShare) {
         logger.debug('Screen share started, optimizing for audio quality');
         
-        // Reduce camera quality to free up bandwidth for audio
-        if (localParticipant.isCameraEnabled) {
-          try {
-            // Store original camera settings before reducing
-            const currentQuality = preferredQuality !== 'auto' 
-              ? qualityFromPreference(preferredQuality) 
-              : qualityFromNetwork(lastNetworkQuality.current);
-            
-            if (currentQuality) {
-              const originalPreset = currentQuality === VideoQuality.HIGH 
-                ? VideoPresets.h720 
-                : currentQuality === VideoQuality.MEDIUM 
-                ? VideoPresets.h540 
-                : VideoPresets.h360;
-
-              const originalMaxBitrate = currentQuality === VideoQuality.HIGH 
-                ? 2500000 
-                : currentQuality === VideoQuality.MEDIUM 
-                ? 1500000 
-                : 750000;
-
-              // Store original settings
-              originalCameraSettingsRef.current = {
-                quality: currentQuality,
-                preset: originalPreset,
-                maxBitrate: originalMaxBitrate,
-              };
-
-              // Reduce camera quality to preserve audio during screen share
-              await localParticipant.setCameraEnabled(true, {
-                resolution: VideoPresets.h360, // Lower resolution
-                maxBitrate: 500000, // Reduced bitrate (500 kbps)
-              });
-              
-              logger.debug('Reduced camera quality to preserve audio during screen share', {
-                originalQuality: currentQuality,
-                originalBitrate: originalMaxBitrate,
-                newBitrate: 500000,
-              });
-            }
-          } catch (error) {
-            logger.warn('Failed to reduce camera quality:', error);
-          }
-        }
+        // NOTE: We no longer republish camera track when screen share starts
+        // Instead, we rely on LiveKit's adaptive bitrate to handle bandwidth
+        // This prevents camera from stopping/restarting unexpectedly
         
         // Apply screen share quality preference
         const targetQuality = preferredScreenShareQuality !== 'auto' 
@@ -744,52 +769,11 @@ export function useAdaptiveStreamManager(room: Room | null | undefined) {
 
     const handleTrackUnpublished = async (publication: LocalTrackPublication) => {
       if (publication.source === Track.Source.ScreenShare) {
-        logger.debug('Screen share stopped, restoring camera quality');
+        logger.debug('Screen share stopped');
         
-        // Restore camera quality when screen share stops
-        if (localParticipant.isCameraEnabled && originalCameraSettingsRef.current) {
-          try {
-            // Check current network quality before restoring
-            const currentNetworkQuality = qualityFromNetwork(lastNetworkQuality.current);
-            const restoredQuality = originalCameraSettingsRef.current.quality;
-            
-            // Cap restored quality based on current network state
-            const qualityOrder = [VideoQuality.LOW, VideoQuality.MEDIUM, VideoQuality.HIGH];
-            const restoredIndex = qualityOrder.indexOf(restoredQuality);
-            const networkIndex = qualityOrder.indexOf(currentNetworkQuality);
-            const safeQuality = qualityOrder[Math.min(restoredIndex, networkIndex)];
-            
-            // Get safe preset and bitrate
-            const safePreset = safeQuality === VideoQuality.HIGH 
-              ? VideoPresets.h720 
-              : safeQuality === VideoQuality.MEDIUM 
-              ? VideoPresets.h540 
-              : VideoPresets.h360;
-            
-            const safeMaxBitrate = safeQuality === VideoQuality.HIGH 
-              ? 2500000 
-              : safeQuality === VideoQuality.MEDIUM 
-              ? 1500000 
-              : 750000;
-            
-            await localParticipant.setCameraEnabled(true, {
-              resolution: safePreset,
-              maxBitrate: safeMaxBitrate,
-            });
-            
-            logger.debug('Restored camera quality after screen share', {
-              originalQuality: restoredQuality,
-              currentNetworkQuality: lastNetworkQuality.current,
-              safeQuality,
-              bitrate: safeMaxBitrate,
-            });
-            
-            // Clear stored settings
-            originalCameraSettingsRef.current = null;
-          } catch (error) {
-            logger.warn('Failed to restore camera quality:', error);
-          }
-        }
+        // NOTE: We no longer republish camera track when screen share stops
+        // LiveKit's adaptive bitrate will automatically adjust camera quality
+        // This prevents camera from stopping/restarting unexpectedly
       }
     };
 

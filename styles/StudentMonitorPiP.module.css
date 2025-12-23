@@ -19,7 +19,7 @@
   user-select: none;
   /* Base position set by top/right, transform moves from there (exactly like PictureInPicture) */
   box-sizing: border-box;
-  overflow: hidden;
+  overflow: hidden; /* Container itself doesn't scroll, only studentsColumn scrolls */
   display: flex;
   flex-direction: column;
 }
@@ -109,10 +109,24 @@
   padding-left: 0; /* No left padding to remove free space */
   padding-right: 0; /* No right padding to remove free space */
   overflow-y: auto;
-  max-height: calc(100% - 50px);
+  overflow-x: hidden;
   scroll-behavior: smooth;
-  height: calc(100% - 50px);
   box-sizing: border-box;
+  flex: 1 1 auto;
+  min-height: 0; /* Important for flex scrolling */
+  align-items: stretch; /* Ensure all cards stretch to full width */
+}
+
+/* Main window: account for header */
+.container:not([data-pip="true"]) .studentsColumn {
+  max-height: calc(100% - 50px);
+  height: calc(100% - 50px);
+}
+
+/* PiP window: full height (no header) */
+.container[data-pip="true"] .studentsColumn {
+  max-height: 100%;
+  height: 100%;
 }
 
 /* When in PiP window, column fills entire height (no header) */
@@ -142,17 +156,24 @@
   position: relative;
   width: 100%;
   height: 200px;
+  min-height: 200px; /* Fixed minimum height - cannot shrink below this */
+  max-height: 200px; /* Fixed maximum height - cannot grow above this */
+  flex-shrink: 0; /* Prevent card from shrinking in flex container */
+  flex-grow: 0; /* Prevent card from growing in flex container */
   border-radius: 6px;
   overflow: visible; /* Changed from hidden to visible so menu can show outside */
   background: rgba(30, 41, 59, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.1);
   transition: all 0.2s ease;
   margin: 0; /* Ensure no margin */
+  box-sizing: border-box; /* Include border in height calculation */
 }
 
 /* Increased height for cards in PiP window - using data attribute */
 .container[data-pip="true"] .studentCard {
   height: 240px;
+  min-height: 240px; /* Fixed minimum height for PiP - cannot shrink */
+  max-height: 240px; /* Fixed maximum height for PiP - cannot grow */
 }
 
 .studentCard:hover {
@@ -451,6 +472,8 @@
   
   .studentCard {
     height: 140px;
+    min-height: 140px; /* Fixed minimum height on mobile - cannot shrink */
+    max-height: 140px; /* Fixed maximum height on mobile - cannot grow */
   }
   
   .emptyState {

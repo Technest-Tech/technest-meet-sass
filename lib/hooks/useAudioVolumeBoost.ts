@@ -21,18 +21,40 @@ export function useAudioVolumeBoost(room: Room | null | undefined, volumeBoost: 
   useEffect(() => {
     if (!room) return;
 
-    // Initialize AudioContext
+    // Initialize AudioContext with state management
     const initAudioContext = () => {
       if (!audioContextRef.current) {
         try {
           audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
           isInitializedRef.current = true;
           logger.debug('Audio context initialized for volume boost');
+          
+          // Monitor AudioContext state changes
+          audioContextRef.current.addEventListener('statechange', () => {
+            const state = audioContextRef.current?.state;
+            logger.debug('AudioContext state changed:', state);
+            
+            // If suspended, try to resume (requires user interaction)
+            if (state === 'suspended') {
+              logger.debug('AudioContext suspended, attempting to resume...');
+              audioContextRef.current?.resume().catch((error) => {
+                logger.debug('Could not resume AudioContext (may need user interaction):', error);
+              });
+            }
+          });
         } catch (error) {
           logger.warn('Failed to initialize audio context:', error);
           return false;
         }
       }
+      
+      // Ensure AudioContext is running
+      if (audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume().catch((error) => {
+          logger.debug('AudioContext is suspended, will resume on user interaction:', error);
+        });
+      }
+      
       return true;
     };
 
@@ -57,17 +79,70 @@ export function useAudioVolumeBoost(room: Room | null | undefined, volumeBoost: 
             return;
           }
 
-          // Create audio element if it doesn't exist
+          // Create audio element if it doesn't exist with low-latency configuration
           let audioElement = audioElementsRef.current.get(trackSid);
           if (!audioElement) {
-            audioElement = document.createElement('audio');
-            audioElement.autoplay = true;
-            audioElement.playsInline = true;
-            audioElement.setAttribute('data-lk-source', 'microphone');
-            audioElement.setAttribute('data-lk-participant', participant.identity);
-            audioElement.style.display = 'none'; // Hide the element
-            document.body.appendChild(audioElement);
-            audioElementsRef.current.set(trackSid, audioElement);
+            // Check for existing element created by other hooks
+            const existingElement = document.querySelector(
+              `audio[data-lk-source="microphone"][data-lk-participant="${participant.identity}"][data-lk-track-sid="${trackSid}"]`
+            ) as HTMLAudioElement;
+            
+            if (existingElement) {
+              audioElement = existingElement;
+              audioElementsRef.current.set(trackSid, audioElement);
+            } else {
+              audioElement = document.createElement('audio');
+              // Low-latency audio configuration
+              audioElement.autoplay = true;
+              audioElement.playsInline = true;
+              audioElement.preload = 'none'; // Prevent buffering for low latency
+              audioElement.setAttribute('data-lk-source', 'microphone');
+              audioElement.setAttribute('data-lk-participant', participant.identity);
+              audioElement.setAttribute('data-lk-track-sid', trackSid);
+              audioElement.style.display = 'none'; // Hide the element
+              
+              // Monitor buffering states
+              audioElement.addEventListener('loadstart', () => {
+                logger.debug('Audio element loadstart', { participant: participant.identity, trackSid });
+              });
+              
+              audioElement.addEventListener('loadedmetadata', () => {
+                logger.debug('Audio element loadedmetadata', { participant: participant.identity, trackSid });
+              });
+              
+              audioElement.addEventListener('canplay', () => {
+                logger.debug('Audio element canplay', { participant: participant.identity, trackSid });
+              });
+              
+              audioElement.addEventListener('waiting', () => {
+                logger.warn('Audio element waiting (buffering)', { participant: participant.identity, trackSid });
+              });
+              
+              audioElement.addEventListener('stalled', () => {
+                logger.warn('Audio element stalled', { participant: participant.identity, trackSid });
+                // Try to recover from stalled state
+                setTimeout(() => {
+                  if (audioElement && audioElement.paused) {
+                    audioElement.play().catch((error) => {
+                      logger.debug('Could not resume stalled audio:', error);
+                    });
+                  }
+                }, 100);
+              });
+              
+              audioElement.addEventListener('error', (event) => {
+                logger.warn('Audio element error', {
+                  participant: participant.identity,
+                  trackSid,
+                  error: audioElement.error,
+                  readyState: audioElement.readyState,
+                  networkState: audioElement.networkState,
+                });
+              });
+              
+              document.body.appendChild(audioElement);
+              audioElementsRef.current.set(trackSid, audioElement);
+            }
           }
 
           // Attach track to audio element
@@ -78,24 +153,47 @@ export function useAudioVolumeBoost(room: Room | null | undefined, volumeBoost: 
             return;
           }
 
+          // Ensure AudioContext is running before creating gain node
+          if (audioContextRef.current.state === 'suspended') {
+            audioContextRef.current.resume().catch((error) => {
+              logger.debug('Could not resume AudioContext:', error);
+            });
+          }
+          
           // Create gain node for volume boost
           try {
-            const source = audioContextRef.current.createMediaElementSource(audioElement);
-            const gainNode = audioContextRef.current.createGain();
-            gainNode.gain.value = volumeBoost; // Boost volume (1.5 = 50% louder)
-            
-            source.connect(gainNode);
-            gainNode.connect(audioContextRef.current.destination);
-            
-            gainNodesRef.current.set(trackSid, gainNode);
-            logger.debug('Audio volume boosted', {
-              participant: participant.identity,
-              trackSid,
-              boost: volumeBoost,
-            });
-          } catch (gainError) {
-            // If we can't create gain node (e.g., already connected), just use the element
-            logger.debug('Could not create gain node, using direct audio element');
+            // Check if element is already connected to AudioContext
+            if (!audioElement.srcObject) {
+              // Element not yet connected, create source
+              const source = audioContextRef.current.createMediaElementSource(audioElement);
+              const gainNode = audioContextRef.current.createGain();
+              gainNode.gain.value = volumeBoost; // Boost volume (1.5 = 50% louder)
+              
+              source.connect(gainNode);
+              gainNode.connect(audioContextRef.current.destination);
+              
+              gainNodesRef.current.set(trackSid, gainNode);
+              logger.debug('Audio volume boosted', {
+                participant: participant.identity,
+                trackSid,
+                boost: volumeBoost,
+              });
+            } else {
+              // Element already connected, just update gain if node exists
+              const existingGainNode = gainNodesRef.current.get(trackSid);
+              if (existingGainNode) {
+                existingGainNode.gain.value = volumeBoost;
+              } else {
+                logger.debug('Audio element already connected, skipping gain node creation');
+              }
+            }
+          } catch (gainError: any) {
+            // If we can't create gain node (e.g., already connected), check if it's a "node is already connected" error
+            if (gainError.message && gainError.message.includes('already connected')) {
+              logger.debug('Audio element already connected to AudioContext, using existing connection');
+            } else {
+              logger.debug('Could not create gain node, using direct audio element:', gainError);
+            }
           }
         }, 200);
       } catch (error) {
@@ -206,3 +304,8 @@ export function useAudioVolumeBoost(room: Room | null | undefined, volumeBoost: 
     };
   }, [room, volumeBoost]);
 }
+
+
+
+
+

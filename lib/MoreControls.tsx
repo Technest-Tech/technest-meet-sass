@@ -11,7 +11,6 @@ import { NormalWhiteboard } from './NormalWhiteboard';
 import { WhiteboardNotification } from './WhiteboardNotification';
 import { Chat } from './Chat';
 import { SettingsMenu } from './SettingsMenu';
-import { SimpleRecordingControl } from './SimpleRecordingControl';
 import toast from 'react-hot-toast';
 import { VideoRequestData } from './types';
 import { logger } from './utils/logger';
@@ -38,7 +37,6 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
   const [isHovered, setIsHovered] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
-  const [isRecordingActive, setIsRecordingActive] = useState(false);
 
   // Ensure component is mounted on client-side
   useEffect(() => {
@@ -146,16 +144,16 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
         // Get track publications using getTrackPublication (same as StudentMonitorPiP)
         const audioTrack = p.getTrackPublication(Track.Source.Microphone);
         const videoTrack = p.getTrackPublication(Track.Source.Camera);
-        
+
         // For audio: track exists, is enabled, and not muted
         const audioEnabled = audioTrack && audioTrack.isEnabled && !audioTrack.isMuted;
-        
+
         // For video: track exists, is enabled, not muted, and has an actual track
         const videoEnabled = videoTrack && videoTrack.isEnabled && !videoTrack.isMuted && !!videoTrack.track;
 
-        newStatuses.set(p.identity, { 
-          audioEnabled: !!audioEnabled, 
-          videoEnabled: !!videoEnabled 
+        newStatuses.set(p.identity, {
+          audioEnabled: !!audioEnabled,
+          videoEnabled: !!videoEnabled
         });
       });
 
@@ -232,26 +230,10 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
     const newState = !isWhiteboardOpen;
     setIsWhiteboardOpen(newState);
     sendWhiteboardToggle(newState ? 'open' : 'close');
-
-    // Only show notification when opening, not when closing
-    if (newState) {
-      setWhiteboardNotification({
-        message: 'Whiteboard opened for all participants',
-        type: 'success'
-      });
-    }
   };
 
   const handleHostToggle = useCallback((isOpen: boolean) => {
     setIsWhiteboardOpen(isOpen);
-
-    // Only show notification when opening, not when closing
-    if (!isHost && isOpen) {
-      setWhiteboardNotification({
-        message: 'Host opened whiteboard for all participants',
-        type: 'info'
-      });
-    }
   }, [isHost]);
 
   // Participant management functionality
@@ -456,11 +438,9 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
         onClick={toggleDropdown}
         style={{
           padding: iconOnly ? '12px' : '12px 16px',
-          backgroundColor: isRecordingActive
-            ? 'rgba(220, 38, 38, 0.9)'
-            : isDropdownOpen
-              ? 'rgba(59, 130, 246, 0.9)'
-              : 'rgba(107, 114, 128, 0.9)',
+          backgroundColor: isDropdownOpen
+            ? 'rgba(59, 130, 246, 0.9)'
+            : 'rgba(107, 114, 128, 0.9)',
           color: 'white',
           border: '1px solid rgba(255, 255, 255, 0.2)',
           borderRadius: '12px',
@@ -476,34 +456,28 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
           height: iconOnly ? '48px' : 'auto',
           justifyContent: 'center',
           transition: 'all 0.2s ease',
-          boxShadow: isRecordingActive
-            ? '0 10px 25px rgba(220, 38, 38, 0.35)'
-            : isDropdownOpen
-              ? '0 4px 12px rgba(0, 0, 0, 0.15)'
-              : 'none',
+          boxShadow: isDropdownOpen
+            ? '0 4px 12px rgba(0, 0, 0, 0.15)'
+            : 'none',
           position: 'relative',
           zIndex: isDropdownOpen ? 100001 : 'auto'
         }}
         onMouseEnter={(e) => {
           if (!isDropdownOpen) {
-            e.currentTarget.style.backgroundColor = isRecordingActive
-              ? 'rgba(220, 38, 38, 0.95)'
-              : 'rgba(75, 85, 99, 0.9)';
+            e.currentTarget.style.backgroundColor = 'rgba(75, 85, 99, 0.9)';
           }
           setIsHovered(true);
         }}
         onMouseLeave={(e) => {
           if (!isDropdownOpen) {
-            e.currentTarget.style.backgroundColor = isRecordingActive
-              ? 'rgba(220, 38, 38, 0.9)'
-              : 'rgba(107, 114, 128, 0.9)';
+            e.currentTarget.style.backgroundColor = 'rgba(107, 114, 128, 0.9)';
           }
           setIsHovered(false);
         }}
         title="More Controls"
       >
         <MoreHorizontal size={iconOnly ? 20 : 16} />
-        {!iconOnly && (isRecordingActive ? 'Recording' : 'More')}
+        {!iconOnly && 'More'}
       </button>
 
       {/* Tooltip on hover */}
@@ -524,7 +498,7 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
           pointerEvents: 'none',
           boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
         }}>
-          {isRecordingActive ? 'Recording' : 'More Controls'}
+          More Controls
         </div>
       )}
 
@@ -619,18 +593,6 @@ export function MoreControls({ isHost, canRecord, roomName, onEndMeeting, iconOn
 
         {/* Unified Control Buttons */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          {/* Recording Control */}
-          {isHost && (
-            <div style={{ padding: '0 4px' }}>
-              <SimpleRecordingControl
-                isHost={isHost}
-                isFeatureEnabled={true}
-                showProBadge={false}
-                onRecordingStateChange={setIsRecordingActive}
-              />
-            </div>
-          )}
-
           {/* Collaborative Whiteboard Control */}
           {isHost && (
             <button

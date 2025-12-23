@@ -13,8 +13,12 @@ export async function GET(req: NextRequest) {
     const { LIVEKIT_API_KEY, LIVEKIT_API_SECRET, LIVEKIT_URL } = process.env;
 
     const hostURL = new URL(LIVEKIT_URL!);
-    // Keep the original protocol for local development
-    if (!hostURL.hostname.includes('localhost') && !hostURL.hostname.includes('127.0.0.1')) {
+    // Keep the original protocol - don't force HTTPS for IP addresses
+    // Production servers may use HTTP for internal API calls (port 7880)
+    if (hostURL.protocol === 'http:' && 
+        !hostURL.hostname.match(/^\d+\.\d+\.\d+\.\d+$/) && 
+        !hostURL.hostname.includes('localhost') && 
+        !hostURL.hostname.includes('127.0.0.1')) {
       hostURL.protocol = 'https:';
     }
 

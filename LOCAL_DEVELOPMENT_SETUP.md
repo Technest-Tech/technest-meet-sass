@@ -107,3 +107,12 @@ If your local IP address changes (e.g., after reconnecting to WiFi):
 - The IP `192.168.1.23` in the config files is an example - use YOUR actual IP!
 
 
+
+
+
+
+
+
+
+
+

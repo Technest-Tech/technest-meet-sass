@@ -18,7 +18,15 @@ interface Alert {
 export async function GET(request: NextRequest) {
   try {
     await requireSuperAdmin();
+  } catch (error) {
+    console.error('Alerts auth error:', error);
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401 }
+    );
+  }
 
+  try {
     const alerts: Alert[] = [];
 
     // Get system status for system alerts

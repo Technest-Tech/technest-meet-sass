@@ -6,7 +6,15 @@ import { ActivityEventType } from '@prisma/client';
 export async function GET(request: NextRequest) {
   try {
     await requireSuperAdmin();
+  } catch (error) {
+    console.error('Stats auth error:', error);
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401 }
+    );
+  }
 
+  try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 

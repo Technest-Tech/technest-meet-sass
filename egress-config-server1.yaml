@@ -1,0 +1,33 @@
+# LiveKit Egress Service Configuration - Server 1
+log_level: info
+
+# LiveKit server connection
+# Use production keys to match the app configuration
+api_key: almajd-meet-api-key-prod-2024
+api_secret: almajd-meet-api-secret-production-2024-secure-key
+
+# Connect to production LiveKit Server 1
+ws_url: ws://178.128.78.195:7880
+
+# Public URL for room composite recordings - Server 1
+web_base_url: wss://rtc.acadmyq.com
+
+# Redis configuration (required for egress service)
+# NOTE: Egress service must connect to the SAME Redis instance as the LiveKit server
+# Production Server 1 Redis: 178.128.78.195:6379
+# IMPORTANT: Redis must be configured to listen on all interfaces (0.0.0.0) and allow external access
+redis:
+  address: 178.128.78.195:6379
+
+# Health check port
+health_port: 8080
+
+# Output configuration
+# Files will be saved to this directory
+# The filepath in the API call should be relative (just filename), and egress will prepend this path
+output:
+  file:
+    path: /recordings
+    # Ensure the directory exists and is writable
+    # The egress container has this directory mounted from ./recordings on the host
+

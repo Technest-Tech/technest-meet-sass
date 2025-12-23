@@ -437,3 +437,12 @@ class _WhiteboardWidgetState extends State<WhiteboardWidget> {
 ✅ Pinch-to-zoom and pan work smoothly on mobile
 ✅ Auto-fit works on whiteboard open and orientation change
 ✅ No "Data too large" errors when drawing
+
+
+
+
+
+
+
+
+

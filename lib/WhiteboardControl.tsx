@@ -32,7 +32,7 @@ export function WhiteboardControl({ isHost }: WhiteboardControlProps) {
       };
       
       const encodedData = new TextEncoder().encode(JSON.stringify(message));
-      room.localParticipant.publishData(encodedData);
+      room.localParticipant.publishData(encodedData, { topic: 'whiteboard' });
     } catch (error) {
       console.error('Error sending whiteboard toggle command:', error);
     }
@@ -53,28 +53,12 @@ export function WhiteboardControl({ isHost }: WhiteboardControlProps) {
     
     // Send command to all participants
     sendWhiteboardToggle(newState ? 'open' : 'close');
-    
-    // Only show notification when opening, not when closing
-    if (newState) {
-      setNotification({
-        message: 'Whiteboard opened for all participants',
-        type: 'success'
-      });
-    }
   };
 
   // Handle host control of whiteboard state
   const handleHostToggle = useCallback((isOpen: boolean) => {
     setIsWhiteboardOpen(isOpen);
     setIsWaitingForHost(false); // No longer waiting for host
-    
-    // Only show notification when opening, not when closing
-    if (!isHost && isOpen) {
-      setNotification({
-        message: 'Host opened whiteboard for all participants',
-        type: 'info'
-      });
-    }
   }, [isHost]);
 
   return (

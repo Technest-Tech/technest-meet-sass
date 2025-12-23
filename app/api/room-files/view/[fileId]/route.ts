@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { prisma } from '@/lib/database';
-import { getRoomFilePath, isR2Key } from '@/lib/utils/storage';
+import { getRoomFilePath, isR2Key, extractFilenameFromR2Key, getR2Key } from '@/lib/utils/storage';
 import { downloadFile as downloadFromR2 } from '@/lib/services/r2Storage';
 import { sanitizeString } from '@/lib/utils/sanitize';
 
@@ -46,37 +46,99 @@ export async function GET(
     }
 
     let fileBuffer: Buffer | null = null;
+    const localFilename = extractFilenameFromR2Key(roomFile.filename);
+    const r2Key = isR2Key(roomFile.filename) 
+      ? roomFile.filename 
+      : getR2Key(roomFile.roomId, roomFile.filename);
+    const localFilePath = getRoomFilePath(roomFile.roomId, localFilename);
 
-    // Check if file is stored in R2 (filename starts with "room-files/")
+    // CRITICAL: Try both storage locations for maximum reliability
+    // Strategy: Try primary location first, then fallback to alternative
+    
+    // If filename indicates R2 storage, try R2 first
     if (isR2Key(roomFile.filename)) {
-      // Try to download from R2
-      fileBuffer = await downloadFromR2(roomFile.filename);
-      if (!fileBuffer) {
-        console.warn(
-          `[RoomFiles] File ${roomFile.id} not found in R2 with key ${roomFile.filename}`,
-        );
-        return NextResponse.json(
-          { error: 'File not found in R2' },
-          { status: 404 }
-        );
+      // Try R2 first (primary)
+      try {
+        fileBuffer = await downloadFromR2(roomFile.filename);
+        if (fileBuffer) {
+          console.log(`[RoomFiles] Successfully loaded file ${roomFile.id} from R2`);
+        }
+      } catch (r2Error) {
+        console.warn(`[RoomFiles] R2 download failed for ${roomFile.id}:`, r2Error);
+      }
+
+      // Fallback to local storage if R2 failed
+      if (!fileBuffer && existsSync(localFilePath)) {
+        try {
+          fileBuffer = await readFile(localFilePath);
+          console.log(`[RoomFiles] Fallback: Loaded file ${roomFile.id} from local storage`);
+        } catch (localError) {
+          console.error(`[RoomFiles] Local fallback failed for ${roomFile.id}:`, localError);
+        }
       }
     } else {
-      // Fallback to local filesystem
-      const filePath = getRoomFilePath(roomFile.roomId, roomFile.filename);
-
-      // Check if file exists on disk
-      if (!existsSync(filePath)) {
-        console.warn(
-          `[RoomFiles] File ${roomFile.id} missing on disk at ${filePath}. Verify ROOM_UPLOAD_ROOT and run scripts/migrate-room-file-folders.ts if upgrading.`,
-        );
-        return NextResponse.json(
-          { error: 'File not found on disk' },
-          { status: 404 }
-        );
+      // Filename indicates local storage, try local first
+      if (existsSync(localFilePath)) {
+        try {
+          fileBuffer = await readFile(localFilePath);
+          if (fileBuffer) {
+            console.log(`[RoomFiles] Successfully loaded file ${roomFile.id} from local storage`);
+          }
+        } catch (localError) {
+          console.error(`[RoomFiles] Local read failed for ${roomFile.id}:`, localError);
+        }
       }
 
-      // Read file from local filesystem
-      fileBuffer = await readFile(filePath);
+      // Fallback to R2 if local failed (file might have been migrated to R2)
+      if (!fileBuffer) {
+        try {
+          fileBuffer = await downloadFromR2(r2Key);
+          if (fileBuffer) {
+            console.log(`[RoomFiles] Fallback: Loaded file ${roomFile.id} from R2`);
+          }
+        } catch (r2Error) {
+          console.warn(`[RoomFiles] R2 fallback failed for ${roomFile.id}:`, r2Error);
+        }
+      }
+    }
+
+    // If still no file found, return detailed error
+    if (!fileBuffer) {
+      const errors: string[] = [];
+      
+      if (isR2Key(roomFile.filename)) {
+        errors.push(`R2 download failed for key: ${roomFile.filename}`);
+        if (!existsSync(localFilePath)) {
+          errors.push(`Local file not found at: ${localFilePath}`);
+        } else {
+          errors.push(`Local file exists but read failed`);
+        }
+      } else {
+        if (!existsSync(localFilePath)) {
+          errors.push(`Local file not found at: ${localFilePath}`);
+        } else {
+          errors.push(`Local file read failed`);
+        }
+        errors.push(`R2 fallback failed for key: ${r2Key}`);
+      }
+
+      console.error(`[RoomFiles] File ${roomFile.id} not accessible from any storage:`, errors);
+      
+      return NextResponse.json(
+        {
+          error: 'File not accessible',
+          details: errors,
+          fileId: roomFile.id,
+          filename: roomFile.filename,
+          troubleshooting: [
+            'File may have been deleted or moved',
+            'Check R2 configuration if file should be in cloud storage',
+            'Verify ROOM_UPLOAD_ROOT environment variable',
+            'Check file system permissions',
+          ],
+        },
+        { status: 404 }
+      );
     }
 
     // Encode filename for Content-Disposition header to handle special characters

@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: livekit-server
+    ports:
+      - "7880:7880"  # API and WebSocket signaling
+      - "7881:7881"  # TCP fallback
+      - "7882:7882/udp"  # UDP for media traffic
+    environment:
+      # LIVEKIT_KEYS: "devkey: secret"  # Commented out to use livekit.yaml config
+      LIVEKIT_PORT: "7880"
+      LIVEKIT_BIND_ADDRESSES: "0.0.0.0:7880"
+      LIVEKIT_TCP_PORT: "7881"
+      LIVEKIT_TCP_BIND_ADDRESSES: "0.0.0.0:7881"
+      LIVEKIT_UDP_PORT: "7882"
+      LIVEKIT_UDP_BIND_ADDRESSES: "0.0.0.0:7882"
+      # Don't force external IP - let LiveKit auto-detect for better Docker network compatibility
+      # This allows egress browser to connect via Docker network
+    volumes:
+      - ./livekit.yaml:/config.yaml
+    command: ["--config", "/config.yaml"]
+    restart: unless-stopped
+    networks:
+      - livekit-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: livekit-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - livekit-network
+    command: redis-server --appendonly yes
+
+  egress:
+    image: livekit/egress:latest
+    container_name: livekit-egress
+    ports:
+      - "8080:8080"  # Health check port
+    environment:
+      - EGRESS_CONFIG_FILE=/config/egress-config.yaml
+    volumes:
+      - ./egress-config.yaml:/config/egress-config.yaml:ro
+      - ./recordings:/recordings  # Mount recordings directory
+    cap_add:
+      - SYS_ADMIN  # Required for Chrome sandboxing
+    depends_on:
+      - livekit
+      - redis
+    restart: unless-stopped
+    networks:
+      - livekit-network
+    # Add extra_hosts to allow egress browser to reach host IP
+    # This is needed for the browser inside egress container to connect to LiveKit
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Use host.docker.internal for web_base_url so browser can reach LiveKit on host IP
+    # The browser needs to connect to the same IP that LiveKit advertises in ICE candidates
+
+networks:
+  livekit-network:
+    driver: bridge
+

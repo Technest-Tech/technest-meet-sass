@@ -2,6 +2,7 @@
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useRoomContext } from '@livekit/components-react';
+import { RoomEvent, Participant } from 'livekit-client';
 import styles from '../styles/NormalWhiteboard.module.css';
 import { NormalWhiteboardToolbar } from './NormalWhiteboardToolbar';
 import { NormalWhiteboardLayers } from './NormalWhiteboardLayers';
@@ -153,20 +154,130 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
     }
   }, [room]);
 
+  // Send full whiteboard state to synchronize new participants
+  const sendFullState = useCallback(() => {
+    if (!room || !isHost) {
+      console.log('[Whiteboard] sendFullState: Not host or no room');
+      return;
+    }
+    
+    // CRITICAL FIX: Always send state if whiteboard is open, even if empty
+    // This ensures students get the current state (which might be empty)
+    // and clears any stale state they might have
+    if (!isOpen) {
+      console.log('[Whiteboard] sendFullState: Whiteboard not open, skipping');
+      return;
+    }
+    
+    console.log('[Whiteboard] Host sending full state:', { 
+      actions: actions.length, 
+      historySteps: history.length,
+      layers: layers.length 
+    });
+    
+    // Send full state including layers, background, and history
+    const syncData = {
+      type: 'history_sync',
+      history: history,
+      historyStep: historyStep,
+      actions: actions,
+      layers: layers,
+      backgroundColor: backgroundColor,
+      showGrid: showGrid,
+      gridSize: gridSize,
+    };
+    
+    // Try to send, but handle if it's too large
+    const sent = sendDataToParticipants(syncData, false);
+    if (!sent) {
+      console.log('[Whiteboard] Full sync too large, sending simplified version');
+      // If full sync is too large, try sending just the current state without full history
+      const simplifiedSyncData = {
+        type: 'history_sync',
+        history: [[], actions], // Just empty initial state and current state
+        historyStep: 1,
+        actions: actions,
+        layers: layers,
+        backgroundColor: backgroundColor,
+        showGrid: showGrid,
+        gridSize: gridSize,
+      };
+      const simplifiedSent = sendDataToParticipants(simplifiedSyncData, false);
+      if (simplifiedSent) {
+        console.log('[Whiteboard] Simplified sync sent successfully');
+      } else {
+        console.error('[Whiteboard] Even simplified sync failed to send');
+      }
+    } else {
+      console.log('[Whiteboard] Full state sent successfully');
+    }
+  }, [room, isHost, isOpen, actions, history, historyStep, layers, backgroundColor, showGrid, gridSize, sendDataToParticipants]);
+
   // Handle incoming whiteboard data from other participants
   useEffect(() => {
     if (!room) return;
 
-    const handleDataReceived = (payload: Uint8Array, participant: any) => {
+    const handleDataReceived = (payload: Uint8Array, participant?: any, kind?: any, topic?: string) => {
+      // CRITICAL FIX: Filter by topic to avoid conflicts with other data channels
+      // Accept messages with 'whiteboard' topic OR no topic (for backward compatibility)
+      if (topic && topic !== 'whiteboard') {
+        return;
+      }
+      
       try {
         const data = JSON.parse(new TextDecoder().decode(payload));
         
-        if (participant.identity === participantId) return; // Ignore own messages
+        // Additional check: if message has a type that's clearly not whiteboard-related, skip it
+        const nonWhiteboardTypes = ['chat_message', 'reaction', 'raise-hand', 'mute_command', 
+                                     'pdf_annotation_stroke', 'pdf_viewer_open', 'pdf_viewer_close'];
+        if (data.type && nonWhiteboardTypes.includes(data.type)) {
+          return;
+        }
+        
+        // CRITICAL FIX: Add null check for participant
+        if (!participant) {
+          // If no participant info, process the message (might be from system or unknown source)
+          // But skip identity check
+        } else if (participant.identity === participantId) {
+          return; // Ignore own messages
+        }
         
         // Handle whiteboard_toggle even when whiteboard is closed
         if (data.type === 'whiteboard_toggle') {
           if (data.isHost && onHostToggle) {
             onHostToggle(data.action === 'open');
+            // If student receives open command, request current state
+            if (data.action === 'open' && !isHost && room) {
+              setTimeout(() => {
+                try {
+                  const message = {
+                    type: 'state_request',
+                  };
+                  const encodedData = new TextEncoder().encode(JSON.stringify(message));
+                  room.localParticipant.publishData(encodedData, { topic: 'whiteboard' });
+                } catch (error) {
+                  console.error('Error requesting whiteboard state:', error);
+                }
+              }, 500);
+            }
+          }
+          return;
+        }
+        
+        // Handle state request from new participants
+        if (data.type === 'state_request') {
+          // If we're the host, send full state if whiteboard is open
+          if (isHost) {
+            console.log('[Whiteboard] Host received state request, isOpen:', isOpen, 'actions:', actions.length, 'history:', history.length);
+            // CRITICAL FIX: Always send state if whiteboard is open, even if empty
+            if (isOpen) {
+              setTimeout(() => {
+                console.log('[Whiteboard] Host sending full state to requesting participant');
+                sendFullState();
+              }, 500); // Small delay to ensure participant is ready
+            } else {
+              console.log('[Whiteboard] Host whiteboard not open, cannot sync');
+            }
           }
           return;
         }
@@ -279,10 +390,23 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
 
           case 'history_sync':
             // Full history synchronization
+            console.log('[Whiteboard] Received history_sync:', {
+              actions: data.actions?.length || 0,
+              historySteps: data.history?.length || 0,
+              layers: data.layers?.length || 0
+            });
             if (data.history && data.historyStep !== undefined && data.actions) {
               setHistory(data.history);
               setHistoryStep(data.historyStep);
               setActions(data.actions);
+              // Also sync layers and background if provided
+              if (data.layers && Array.isArray(data.layers)) {
+                setLayers(data.layers);
+              }
+              if (data.backgroundColor) setBackgroundColor(data.backgroundColor);
+              if (data.showGrid !== undefined) setShowGrid(data.showGrid);
+              if (data.gridSize !== undefined) setGridSize(data.gridSize);
+              console.log('[Whiteboard] State synchronized successfully');
             }
             break;
         }
@@ -292,12 +416,161 @@ export function Whiteboard({ isOpen, onClose, isHost, onHostToggle }: Whiteboard
       }
     };
 
-    room.on('dataReceived', handleDataReceived);
+    room.on(RoomEvent.DataReceived, handleDataReceived);
     
     return () => {
-      room.off('dataReceived', handleDataReceived);
+      room.off(RoomEvent.DataReceived, handleDataReceived);
     };
-  }, [room, participantId, activeLayerId, onHostToggle, isOpen]);
+  }, [room, participantId, activeLayerId, onHostToggle, isOpen, isHost, sendFullState]);
+
+  // Sync whiteboard state when new participants join
+  useEffect(() => {
+    if (!room || !isHost || room.state !== 'connected') return;
+
+    const handleParticipantConnected = (participant: Participant) => {
+      // Don't sync to ourselves
+      if (participant.identity === participantId) return;
+      
+      // If whiteboard is open, notify the new participant and send state
+      if (isOpen) {
+        // First, send toggle message to open whiteboard for the new participant
+        setTimeout(() => {
+          try {
+            const toggleMessage = {
+              type: 'whiteboard_toggle',
+              isHost: true,
+              action: 'open'
+            };
+            const encodedToggle = new TextEncoder().encode(JSON.stringify(toggleMessage));
+            room.localParticipant.publishData(encodedToggle, { topic: 'whiteboard' });
+            console.log('[Whiteboard] Host sent toggle message to new participant');
+          } catch (error) {
+            console.error('Error sending whiteboard toggle to new participant:', error);
+          }
+        }, 500);
+        
+        // CRITICAL FIX: Always send state if whiteboard is open, even if empty
+        // Small delay to ensure participant is fully connected and has received toggle
+        setTimeout(() => {
+          console.log('[Whiteboard] Host sending full state to new participant (whiteboard is open)');
+          sendFullState();
+        }, 1500);
+      }
+    };
+
+    room.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
+    
+    return () => {
+      room.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
+    };
+  }, [room, isHost, isOpen, participantId, sendFullState]);
+
+  // Request state when student opens whiteboard (if host has it open)
+  useEffect(() => {
+    if (!room || isHost || !isOpen || room.state !== 'connected') return;
+
+    // When a student opens the whiteboard, request current state from host
+    const requestState = () => {
+      try {
+        console.log('[Whiteboard] Student requesting state from host');
+        const message = {
+          type: 'state_request',
+        };
+        const encodedData = new TextEncoder().encode(JSON.stringify(message));
+        room.localParticipant.publishData(encodedData, { topic: 'whiteboard' });
+      } catch (error) {
+        console.error('Error requesting whiteboard state:', error);
+      }
+    };
+
+    // Request state when whiteboard opens (with a small delay to ensure connection)
+    const timeoutId = setTimeout(requestState, 500);
+    
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [room, isHost, isOpen]);
+
+  // CRITICAL FIX: Request state when room connects and whiteboard is already open (for reload scenario)
+  useEffect(() => {
+    if (!room || isHost) return;
+
+    const requestStateWhenReady = () => {
+      // Only request if whiteboard is open and room is connected
+      if (isOpen && room.state === 'connected') {
+        setTimeout(() => {
+          try {
+            const message = {
+              type: 'state_request',
+            };
+            const encodedData = new TextEncoder().encode(JSON.stringify(message));
+            room.localParticipant.publishData(encodedData, { topic: 'whiteboard' });
+          } catch (error) {
+            console.error('Error requesting whiteboard state on reconnect:', error);
+          }
+        }, 1000); // Longer delay to ensure room is fully ready
+      }
+    };
+
+    const handleRoomConnected = () => {
+      requestStateWhenReady();
+    };
+
+    // Check immediately if already connected and whiteboard is open
+    if (room.state === 'connected' && isOpen) {
+      requestStateWhenReady();
+    }
+
+    // Listen for connection state changes
+    room.on(RoomEvent.Connected, handleRoomConnected);
+    
+    return () => {
+      room.off(RoomEvent.Connected, handleRoomConnected);
+    };
+  }, [room, isHost, isOpen]);
+
+  // CRITICAL FIX: Also request state when whiteboard opens after room is already connected (for reload scenario)
+  useEffect(() => {
+    if (!room || isHost || !isOpen || room.state !== 'connected') return;
+
+    // When whiteboard opens and room is already connected, request state immediately
+    const timeoutId = setTimeout(() => {
+      try {
+        const message = {
+          type: 'state_request',
+        };
+        const encodedData = new TextEncoder().encode(JSON.stringify(message));
+        room.localParticipant.publishData(encodedData, { topic: 'whiteboard' });
+      } catch (error) {
+        console.error('Error requesting whiteboard state when opening:', error);
+      }
+    }, 800); // Delay to ensure everything is ready
+    
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [room, isHost, isOpen]);
+
+  // CRITICAL FIX: Send state to existing participants when host's whiteboard mounts/opens
+  useEffect(() => {
+    if (!room || !isHost || !isOpen || room.state !== 'connected') return;
+
+    // When host's whiteboard opens, check for existing participants and send state
+    const sendToExistingParticipants = () => {
+      // Small delay to ensure room is ready
+      setTimeout(() => {
+        if (actions.length > 0 || history.length > 1) {
+          // Check if there are any remote participants
+          const hasRemoteParticipants = room.remoteParticipants.size > 0;
+          if (hasRemoteParticipants) {
+            sendFullState();
+          }
+        }
+      }, 1500);
+    };
+
+    sendToExistingParticipants();
+  }, [room, isHost, isOpen, actions.length, history.length, sendFullState]);
 
   // Initialize canvas
   useEffect(() => {

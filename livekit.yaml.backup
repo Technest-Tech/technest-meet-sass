@@ -1,0 +1,45 @@
+# LiveKit Server Configuration
+# This file configures the LiveKit server for local development
+
+# Server settings
+port: 7880
+bind_addresses: ["0.0.0.0"]
+
+# API keys for authentication
+keys:
+  # Production key (for production deployments)
+  almajd-meet-api-key-prod-2024: almajd-meet-api-secret-production-2024-secure-key
+  # Development key (for local development)
+  devkey: secret
+
+# Logging
+log_level: info
+
+# Room settings
+room:
+  # Allow room creation
+  auto_create: true
+
+# Development mode (no database required)
+development: true
+
+# Redis configuration (required for egress service communication)
+redis:
+  address: redis:6379
+
+# RTC configuration
+rtc:
+  # Disable external IP detection - use Docker network IP for all clients
+  # This allows egress browser to connect via Docker network
+  # External clients will still work via port forwarding
+  use_external_ip: false
+  # Additional ports for RTC
+  tcp_port: 7881
+  udp_port: 7882
+  # STUN servers for NAT traversal (helps with connectivity)
+  # Format: host:port (without stun: prefix)
+  stun_servers:
+    - stun.l.google.com:19302
+    - stun1.l.google.com:19302
+  # Allow TCP fallback for better connectivity
+  allow_tcp_fallback: true

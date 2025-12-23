@@ -23,12 +23,16 @@ room:
 # Development mode (no database required)
 development: true
 
+# Redis configuration (required for egress service communication)
+redis:
+  address: redis:6379
+
 # RTC configuration
 rtc:
-  # For local development, disable external IP detection
-  # Use --node-ip flag in docker-compose.yml to force specific IP
-  # NAT 1-to-1 IP mapping is also set via LIVEKIT_NAT_1TO1_IPS environment variable
-  use_external_ip: false
+  # Note: interfaces feature requires LiveKit v1.12+ which is not yet available
+  # For v1.9.9, we use external IP detection
+  # This may still cause issues with egress browser connectivity
+  use_external_ip: true
   # Additional ports for RTC
   tcp_port: 7881
   udp_port: 7882
@@ -37,3 +41,5 @@ rtc:
   stun_servers:
     - stun.l.google.com:19302
     - stun1.l.google.com:19302
+  # Allow TCP fallback for better connectivity
+  allow_tcp_fallback: true

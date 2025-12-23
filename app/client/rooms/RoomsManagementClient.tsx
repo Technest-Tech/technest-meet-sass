@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Plus, Copy, ExternalLink, Video, CreditCard, Settings, Trash2, Link2, Edit, Gift, Search } from 'lucide-react';
+import { Plus, Copy, ExternalLink, Video, CreditCard, Settings, Trash2, Link2, Edit, Gift, Search, Film } from 'lucide-react';
 import Sidebar from '@/lib/components/Sidebar';
 import Header from '@/lib/components/Header';
 import Card from '@/lib/components/Card';
@@ -81,6 +81,7 @@ function RoomsManagementContent({
   const menuItems = [
     { href: '/client/dashboard', label: 'لوحة التحكم', icon: Video },
     { href: '/client/rooms', label: 'إدارة الغرف', icon: Video },
+    { href: '/client/recordings', label: 'التسجيلات', icon: Film },
     { href: '/client/subscription', label: 'الاشتراك', icon: CreditCard },
     { href: '/client/settings', label: 'الإعدادات', icon: Settings },
     { href: '/client/referral-center', label: 'مركز الإحالات', icon: Gift },

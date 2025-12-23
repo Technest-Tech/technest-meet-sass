@@ -3,6 +3,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useRoomContext, useLocalParticipant } from '@livekit/components-react';
+import { RoomEvent, Participant } from 'livekit-client';
 import * as pdfjsLib from 'pdfjs-dist';
 import { RoomFile, PdfAnnotationData, DrawingStroke, DrawingPoint } from '@/lib/types';
 import toast from 'react-hot-toast';
@@ -79,7 +80,13 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
   useEffect(() => {
     if (!room) return;
 
-    const handleDataReceived = (data: Uint8Array, participant?: any) => {
+    const handleDataReceived = (data: Uint8Array, participant?: any, kind?: any, topic?: string) => {
+      // CRITICAL FIX: Filter by topic to avoid conflicts with other data channels
+      // Accept messages with 'pdf-annotation' or 'pdf-scroll' topics
+      if (topic && topic !== 'pdf-annotation' && topic !== 'pdf-scroll') {
+        return;
+      }
+      
       try {
         const messageString = new TextDecoder().decode(data);
         const messageData = JSON.parse(messageString);
@@ -225,12 +232,12 @@ export function PdfViewer({ isOpen, onClose, file, roomName, isHost }: PdfViewer
       }
     };
 
-    room.on('dataReceived', handleDataReceived);
+    room.on(RoomEvent.DataReceived, handleDataReceived);
     
     return () => {
-      room.off('dataReceived', handleDataReceived);
+      room.off(RoomEvent.DataReceived, handleDataReceived);
     };
-  }, [room, file, localParticipant, totalPages, lastPageChangeTimestamp, pdfDocument]);
+  }, [room, file, localParticipant, totalPages, lastPageChangeTimestamp, pdfDocument, isHost]);
 
   // Handle scroll synchronization - Host broadcasts scroll position to guests
   useEffect(() => {

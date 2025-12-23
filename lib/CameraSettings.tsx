@@ -9,6 +9,7 @@ import {
   VideoTrack,
 } from '@livekit/components-react';
 import { isLocalTrack, LocalTrackPublication, Track } from 'livekit-client';
+import { trackLock } from './utils/trackLock';
 
 // Dynamically import track processors to avoid SSR issues
 let BackgroundBlur: any, VirtualBackground: any;
@@ -46,6 +47,7 @@ export function CameraSettings({ roomFeatures, isHost }: { roomFeatures?: { enab
   const isVirtualBackgroundEnabled = roomFeatures?.enableVirtualBackground ?? false;
   const isTeacher = isHost ?? false; // Only teachers/hosts can use auto-apply
   const manualApplyRef = React.useRef(false); // Track if user manually applied
+  const prevAutoApplyRef = React.useRef(false); // Track previous auto-apply state to detect toggles
 
   // Check if processors are loaded
   React.useEffect(() => {
@@ -185,6 +187,32 @@ export function CameraSettings({ roomFeatures, isHost }: { roomFeatures?: { enab
       return;
     }
 
+    const track = cameraTrack.track;
+    
+    // Check if track is ready and stream is not closed
+    const isTrackReady = (): boolean => {
+      const mediaStreamTrack = track.mediaStreamTrack;
+      if (!mediaStreamTrack) return false;
+      
+      // Check if track is live and not ended
+      if (mediaStreamTrack.readyState !== 'live') return false;
+      
+      // Check if track is enabled
+      if (!mediaStreamTrack.enabled) return false;
+      
+      return true;
+    };
+
+    // Skip if only auto-apply was toggled (not background changed)
+    // When enabling auto-apply, let the hook handle the application
+    const autoApplyJustToggled = prevAutoApplyRef.current !== autoApplyEnabled;
+    if (autoApplyJustToggled && autoApplyEnabled) {
+      // Update the ref and skip applying - let the hook handle it
+      prevAutoApplyRef.current = autoApplyEnabled;
+      return;
+    }
+    prevAutoApplyRef.current = autoApplyEnabled;
+
     // Skip if this is the initial load and auto-apply is enabled (let the hook handle it)
     // But if user manually changed, we should apply
     if (!manualApplyRef.current && autoApplyEnabled) {
@@ -205,22 +233,70 @@ export function CameraSettings({ roomFeatures, isHost }: { roomFeatures?: { enab
 
     // User manually changed background, apply it
     const applyBackground = async () => {
+      const trackId = `camera-vbg-${track.sid}`;
+      
+      // Check if auto-apply is working on this track
+      if (trackLock.isLocked(trackId)) {
+        console.log('Auto-apply in progress, queuing manual change');
+        // Wait and retry
+        setTimeout(() => applyBackground(), 1000);
+        return;
+      }
+      
+      const acquired = await trackLock.acquire(trackId);
+      if (!acquired) {
+        console.log('Could not acquire lock for manual background change');
+        return;
+      }
+      
       try {
+        // Check if track is ready before applying
+        if (!isTrackReady()) {
+          console.warn('Track not ready, skipping background application');
+          return;
+        }
+
         manualApplyRef.current = true;
         
         // Wait a bit to ensure track is ready
         await new Promise(resolve => setTimeout(resolve, 200));
 
+        // Double-check track is still ready after delay
+        if (!isTrackReady()) {
+          console.warn('Track became unavailable during delay');
+          return;
+        }
+
+        // Check if track still exists and is valid
+        if (!track || !track.mediaStreamTrack || track.mediaStreamTrack.readyState !== 'live') {
+          console.warn('Track is closed or invalid');
+          return;
+        }
+
         if (backgroundType === 'blur') {
-          await cameraTrack.track?.setProcessor(BackgroundBlur());
+          await track.setProcessor(BackgroundBlur());
         } else if (backgroundType === 'image' && virtualBackgroundImagePath) {
-          await cameraTrack.track?.setProcessor(VirtualBackground(virtualBackgroundImagePath));
+          await track.setProcessor(VirtualBackground(virtualBackgroundImagePath));
         } else {
-          await cameraTrack.track?.stopProcessor();
+          await track.stopProcessor();
         }
       } catch (error: any) {
-        console.error('error when trying to pipe', error);
+        // Only log if it's not a stream closed error (which is expected during cleanup)
+        // Check multiple variations of the error
+        const isStreamClosedError = 
+          error?.name === 'InvalidStateError' ||
+          error?.message?.includes('Stream closed') ||
+          error?.message?.includes('stream closed') ||
+          error?.message?.includes('stream is closed') ||
+          error?.toString()?.includes('Stream closed') ||
+          error?.toString()?.includes('stream closed');
+        
+        if (!isStreamClosedError) {
+          console.error('error when trying to pipe', error);
+        }
         // Don't show error to user, just log it
+      } finally {
+        trackLock.release(trackId);
       }
     };
 

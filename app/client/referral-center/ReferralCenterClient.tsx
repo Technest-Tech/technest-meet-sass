@@ -14,6 +14,7 @@ import {
   History,
   Copy,
   CheckCircle2,
+  Film,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Sidebar from '@/lib/components/Sidebar';
@@ -106,6 +107,7 @@ function ReferralCenterContent({
     () => [
       { href: '/client/dashboard', label: 'لوحة التحكم', icon: Users },
       { href: '/client/rooms', label: 'إدارة الغرف', icon: Share2 },
+      { href: '/client/recordings', label: 'التسجيلات', icon: Film },
       { href: '/client/subscription', label: 'الاشتراك', icon: Coins },
       { href: '/client/settings', label: 'الإعدادات', icon: History },
       { href: '/client/referral-center', label: 'مركز الإحالات', icon: Gift },
