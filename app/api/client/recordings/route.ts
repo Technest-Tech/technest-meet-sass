@@ -146,7 +146,37 @@ export async function GET(request: NextRequest) {
             }
           }
           
-          // Check if recording already exists for this room at similar time
+          // Check if recording already exists with this exact filename (prevent duplicates)
+          const existingByFilename = await prisma.recording.findFirst({
+            where: {
+              filename: filename,
+            },
+          });
+          
+          if (existingByFilename) {
+            console.log(`[Recordings API] Skipping ${filename} - recording already exists with this filename: ${existingByFilename.id}`);
+            // Add existing recording to the list if it belongs to this client
+            if (existingByFilename.roomId === matchedRoom.id) {
+              const existingWithRoom = await prisma.recording.findUnique({
+                where: { id: existingByFilename.id },
+                include: {
+                  room: {
+                    select: {
+                      id: true,
+                      name: true,
+                      hostLink: true,
+                    },
+                  },
+                },
+              });
+              if (existingWithRoom && !recordings.find(r => r.id === existingWithRoom.id)) {
+                recordings.push(existingWithRoom);
+              }
+            }
+            continue;
+          }
+          
+          // Also check if recording exists for this room at similar time (additional check)
           const existingSimilar = await prisma.recording.findFirst({
             where: {
               roomId: matchedRoom.id,
@@ -203,8 +233,26 @@ export async function GET(request: NextRequest) {
       
       // Re-sort recordings after adding synced ones
       recordings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      total = recordings.length;
-      console.log(`[Recordings API] After sync: ${recordings.length} recordings (total: ${total})`);
+      
+      // Remove duplicates by ID (in case same recording was added multiple times)
+      const uniqueRecordings = new Map();
+      for (const rec of recordings) {
+        if (!uniqueRecordings.has(rec.id)) {
+          uniqueRecordings.set(rec.id, rec);
+        }
+      }
+      recordings = Array.from(uniqueRecordings.values());
+      
+      // Update total count
+      total = await prisma.recording.count({
+        where: {
+          room: {
+            clientId: session.clientId,
+          },
+        },
+      });
+      
+      console.log(`[Recordings API] After sync: ${recordings.length} unique recordings (total in DB: ${total})`);
     }
     
     // Track which files have been assigned to avoid duplicates
