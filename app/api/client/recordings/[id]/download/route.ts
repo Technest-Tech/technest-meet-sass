@@ -155,98 +155,73 @@ export async function GET(
       });
     }
 
-    // If file not found locally and not in R2, try to fetch from LiveKit server via SSH
+    // If file not found locally and not in R2, try to fetch from LiveKit server using EgressClient
     if (recording.room.hostLink && recording.egressId) {
-      console.log(`[Download Recording] 🔄 File not found locally, attempting to fetch from LiveKit server...`);
+      console.log(`[Download Recording] 🔄 File not found locally, attempting to fetch from LiveKit server via EgressClient...`);
       
       try {
+        const { LIVEKIT_API_KEY, LIVEKIT_API_SECRET } = process.env;
+        
+        if (!LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
+          throw new Error('LiveKit credentials not configured');
+        }
+        
         // Determine which LiveKit server has this room
         const livekitRouting = getLiveKitServerForRoom(recording.room.hostLink);
         const serverUrl = livekitRouting.serverUrl;
+        const hostURL = new URL(serverUrl);
         
-        // Extract server IP from URL
-        const serverMatch = serverUrl.match(/http:\/\/([\d.]+):/);
-        if (!serverMatch) {
-          throw new Error('Could not determine LiveKit server IP');
-        }
-        const serverIp = serverMatch[1];
+        // Use EgressClient to get egress info and file path
+        const { EgressClient } = await import('livekit-server-sdk');
+        const egressClient = new EgressClient(hostURL.origin, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
         
-        // Determine which server (1 or 2) based on IP
-        const isServer1 = serverIp === '178.128.78.195';
-        const containerName = isServer1 ? 'livekit-egress-server1' : 'livekit-egress-server2';
+        // Get egress info to find the file
+        const egresses = await egressClient.listEgress({ roomName: recording.room.hostLink });
+        const egressInfo = egresses.find(e => e.egressId === recording.egressId);
         
-        // Try to find the file on the LiveKit server
-        // First, try to match by filename, then by room name
-        const { exec } = await import('child_process');
-        const { promisify } = await import('util');
-        const execAsync = promisify(exec);
-        
-        // First, try to get filename from egress JSON file
-        let remoteFilePath: string | null = null;
-        try {
-          const jsonFileCmd = `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@${serverIp} "docker exec ${containerName} cat /recordings/${recording.egressId}.json 2>/dev/null" || echo ""`;
-          console.log(`[Download Recording] Reading egress JSON file for ${recording.egressId}...`);
-          const { stdout: jsonContent } = await execAsync(jsonFileCmd);
+        if (egressInfo && egressInfo.file?.filepath) {
+          const remoteFilePath = egressInfo.file.filepath;
+          const baseFilename = remoteFilePath.split('/').pop() || `${recording.egressId}.mp4`;
           
-          if (jsonContent && jsonContent.trim()) {
-            try {
-              const egressInfo = JSON.parse(jsonContent.trim());
-              if (egressInfo.files && egressInfo.files.length > 0 && egressInfo.files[0].filename) {
-                remoteFilePath = egressInfo.files[0].filename;
-                console.log(`[Download Recording] ✅ Found filename from JSON: ${remoteFilePath}`);
-              }
-            } catch (parseError) {
-              console.warn(`[Download Recording] Failed to parse JSON:`, parseError);
-            }
-          }
-        } catch (jsonError) {
-          console.warn(`[Download Recording] Could not read JSON file, trying file search...`);
-        }
-        
-        // If JSON didn't work, search for file by egressId or room name
-        if (!remoteFilePath) {
-          const egressIdSearch = recording.egressId.replace('EG_', '');
-          const findFileCmd = `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@${serverIp} "docker exec ${containerName} find /recordings -name '*.mp4' | grep -E '(${recording.egressId}|${egressIdSearch}|${recording.room.hostLink})' | head -1" || echo ""`;
+          console.log(`[Download Recording] ✅ Found file path from egress info: ${remoteFilePath}`);
           
-          console.log(`[Download Recording] Searching for file on ${serverIp} (egressId: ${recording.egressId}, room: ${recording.room.hostLink})...`);
-          const { stdout: filePath } = await execAsync(findFileCmd);
-          remoteFilePath = filePath.trim() || null;
-        }
-        
-        if (remoteFilePath && remoteFilePath !== '') {
-          console.log(`[Download Recording] ✅ Found file on server: ${remoteFilePath}`);
+          // Try to fetch file via HTTP from LiveKit server
+          // The file is on the LiveKit server, we need to access it
+          // Since we can't SSH from container, we'll need to use a different method
+          // For now, return error with instructions to sync the file
+          console.warn(`[Download Recording] File exists on LiveKit server but cannot be accessed directly. File path: ${remoteFilePath}`);
+          console.warn(`[Download Recording] Please sync the file from LiveKit server to backend server or upload to R2.`);
           
-          // Copy file from LiveKit server to backend server
-          const recordingsDir = join(process.cwd(), 'recordings');
-          const { mkdir } = await import('fs/promises');
-          await mkdir(recordingsDir, { recursive: true });
-          
-          // Use egressId for temp filename if recording.filename is not available
-          const tempFilename = recording.filename && recording.filename !== 'N/A' 
-            ? recording.filename 
-            : `${recording.egressId}.mp4`;
-          const localTempPath = join(recordingsDir, tempFilename);
-          const copyCmd = `ssh -o StrictHostKeyChecking=no root@${serverIp} "docker cp ${containerName}:${remoteFilePath} -" > "${localTempPath}"`;
-          
-          console.log(`[Download Recording] Copying file from server...`);
-          await execAsync(copyCmd);
-          
-          if (existsSync(localTempPath)) {
-            const fileBuffer = await getRecordingFile('LOCAL', localTempPath, localTempPath);
-            const downloadFilename = recording.originalName || recording.filename || `${recording.egressId}.mp4`;
-            
-            console.log(`[Download Recording] ✅ Successfully fetched file (${fileBuffer.length} bytes)`);
-            
-            return new NextResponse(fileBuffer, {
+          // Try to use the egress download endpoint (might not work, but worth trying)
+          try {
+            const fileUrl = `${hostURL.origin}/egress/${recording.egressId}/download`;
+            const fileResponse = await fetch(fileUrl, {
               headers: {
-                'Content-Type': 'video/mp4',
-                'Content-Disposition': `attachment; filename="${downloadFilename}"`,
-                'Content-Length': fileBuffer.length.toString(),
+                'Authorization': `Basic ${Buffer.from(`${LIVEKIT_API_KEY}:${LIVEKIT_API_SECRET}`).toString('base64')}`,
               },
             });
+            
+            if (fileResponse.ok) {
+              const fileBuffer = Buffer.from(await fileResponse.arrayBuffer());
+              const downloadFilename = recording.originalName || baseFilename;
+              
+              console.log(`[Download Recording] ✅ Successfully fetched file via egress API (${fileBuffer.length} bytes)`);
+              
+              return new NextResponse(fileBuffer, {
+                headers: {
+                  'Content-Type': 'video/mp4',
+                  'Content-Disposition': `attachment; filename="${downloadFilename}"`,
+                  'Content-Length': fileBuffer.length.toString(),
+                },
+              });
+            } else {
+              console.warn(`[Download Recording] Egress download endpoint returned ${fileResponse.status}`);
+            }
+          } catch (fetchError) {
+            console.error(`[Download Recording] Error fetching via egress API:`, fetchError);
           }
         } else {
-          console.warn(`[Download Recording] File not found on LiveKit server: ${serverIp} (searched for egressId: ${recording.egressId}, room: ${recording.room.hostLink})`);
+          console.warn(`[Download Recording] Egress info not found for ${recording.egressId}`);
         }
       } catch (serverError) {
         console.error(`[Download Recording] Error fetching from LiveKit server:`, serverError);
