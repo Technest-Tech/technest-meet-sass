@@ -155,8 +155,8 @@ export async function GET(
       });
     }
 
-    // If file not found locally, try to fetch from LiveKit server via SSH
-    if (recording.room.hostLink && recording.filename) {
+    // If file not found locally and not in R2, try to fetch from LiveKit server via SSH
+    if (recording.room.hostLink && recording.egressId) {
       console.log(`[Download Recording] 🔄 File not found locally, attempting to fetch from LiveKit server...`);
       
       try {
@@ -181,10 +181,12 @@ export async function GET(
         const { promisify } = await import('util');
         const execAsync = promisify(exec);
         
-        // Find the file on the egress server
-        const findFileCmd = `ssh -o StrictHostKeyChecking=no root@${serverIp} "docker exec ${containerName} find /recordings -name '*.mp4' | grep -E '(${recording.filename.replace(/[^a-zA-Z0-9]/g, '.*')}|${recording.room.hostLink})' | head -1"`;
+        // Find the file on the egress server by egressId or room name
+        // Priority: 1) egressId, 2) room hostLink, 3) any file for this room
+        const egressIdSearch = recording.egressId.replace('EG_', '');
+        const findFileCmd = `ssh -o StrictHostKeyChecking=no root@${serverIp} "docker exec ${containerName} find /recordings -name '*.mp4' | grep -E '(${recording.egressId}|${egressIdSearch}|${recording.room.hostLink})' | head -1"`;
         
-        console.log(`[Download Recording] Searching for file on ${serverIp}...`);
+        console.log(`[Download Recording] Searching for file on ${serverIp} (egressId: ${recording.egressId}, room: ${recording.room.hostLink})...`);
         const { stdout: filePath } = await execAsync(findFileCmd);
         const remoteFilePath = filePath.trim();
         
@@ -196,7 +198,11 @@ export async function GET(
           const { mkdir } = await import('fs/promises');
           await mkdir(recordingsDir, { recursive: true });
           
-          const localTempPath = join(recordingsDir, recording.filename);
+          // Use egressId for temp filename if recording.filename is not available
+          const tempFilename = recording.filename && recording.filename !== 'N/A' 
+            ? recording.filename 
+            : `${recording.egressId}.mp4`;
+          const localTempPath = join(recordingsDir, tempFilename);
           const copyCmd = `ssh -o StrictHostKeyChecking=no root@${serverIp} "docker cp ${containerName}:${remoteFilePath} -" > "${localTempPath}"`;
           
           console.log(`[Download Recording] Copying file from server...`);
@@ -204,7 +210,7 @@ export async function GET(
           
           if (existsSync(localTempPath)) {
             const fileBuffer = await getRecordingFile('LOCAL', localTempPath, localTempPath);
-            const downloadFilename = recording.originalName || recording.filename;
+            const downloadFilename = recording.originalName || recording.filename || `${recording.egressId}.mp4`;
             
             console.log(`[Download Recording] ✅ Successfully fetched file (${fileBuffer.length} bytes)`);
             
@@ -217,7 +223,7 @@ export async function GET(
             });
           }
         } else {
-          console.warn(`[Download Recording] File not found on LiveKit server: ${serverIp}`);
+          console.warn(`[Download Recording] File not found on LiveKit server: ${serverIp} (searched for egressId: ${recording.egressId}, room: ${recording.room.hostLink})`);
         }
       } catch (serverError) {
         console.error(`[Download Recording] Error fetching from LiveKit server:`, serverError);
