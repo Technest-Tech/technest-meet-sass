@@ -81,12 +81,35 @@ export async function GET(
       return new NextResponse('Recording not found', { status: 404 });
     }
 
-    // Try local file first (if synced to backend)
-    let localFilePath: string;
+    // Try to get file from storage (R2 first if available, then local)
+    // This properly handles R2 storage
+    const fileBuffer = await getRecordingFile(
+      recording.storageType,
+      recording.storagePath,
+      recording.storageType === 'LOCAL' && recording.storagePath && existsSync(recording.storagePath)
+        ? recording.storagePath
+        : recording.filename && recording.filename !== 'N/A'
+          ? join(process.cwd(), 'recordings', recording.filename)
+          : ''
+    );
+
+    if (fileBuffer) {
+      const downloadFilename = recording.originalName || recording.filename || 'recording.mp4';
+      return new NextResponse(fileBuffer, {
+        headers: {
+          'Content-Type': 'video/mp4',
+          'Content-Disposition': `attachment; filename="${downloadFilename}"`,
+          'Content-Length': fileBuffer.length.toString(),
+        },
+      });
+    }
+
+    // If R2/local not available, try local file path construction
+    let localFilePath: string | null = null;
     if (recording.storageType === 'LOCAL' && recording.storagePath && existsSync(recording.storagePath)) {
       localFilePath = recording.storagePath;
       console.log(`[Download Recording] ✅ Using storagePath: ${localFilePath}`);
-    } else {
+    } else if (recording.filename && recording.filename !== 'N/A' && recording.filename !== 'recording.mp4') {
       localFilePath = join(process.cwd(), 'recordings', recording.filename);
       console.log(`[Download Recording] 📁 Constructed file path: ${localFilePath}`);
     }
@@ -114,24 +137,22 @@ export async function GET(
       }
     }
 
-    // Try to get file from local storage first
-    if (existsSync(localFilePath)) {
-      const fileBuffer = await getRecordingFile(
-        recording.storageType,
-        recording.storagePath,
-        localFilePath
-      );
+    // Try to get file from storage (R2 first if available, then local)
+    const fileBuffer = await getRecordingFile(
+      recording.storageType,
+      recording.storagePath,
+      localFilePath
+    );
 
-      if (fileBuffer) {
-        const downloadFilename = recording.originalName || recording.filename;
-        return new NextResponse(fileBuffer, {
-          headers: {
-            'Content-Type': 'video/mp4',
-            'Content-Disposition': `attachment; filename="${downloadFilename}"`,
-            'Content-Length': fileBuffer.length.toString(),
-          },
-        });
-      }
+    if (fileBuffer) {
+      const downloadFilename = recording.originalName || recording.filename;
+      return new NextResponse(fileBuffer, {
+        headers: {
+          'Content-Type': 'video/mp4',
+          'Content-Disposition': `attachment; filename="${downloadFilename}"`,
+          'Content-Length': fileBuffer.length.toString(),
+        },
+      });
     }
 
     // If file not found locally, try to fetch from LiveKit server via SSH
