@@ -177,7 +177,18 @@ export async function GET(req: NextRequest) {
           const recordingStartTime = startedAt.getTime();
           console.log(`[Recording Stop] Recording started at: ${startedAt.toISOString()} (egressId: ${info.egressId})`);
           
+          // Get filename from egress info - check both file.filepath and files array
           let filename = updatedInfo.file?.filepath || info.file?.filepath || '';
+          
+          // If not in file.filepath, check files array (newer egress format)
+          if (!filename && updatedInfo.files && updatedInfo.files.length > 0) {
+            filename = updatedInfo.files[0].filename || updatedInfo.files[0].location || '';
+          }
+          if (!filename && info.files && info.files.length > 0) {
+            filename = info.files[0].filename || info.files[0].location || '';
+          }
+          
+          console.log(`[Recording Stop] Egress file info - filepath: ${info.file?.filepath || 'N/A'}, files array: ${info.files?.length || 0} files, extracted filename: ${filename || 'N/A'}`);
           
           // If no filename from egress info, try to find it in the filesystem using timestamp matching
           if (!filename || filename === 'recording.mp4') {
