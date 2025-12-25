@@ -179,46 +179,56 @@ export async function GET(
         const egresses = await egressClient.listEgress({ roomName: recording.room.hostLink });
         const egressInfo = egresses.find(e => e.egressId === recording.egressId);
         
-        if (egressInfo && egressInfo.file?.filepath) {
-          const remoteFilePath = egressInfo.file.filepath;
-          const baseFilename = remoteFilePath.split('/').pop() || `${recording.egressId}.mp4`;
+        if (egressInfo) {
+          // Update database with correct filename if we have it
+          if (egressInfo.file?.filepath && (!recording.filename || recording.filename === 'N/A')) {
+            const baseFilename = egressInfo.file.filepath.split('/').pop() || `${recording.egressId}.mp4`;
+            try {
+              await prisma.recording.update({
+                where: { id: recording.id },
+                data: { filename: baseFilename },
+              });
+              console.log(`[Download Recording] ✅ Updated database with filename: ${baseFilename}`);
+            } catch (updateError) {
+              console.warn(`[Download Recording] Failed to update filename:`, updateError);
+            }
+          }
           
-          console.log(`[Download Recording] ✅ Found file path from egress info: ${remoteFilePath}`);
-          
-          // Try to fetch file via HTTP from LiveKit server
-          // The file is on the LiveKit server, we need to access it
-          // Since we can't SSH from container, we'll need to use a different method
-          // For now, return error with instructions to sync the file
-          console.warn(`[Download Recording] File exists on LiveKit server but cannot be accessed directly. File path: ${remoteFilePath}`);
-          console.warn(`[Download Recording] Please sync the file from LiveKit server to backend server or upload to R2.`);
-          
-          // Try to use the egress download endpoint (might not work, but worth trying)
-          try {
-            const fileUrl = `${hostURL.origin}/egress/${recording.egressId}/download`;
-            const fileResponse = await fetch(fileUrl, {
-              headers: {
-                'Authorization': `Basic ${Buffer.from(`${LIVEKIT_API_KEY}:${LIVEKIT_API_SECRET}`).toString('base64')}`,
-              },
-            });
+          // Try to use the /api/record/file endpoint which handles file access
+          // This endpoint knows how to access files from LiveKit servers
+          if (egressInfo.file?.filepath) {
+            const baseFilename = egressInfo.file.filepath.split('/').pop() || `${recording.egressId}.mp4`;
             
-            if (fileResponse.ok) {
-              const fileBuffer = Buffer.from(await fileResponse.arrayBuffer());
-              const downloadFilename = recording.originalName || baseFilename;
-              
-              console.log(`[Download Recording] ✅ Successfully fetched file via egress API (${fileBuffer.length} bytes)`);
-              
-              return new NextResponse(fileBuffer, {
+            // Redirect to the file endpoint which has better file access logic
+            const fileUrl = `/api/record/file?egressId=${encodeURIComponent(recording.egressId)}&roomName=${encodeURIComponent(recording.room.hostLink)}`;
+            
+            // Fetch from our own file endpoint (which proxies from LiveKit server)
+            try {
+              const fileResponse = await fetch(`http://localhost:3000${fileUrl}`, {
                 headers: {
-                  'Content-Type': 'video/mp4',
-                  'Content-Disposition': `attachment; filename="${downloadFilename}"`,
-                  'Content-Length': fileBuffer.length.toString(),
+                  'Authorization': request.headers.get('authorization') || '',
                 },
               });
-            } else {
-              console.warn(`[Download Recording] Egress download endpoint returned ${fileResponse.status}`);
+              
+              if (fileResponse.ok) {
+                const fileBuffer = Buffer.from(await fileResponse.arrayBuffer());
+                const downloadFilename = recording.originalName || baseFilename;
+                
+                console.log(`[Download Recording] ✅ Successfully fetched file via file endpoint (${fileBuffer.length} bytes)`);
+                
+                return new NextResponse(fileBuffer, {
+                  headers: {
+                    'Content-Type': 'video/mp4',
+                    'Content-Disposition': `attachment; filename="${downloadFilename}"`,
+                    'Content-Length': fileBuffer.length.toString(),
+                  },
+                });
+              } else {
+                console.warn(`[Download Recording] File endpoint returned ${fileResponse.status}`);
+              }
+            } catch (fetchError) {
+              console.error(`[Download Recording] Error fetching via file endpoint:`, fetchError);
             }
-          } catch (fetchError) {
-            console.error(`[Download Recording] Error fetching via egress API:`, fetchError);
           }
         } else {
           console.warn(`[Download Recording] Egress info not found for ${recording.egressId}`);

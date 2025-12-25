@@ -218,41 +218,76 @@ export async function GET(
         const egresses = await egressClient.listEgress({ roomName: recording.room.hostLink });
         const egressInfo = egresses.find(e => e.egressId === recording.egressId);
         
-        if (egressInfo && egressInfo.file?.filepath) {
-          // Try to fetch file via HTTP from LiveKit server's egress endpoint
-          try {
-            const fileUrl = `${hostURL.origin}/egress/${recording.egressId}/download`;
-            const range = request.headers.get('range');
+        if (egressInfo) {
+          // Update database with correct filename if we have it
+          if (egressInfo.file?.filepath && (!recording.filename || recording.filename === 'N/A')) {
+            const baseFilename = egressInfo.file.filepath.split('/').pop() || `${recording.egressId}.mp4`;
+            try {
+              await prisma.recording.update({
+                where: { id: recording.id },
+                data: { filename: baseFilename },
+              });
+              console.log(`[Stream Recording] ✅ Updated database with filename: ${baseFilename}`);
+            } catch (updateError) {
+              console.warn(`[Stream Recording] Failed to update filename:`, updateError);
+            }
+          }
+          
+          // Use the /api/record/file endpoint which handles file access
+          if (egressInfo.file?.filepath) {
+            const fileUrl = `/api/record/file?egressId=${encodeURIComponent(recording.egressId)}&roomName=${encodeURIComponent(recording.room.hostLink)}`;
             
-            const fileResponse = await fetch(fileUrl, {
-              headers: {
-                'Authorization': `Basic ${Buffer.from(`${LIVEKIT_API_KEY}:${LIVEKIT_API_SECRET}`).toString('base64')}`,
-                ...(range ? { 'Range': range } : {}),
-              },
-            });
-            
-            if (fileResponse.ok) {
-              const fileBuffer = Buffer.from(await fileResponse.arrayBuffer());
-              const contentLength = fileResponse.headers.get('content-length') || fileBuffer.length.toString();
-              const contentRange = fileResponse.headers.get('content-range');
-              const status = fileResponse.status;
-              
-              console.log(`[Stream Recording] ✅ Successfully fetched file via egress API (${fileBuffer.length} bytes)`);
-              
-              return new NextResponse(fileBuffer, {
-                status: status === 206 ? 206 : 200,
+            // Fetch from our own file endpoint (which proxies from LiveKit server)
+            try {
+              const range = request.headers.get('range');
+              const fileResponse = await fetch(`http://localhost:3000${fileUrl}`, {
                 headers: {
-                  'Content-Type': 'video/mp4',
-                  'Content-Length': contentLength,
-                  'Accept-Ranges': 'bytes',
-                  ...(contentRange ? { 'Content-Range': contentRange } : {}),
+                  'Authorization': request.headers.get('authorization') || '',
+                  ...(range ? { 'Range': range } : {}),
                 },
               });
-            } else {
-              console.warn(`[Stream Recording] Egress download endpoint returned ${fileResponse.status}`);
+              
+              if (fileResponse.ok) {
+                const fileBuffer = Buffer.from(await fileResponse.arrayBuffer());
+                const contentLength = fileResponse.headers.get('content-length') || fileBuffer.length.toString();
+                const contentRange = fileResponse.headers.get('content-range');
+                const status = fileResponse.status;
+                
+                console.log(`[Stream Recording] ✅ Successfully fetched file via file endpoint (${fileBuffer.length} bytes)`);
+                
+                // Handle range requests for video seeking
+                if (range && status === 206) {
+                  const parts = range.replace(/bytes=/, '').split('-');
+                  const start = parseInt(parts[0], 10);
+                  const end = parts[1] ? parseInt(parts[1], 10) : fileBuffer.length - 1;
+                  const chunk = fileBuffer.slice(start, end + 1);
+                  
+                  return new NextResponse(chunk, {
+                    status: 206,
+                    headers: {
+                      'Content-Range': contentRange || `bytes ${start}-${end}/${fileBuffer.length}`,
+                      'Accept-Ranges': 'bytes',
+                      'Content-Length': chunk.length.toString(),
+                      'Content-Type': 'video/mp4',
+                    },
+                  });
+                } else {
+                  return new NextResponse(fileBuffer, {
+                    status: status === 206 ? 206 : 200,
+                    headers: {
+                      'Content-Type': 'video/mp4',
+                      'Content-Length': contentLength,
+                      'Accept-Ranges': 'bytes',
+                      ...(contentRange ? { 'Content-Range': contentRange } : {}),
+                    },
+                  });
+                }
+              } else {
+                console.warn(`[Stream Recording] File endpoint returned ${fileResponse.status}`);
+              }
+            } catch (fetchError) {
+              console.error(`[Stream Recording] Error fetching via file endpoint:`, fetchError);
             }
-          } catch (fetchError) {
-            console.error(`[Stream Recording] Error fetching via egress API:`, fetchError);
           }
         }
       } catch (serverError) {
