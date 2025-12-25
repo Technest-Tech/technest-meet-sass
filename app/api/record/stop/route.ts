@@ -447,16 +447,75 @@ export async function GET(req: NextRequest) {
           });
 
           // Trigger background R2 upload (non-blocking)
-          uploadRecordingToR2(
-            recording.id,
-            localFilePath,
-            room.clientId,
-            room.id,
-            baseFilename
-          ).catch((uploadError) => {
-            console.error(`[Recording Stop] Background R2 upload failed for ${recording.id}:`, uploadError);
-            // Don't throw - recording is still available from local storage
-          });
+          // First fetch file from LiveKit server if not found locally, then upload to R2
+          (async () => {
+            try {
+              let filePathForR2 = localFilePath;
+              
+              // If file doesn't exist locally, fetch it from LiveKit server first
+              if (!existsSync(localFilePath)) {
+                console.log(`[Recording Stop] File not found locally, fetching from LiveKit server for R2 upload...`);
+                
+                try {
+                  // Determine which LiveKit server has this room
+                  const livekitRouting = getLiveKitServerForRoom(room.hostLink);
+                  const serverUrl = livekitRouting.serverUrl;
+                  
+                  // Extract server IP from URL
+                  const serverMatch = serverUrl.match(/http:\/\/([\d.]+):/);
+                  if (serverMatch) {
+                    const serverIp = serverMatch[1];
+                    const isServer1 = serverIp === '178.128.78.195';
+                    const containerName = isServer1 ? 'livekit-egress-server1' : 'livekit-egress-server2';
+                    
+                    // Find the file on the egress server
+                    const { exec } = await import('child_process');
+                    const { promisify } = await import('util');
+                    const execAsync = promisify(exec);
+                    
+                    const findFileCmd = `ssh -o StrictHostKeyChecking=no root@${serverIp} "docker exec ${containerName} find /recordings -name '*.mp4' | grep -E '(${baseFilename.replace(/[^a-zA-Z0-9]/g, '.*')}|${room.hostLink})' | head -1"`;
+                    const { stdout: remoteFilePath } = await execAsync(findFileCmd);
+                    const foundPath = remoteFilePath.trim();
+                    
+                    if (foundPath) {
+                      // Ensure recordings directory exists
+                      const recordingsDir = join(process.cwd(), 'recordings');
+                      const { mkdir } = await import('fs/promises');
+                      await mkdir(recordingsDir, { recursive: true });
+                      
+                      // Copy file from LiveKit server to backend server
+                      const copyCmd = `ssh -o StrictHostKeyChecking=no root@${serverIp} "docker cp ${containerName}:${foundPath} -" > "${localFilePath}"`;
+                      await execAsync(copyCmd);
+                      
+                      if (existsSync(localFilePath)) {
+                        filePathForR2 = localFilePath;
+                        console.log(`[Recording Stop] ✅ Successfully fetched file from LiveKit server for R2 upload`);
+                      }
+                    }
+                  }
+                } catch (fetchError) {
+                  console.error(`[Recording Stop] Error fetching file from LiveKit server:`, fetchError);
+                  // Continue anyway - might upload later or use local if available
+                }
+              }
+              
+              // Now upload to R2 if file exists
+              if (existsSync(filePathForR2)) {
+                await uploadRecordingToR2(
+                  recording.id,
+                  filePathForR2,
+                  room.clientId,
+                  room.id,
+                  baseFilename
+                );
+              } else {
+                console.warn(`[Recording Stop] Cannot upload to R2: file not found at ${filePathForR2}`);
+              }
+            } catch (uploadError) {
+              console.error(`[Recording Stop] Background R2 upload failed for ${recording.id}:`, uploadError);
+              // Don't throw - recording is still available from local storage
+            }
+          })();
 
           return {
             egressId: info.egressId,
