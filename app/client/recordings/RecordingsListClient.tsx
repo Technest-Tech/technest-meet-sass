@@ -391,15 +391,18 @@ function RecordingsListContent({
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
                 {recordings.map((recording) => (
                   <Card key={recording.id} hover className="flex flex-col border-l-4" style={{
-                    borderLeftColor: `hsl(${(parseInt(recording.id.slice(-6), 16) % 360)}, 70%, 50%)`
+                    borderLeftColor: `hsl(${(parseInt(recording.id.slice(-6), 16) % 360)}, 70%, 50%)`,
+                    height: '100%',
+                    minHeight: '380px',
+                    maxHeight: '500px'
                   }}>
                     {/* Header with Room Name and Status */}
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex-1">
+                    <div className="flex items-start justify-between mb-4 flex-shrink-0">
+                      <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <VideoIcon className="w-5 h-5 text-primary-600" />
+                          <VideoIcon className="w-5 h-5 text-primary-600 flex-shrink-0" />
                           <h3 className="text-lg font-bold text-gray-900 truncate">{recording.roomName}</h3>
-                          <span className="text-xs font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+                          <span className="text-xs font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded flex-shrink-0">
                             #{getRecordingUniqueId(recording)}
                           </span>
                         </div>
@@ -410,11 +413,13 @@ function RecordingsListContent({
                           </p>
                         )}
                       </div>
-                      {getStatusBadge(recording.status)}
+                      <div className="flex-shrink-0 ml-2">
+                        {getStatusBadge(recording.status)}
+                      </div>
                     </div>
 
                     {/* Recording Details */}
-                    <div className="space-y-2 mb-4 flex-1">
+                    <div className="space-y-2 mb-4 flex-1 overflow-y-auto">
                       <div className="flex items-center gap-2 text-sm text-gray-600">
                         <Calendar className="w-4 h-4 text-gray-400" />
                         <span>{formatDate(recording.startedAt)}</span>
