@@ -143,8 +143,47 @@ export async function GET(req: NextRequest) {
         try {
           await egressClient.stopEgress(info.egressId);
           
-          // Wait a bit for the file to be finalized (egress needs time to write the file)
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          // Wait longer for the file to be finalized (egress needs time to write the file and JSON)
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          
+          // Try to read the JSON file directly from LiveKit server to get filename
+          // This is more reliable than waiting for listEgress to update
+          let jsonFilename = '';
+          try {
+            const serverMatch = serverUrl.match(/http:\/\/([\d.]+):/);
+            if (serverMatch) {
+              const serverIp = serverMatch[1];
+              const isServer1 = serverIp === '178.128.78.195';
+              const containerName = isServer1 ? 'livekit-egress-server1' : 'livekit-egress-server2';
+              
+              // Use host server's SSH to read JSON file (not container SSH)
+              const { exec } = await import('child_process');
+              const { promisify } = await import('util');
+              const execAsync = promisify(exec);
+              
+              // Read JSON file from LiveKit server
+              const jsonCmd = `ssh -o StrictHostKeyChecking=no root@${serverIp} "docker exec ${containerName} cat /recordings/${info.egressId}.json 2>/dev/null" || echo ""`;
+              const { stdout: jsonContent } = await execAsync(jsonCmd);
+              
+              if (jsonContent && jsonContent.trim()) {
+                try {
+                  const egressJson = JSON.parse(jsonContent.trim());
+                  if (egressJson.files && egressJson.files.length > 0) {
+                    jsonFilename = egressJson.files[0].filename || egressJson.files[0].location || '';
+                    if (jsonFilename) {
+                      // Extract just the filename from path
+                      jsonFilename = jsonFilename.split('/').pop() || jsonFilename;
+                      console.log(`[Recording Stop] ✅ Got filename from JSON file: ${jsonFilename}`);
+                    }
+                  }
+                } catch (parseError) {
+                  console.warn(`[Recording Stop] Failed to parse JSON:`, parseError);
+                }
+              }
+            }
+          } catch (jsonError) {
+            console.warn(`[Recording Stop] Could not read JSON file:`, jsonError);
+          }
           
           // Get updated egress info after stopping - use listEgress and filter
           const updatedEgresses = await egressClient.listEgress({ roomName: actualLiveKitRoomName });
@@ -177,8 +216,8 @@ export async function GET(req: NextRequest) {
           const recordingStartTime = startedAt.getTime();
           console.log(`[Recording Stop] Recording started at: ${startedAt.toISOString()} (egressId: ${info.egressId})`);
           
-          // Get filename from egress info - check both file.filepath and files array
-          let filename = updatedInfo.file?.filepath || info.file?.filepath || '';
+          // Get filename from egress info - prioritize JSON file, then check both file.filepath and files array
+          let filename = jsonFilename || updatedInfo.file?.filepath || info.file?.filepath || '';
           
           // If not in file.filepath, check files array (newer egress format)
           if (!filename && updatedInfo.files && updatedInfo.files.length > 0) {
@@ -188,7 +227,12 @@ export async function GET(req: NextRequest) {
             filename = info.files[0].filename || info.files[0].location || '';
           }
           
-          console.log(`[Recording Stop] Egress file info - filepath: ${info.file?.filepath || 'N/A'}, files array: ${info.files?.length || 0} files, extracted filename: ${filename || 'N/A'}`);
+          // Extract just the filename from path if it's a full path
+          if (filename && filename.includes('/')) {
+            filename = filename.split('/').pop() || filename;
+          }
+          
+          console.log(`[Recording Stop] Egress file info - JSON filename: ${jsonFilename || 'N/A'}, filepath: ${info.file?.filepath || 'N/A'}, files array: ${info.files?.length || 0} files, final filename: ${filename || 'N/A'}`);
           
           // If no filename from egress info, try to find it in the filesystem using timestamp matching
           if (!filename || filename === 'recording.mp4') {
