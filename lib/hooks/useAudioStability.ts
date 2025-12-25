@@ -63,6 +63,34 @@ export function useAudioStability(room: Room | null | undefined) {
           }
         });
       });
+
+      // CRITICAL FIX: Handle network quality degradation - retry local track publication
+      if (quality === ConnectionQuality.Poor || quality === ConnectionQuality.Lost) {
+        logger.warn('Network quality degraded, checking local tracks:', quality);
+        
+        // Check local microphone track
+        if (room.localParticipant) {
+          const isMicEnabled = room.localParticipant.isMicrophoneEnabled;
+          const micPublication = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+          
+          // If mic should be enabled but track doesn't exist or failed, retry publication
+          if (isMicEnabled && (!micPublication || !micPublication.track)) {
+            logger.warn('Microphone track missing during poor network, attempting recovery');
+            setTimeout(async () => {
+              if (room && room.state === 'connected' && room.localParticipant) {
+                try {
+                  await room.localParticipant.setMicrophoneEnabled(false);
+                  await new Promise(resolve => setTimeout(resolve, 500));
+                  await room.localParticipant.setMicrophoneEnabled(true);
+                  logger.info('Microphone track recovered after network issue');
+                } catch (error) {
+                  logger.error('Failed to recover microphone track:', error);
+                }
+              }
+            }, 2000);
+          }
+        }
+      }
     };
 
     // Comprehensive stability check
@@ -331,8 +359,14 @@ export function useAudioStability(room: Room | null | undefined) {
           trackLock.acquire(trackId).then((acquired) => {
             if (acquired) {
               try {
-                room.localParticipant.setMicrophoneEnabled(true).then(() => {
+                // CRITICAL FIX: Better recovery - disable then re-enable
+                room.localParticipant.setMicrophoneEnabled(false).then(() => {
+                  return new Promise(resolve => setTimeout(resolve, 500));
+                }).then(() => {
+                  return room.localParticipant.setMicrophoneEnabled(true);
+                }).then(() => {
                   trackLock.release(trackId);
+                  logger.info('Stability check: Microphone track successfully republished');
                 }).catch((error) => {
                   logger.warn('Stability check: Failed to republish microphone track:', error);
                   trackLock.release(trackId);

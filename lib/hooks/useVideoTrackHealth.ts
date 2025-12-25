@@ -159,9 +159,14 @@ export function useVideoTrackHealth(room: Room | null | undefined) {
               trackLock.acquire(trackId).then((acquired) => {
                 if (acquired) {
                   try {
-                    // Attempt to republish the camera track
-                    room.localParticipant.setCameraEnabled(true).then(() => {
+                    // CRITICAL FIX: Better recovery - disable then re-enable
+                    room.localParticipant.setCameraEnabled(false).then(() => {
+                      return new Promise(resolve => setTimeout(resolve, 500));
+                    }).then(() => {
+                      return room.localParticipant.setCameraEnabled(true);
+                    }).then(() => {
                       trackLock.release(trackId);
+                      logger.info('Camera track successfully republished');
                     }).catch((error) => {
                       logger.warn('Failed to republish camera track:', error);
                       trackLock.release(trackId);

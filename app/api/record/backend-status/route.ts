@@ -124,7 +124,17 @@ export async function GET(req: NextRequest) {
     const livekitRouting = getLiveKitServerForRoom(actualLiveKitRoomName);
     const serverUrl = livekitRouting.serverUrl;
     
-    console.log(`[Recording Status] Server routing: ${actualLiveKitRoomName} -> ${serverUrl}`);
+    // CRITICAL FIX: Reduce logging - only log once per minute per room to avoid log spam
+    const logKey = `recording-status-${actualLiveKitRoomName}`;
+    const lastLogTime = (global as any).__recordingStatusLogs?.[logKey] || 0;
+    const now = Date.now();
+    if (now - lastLogTime > 60000) { // Only log once per minute
+      console.log(`[Recording Status] Server routing: ${actualLiveKitRoomName} -> ${serverUrl}`);
+      if (!(global as any).__recordingStatusLogs) {
+        (global as any).__recordingStatusLogs = {};
+      }
+      (global as any).__recordingStatusLogs[logKey] = now;
+    }
     
     const hostURL = new URL(serverUrl);
     // Keep the original protocol - don't force HTTPS for IP addresses

@@ -2675,17 +2675,50 @@ function VideoConferenceComponent(props: {
       return;
     }
 
-    // Handle specific RTCPeerConnection errors
+    // Handle specific RTCPeerConnection errors - LESS AGGRESSIVE
     if (error.message.includes('setRemoteDescription') || error.message.includes('addIceCandidate')) {
       logger.warn('RTCPeerConnection error - connection may be in invalid state');
-      // Try to reconnect if the connection is in a bad state
-      if (room && room.state !== 'disconnected') {
-        logger.debug('Attempting to reconnect due to RTCPeerConnection error');
-        room.disconnect();
-        // Reset connection state
-        setIsConnected(false);
-        setReconnectAttempts(0);
+      
+      // CRITICAL FIX: Don't immediately disconnect - try to recover first
+      // Only disconnect if we've had multiple failures
+      const errorKey = 'rtcpeerconnection-error';
+      const errorCount = (window as any).__rtcErrorCount || 0;
+      (window as any).__rtcErrorCount = errorCount + 1;
+      
+      // Only disconnect after 3 consecutive errors (more lenient)
+      if (errorCount >= 2 && room && room.state !== 'disconnected') {
+        logger.warn('Multiple RTCPeerConnection errors detected, attempting reconnection');
+        // Reset error count
+        (window as any).__rtcErrorCount = 0;
+        
+        // Try graceful reconnection instead of immediate disconnect
+        try {
+          // Wait a bit before reconnecting to allow network to stabilize
+          setTimeout(async () => {
+            if (room && room.state === 'connected') {
+              logger.debug('Attempting graceful reconnection due to RTCPeerConnection errors');
+              await room.disconnect();
+              setIsConnected(false);
+              setReconnectAttempts(0);
+              // Auto-reconnect will be handled by the auto-connect logic
+            }
+          }, 3000);
+        } catch (reconnectError) {
+          logger.error('Error during graceful reconnection:', reconnectError);
+        }
+      } else {
+        // First or second error - just log and continue
+        logger.debug(`RTCPeerConnection error (count: ${errorCount + 1}), continuing without disconnect`);
+        toast.error('Connection issue detected. If problems persist, please refresh.', {
+          duration: 4000,
+        });
       }
+      
+      // Reset error count after 30 seconds (allows recovery)
+      setTimeout(() => {
+        (window as any).__rtcErrorCount = 0;
+      }, 30000);
+      
       return;
     }
 
@@ -2824,6 +2857,81 @@ function VideoConferenceComponent(props: {
       router.push('/meeting-ended');
     }
   }, [router, room, props.meetingEnded, props.setMeetingEnded]);
+
+  // CRITICAL FIX: Monitor local track publications for failures
+  // Since LiveKit doesn't have TrackPublicationFailed event, we monitor track state
+  React.useEffect(() => {
+    if (!room || room.state !== 'connected' || !room.localParticipant) return;
+
+    const checkTrackPublications = () => {
+      const localParticipant = room.localParticipant;
+      if (!localParticipant) return;
+
+      // Check microphone track
+      const isMicEnabled = localParticipant.isMicrophoneEnabled;
+      const micPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
+      if (isMicEnabled && (!micPublication || !micPublication.track)) {
+        logger.warn('Microphone is enabled but track is missing - attempting recovery');
+        toast.error('Microphone connection lost. Attempting to reconnect...', {
+          duration: 4000,
+          icon: '🎤',
+        });
+        
+        // Attempt recovery
+        setTimeout(async () => {
+          if (room && room.state === 'connected' && room.localParticipant) {
+            try {
+              await room.localParticipant.setMicrophoneEnabled(false);
+              await new Promise(resolve => setTimeout(resolve, 500));
+              await room.localParticipant.setMicrophoneEnabled(true);
+              toast.success('Microphone reconnected', { duration: 2000 });
+            } catch (recoveryError) {
+              logger.error('Failed to recover microphone:', recoveryError);
+              toast.error('Failed to reconnect microphone. Please toggle it manually.', {
+                duration: 5000,
+              });
+            }
+          }
+        }, 2000);
+      }
+
+      // Check camera track
+      const isCameraEnabled = localParticipant.isCameraEnabled;
+      const cameraPublication = localParticipant.getTrackPublication(Track.Source.Camera);
+      if (isCameraEnabled && (!cameraPublication || !cameraPublication.track)) {
+        logger.warn('Camera is enabled but track is missing - attempting recovery');
+        toast.error('Camera connection lost. Attempting to reconnect...', {
+          duration: 4000,
+          icon: '📹',
+        });
+        
+        // Attempt recovery
+        setTimeout(async () => {
+          if (room && room.state === 'connected' && room.localParticipant) {
+            try {
+              await room.localParticipant.setCameraEnabled(false);
+              await new Promise(resolve => setTimeout(resolve, 500));
+              await room.localParticipant.setCameraEnabled(true);
+              toast.success('Camera reconnected', { duration: 2000 });
+            } catch (recoveryError) {
+              logger.error('Failed to recover camera:', recoveryError);
+              toast.error('Failed to reconnect camera. Please toggle it manually.', {
+                duration: 5000,
+              });
+            }
+          }
+        }, 2000);
+      }
+    };
+
+    // Check immediately and then periodically (every 5 seconds)
+    checkTrackPublications();
+    const checkInterval = setInterval(checkTrackPublications, 5000);
+
+    return () => {
+      clearInterval(checkInterval);
+    };
+  }, [room]);
 
   // Cleanup event listeners when component unmounts
   // CRITICAL FIX: This must come AFTER handleOnLeave, handleEncryptionError, and handleError are defined
