@@ -97,3 +97,6 @@ newmeet_mobile/pubspec.lock
 # Node modules
 electron-app/node_modules/
 node_modules/
+recordings/
+*.mp4
+recordings/*.json

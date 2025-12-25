@@ -23,6 +23,9 @@ interface RecordingInfo {
   filename?: string;
   error?: string;
   startedAt?: number;
+  timeRemaining?: number; // Seconds remaining before auto-stop
+  maxDuration?: number; // Maximum recording duration in seconds
+  warning?: string; // Warning message about time limit
 }
 
 export function BackendRecordingControl({
@@ -114,10 +117,31 @@ export function BackendRecordingControl({
           }
         } else {
           console.log('[Recording Control] Status check failed:', response.status);
+          // If status check fails, try to get recording info from error response
+          try {
+            const errorData = await response.json().catch(() => null);
+            if (errorData && errorData.egressId) {
+              console.log('[Recording Control] Found recording info in error response');
+              // Still try to restore if we have egressId
+            }
+          } catch (e) {
+            // Ignore
+          }
         }
       } catch (error) {
         console.error('[Recording Control] Error checking existing recording:', error);
-        // Silently fail - don't show error on mount
+        // If error occurs, still try to check if recording exists by checking start endpoint
+        // This handles cases where backend-status fails but recording might still exist
+        try {
+          const startCheckResponse = await fetch(`/api/record/start?roomName=${encodeURIComponent(roomName)}`);
+          if (startCheckResponse.status === 409) {
+            // 409 means recording already exists - try to get status again with retry
+            console.log('[Recording Control] Start endpoint indicates recording exists, retrying status check...');
+            setTimeout(checkExistingRecording, 2000);
+          }
+        } catch (retryError) {
+          // Ignore retry errors
+        }
       }
     };
     
@@ -154,19 +178,41 @@ export function BackendRecordingControl({
 
   // Recording timer
   useEffect(() => {
-    if (recordingInfo?.status === 'active' && recordingStartTimeRef.current) {
-      timerIntervalRef.current = setInterval(() => {
-        if (recordingStartTimeRef.current) {
-          const elapsed = Math.floor((Date.now() - recordingStartTimeRef.current) / 1000);
-          setRecordingTime(elapsed);
-        }
-      }, 1000);
+    // Run timer when recording is starting or active
+    if (recordingInfo?.status === 'active' || recordingInfo?.status === 'starting') {
+      // Determine the start time: prefer startedAt from backend, otherwise use existing ref, otherwise use current time
+      const startTime = recordingInfo.startedAt || recordingStartTimeRef.current || Date.now();
+      
+      // Update the ref if we have a more accurate start time from backend
+      if (recordingInfo.startedAt && (!recordingStartTimeRef.current || recordingInfo.startedAt < recordingStartTimeRef.current)) {
+        recordingStartTimeRef.current = recordingInfo.startedAt;
+      } else if (!recordingStartTimeRef.current) {
+        recordingStartTimeRef.current = startTime;
+      }
+      
+      // Calculate and set initial elapsed time
+      if (recordingStartTimeRef.current) {
+        const elapsed = Math.floor((Date.now() - recordingStartTimeRef.current) / 1000);
+        setRecordingTime(Math.max(0, elapsed)); // Ensure non-negative
+      }
+      
+      // Start the timer interval if not already running
+      if (!timerIntervalRef.current) {
+        timerIntervalRef.current = setInterval(() => {
+          if (recordingStartTimeRef.current) {
+            const elapsed = Math.floor((Date.now() - recordingStartTimeRef.current) / 1000);
+            setRecordingTime(Math.max(0, elapsed)); // Ensure non-negative
+          }
+        }, 1000);
+      }
     } else {
+      // Stop the timer when not recording (idle, completed, failed, stopping)
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
         timerIntervalRef.current = null;
       }
-      if (recordingInfo?.status !== 'active') {
+      // Only clear start time and reset timer when truly stopped (not starting/active)
+      if (recordingInfo?.status !== 'active' && recordingInfo?.status !== 'starting') {
         setRecordingTime(0);
         recordingStartTimeRef.current = null;
       }
@@ -177,7 +223,7 @@ export function BackendRecordingControl({
         clearInterval(timerIntervalRef.current);
       }
     };
-  }, [recordingInfo?.status]);
+  }, [recordingInfo?.status, recordingInfo?.startedAt]);
 
   // Status polling when recording is active, starting, or stopping
   useEffect(() => {
@@ -259,11 +305,18 @@ export function BackendRecordingControl({
               data.status === 5 ? (data.filename ? 'completed' : 'stopping') : // Status 5 with file = completed, without = still processing
               'idle';
 
+            // Extract startedAt from backend response if available (convert ISO string to timestamp)
+            const startedAt = data.startedAt ? new Date(data.startedAt).getTime() : prev.startedAt;
+
             return {
               ...prev,
               status: newStatus,
               error: data.error,
               filename: data.filename || prev.filename,
+              startedAt: startedAt || prev.startedAt,
+              timeRemaining: data.timeRemaining,
+              maxDuration: data.maxDuration,
+              warning: data.warning,
             };
           });
           
@@ -285,7 +338,30 @@ export function BackendRecordingControl({
             if (newStatus === 'completed' && prevStatus !== 'completed') {
               setShowLoadingOverlay(false);
               setLoadingMessage('');
+              // Show notification if it was auto-stopped
+              if (data.message && data.message.includes('automatically stopped')) {
+                toast.success('Recording Stopped', {
+                  description: 'Recording was automatically stopped due to time limit.',
+                  duration: 5000,
+                  icon: '⏰',
+                });
+              }
               // Don't show download modal - recording is saved to account
+            }
+            
+            // Show warning if approaching time limit
+            if (newStatus === 'active' && data.warning && prevStatus === 'active') {
+              // Only show warning once per minute to avoid spam
+              const lastWarningTime = (window as any).__lastRecordingWarning || 0;
+              const now = Date.now();
+              if (now - lastWarningTime > 60000) { // Show once per minute
+                toast.warning('Recording Time Limit', {
+                  description: data.warning,
+                  duration: 8000,
+                  icon: '⏰',
+                });
+                (window as any).__lastRecordingWarning = now;
+              }
             }
             
             // Hide loading overlay when recording becomes active (started successfully)
@@ -646,13 +722,17 @@ export function BackendRecordingControl({
 
       const data = await response.json();
       
+      // Set start time immediately
+      const startTime = Date.now();
+      recordingStartTimeRef.current = startTime;
+      setRecordingTime(0); // Initialize timer to 0
+      
       setRecordingInfo({
         egressId: data.egressId,
         status: 'starting',
         filename: data.filename,
       });
       
-      recordingStartTimeRef.current = Date.now();
       // Loading overlay is already shown - it will hide when status becomes 'active' (handled in status polling)
 
       toast.success('Recording Started', {
@@ -818,7 +898,8 @@ export function BackendRecordingControl({
   const isRecording = recordingInfo?.status === 'active' || recordingInfo?.status === 'starting';
   const isStopping = recordingInfo?.status === 'stopping';
   // Allow stopping when recording is active, but disable when stopping or if feature is disabled
-  const isDisabled = !isFeatureEnabled || isProcessing || (isStopping && !isRecording);
+  // Also disable if processing and not currently recording (to prevent starting new recording while one exists)
+  const isDisabled = !isFeatureEnabled || (isProcessing && !isRecording) || (isStopping && !isRecording);
 
   return (
     <>
@@ -882,7 +963,9 @@ export function BackendRecordingControl({
             transition: 'all 0.2s ease',
             position: 'relative',
             boxShadow: isRecording 
-              ? '0 0 12px rgba(239, 68, 68, 0.4)' 
+              ? recordingInfo?.warning && recordingInfo?.timeRemaining !== undefined && recordingInfo.timeRemaining > 0
+                ? '0 0 12px rgba(251, 191, 36, 0.6)' // Yellow/orange glow for warning
+                : '0 0 12px rgba(239, 68, 68, 0.4)' // Red glow for normal recording
               : isHovered && !isDisabled
               ? '0 4px 12px rgba(0, 0, 0, 0.3)'
               : 'none',
@@ -939,7 +1022,22 @@ export function BackendRecordingControl({
           )}
           {!iconOnly && (
             <span>
-              {isRecording ? `Stop (${formatTime(recordingTime)})` : 'Backend Record'}
+              {isRecording ? (() => {
+                // Calculate time dynamically - use recordingTime, or calculate from start time if 0
+                let displayTime = recordingTime;
+                if (displayTime === 0 && recordingStartTimeRef.current) {
+                  displayTime = Math.floor((Date.now() - recordingStartTimeRef.current) / 1000);
+                }
+                // Show warning indicator if approaching time limit
+                const timeRemaining = recordingInfo?.timeRemaining;
+                const hasWarning = recordingInfo?.warning && timeRemaining !== undefined && timeRemaining > 0;
+                return (
+                  <>
+                    {hasWarning && '⏰ '}
+                    Stop ({formatTime(displayTime)})
+                  </>
+                );
+              })() : 'Backend Record'}
             </span>
           )}
           {isRecording && (

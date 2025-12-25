@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get recordings with room info
-    const [recordings, total] = await Promise.all([
+    let [recordings, total] = await Promise.all([
       prisma.recording.findMany({
         where,
         include: {
@@ -78,7 +78,17 @@ export async function GET(request: NextRequest) {
       prisma.recording.count({ where }),
     ]);
 
-    console.log(`[Recordings API] Found ${recordings.length} recordings (total: ${total})`);
+    console.log(`[Recordings API] Query Results:`);
+    console.log(`  - Recordings found in query: ${recordings.length}`);
+    console.log(`  - Total recordings in DB: ${total}`);
+    console.log(`  - Query filters:`, {
+      clientId: session.clientId,
+      roomId: roomId || 'none',
+      status: status || 'none',
+      search: search || 'none',
+      page,
+      limit,
+    });
     
     // Fix recordings with incorrect filenames (e.g., "recording.mp4")
     // This happens when the file wasn't finalized when the recording was saved
@@ -128,9 +138,19 @@ export async function GET(request: NextRequest) {
             continue;
           }
           
+          // Get file stats first (needed for matching)
+          const filePath = pathJoin(recordingsDir, filename);
+          let fileStat;
+          try {
+            fileStat = await stat(filePath);
+          } catch (statError) {
+            console.warn(`[Recordings API] Could not get file stats for ${filename}, skipping`);
+            continue;
+          }
+          
           // Extract timestamp from filename
           const timestampMatch = filename.match(/(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d+)/);
-          let fileStartTime = new Date();
+          let fileStartTime = fileStat.mtime; // Use file modification time as fallback
           
           if (timestampMatch) {
             try {
@@ -142,62 +162,119 @@ export async function GET(request: NextRequest) {
                 });
               fileStartTime = new Date(isoStr);
             } catch (e) {
-              console.warn(`[Recordings API] Could not parse timestamp from ${filename}`);
+              console.warn(`[Recordings API] Could not parse timestamp from ${filename}, using file mtime`);
             }
           }
           
-          // Check if recording already exists with this exact filename (prevent duplicates)
-          const existingByFilename = await prisma.recording.findFirst({
+          // Check for existing recording matches using multiple criteria
+          // 1. Check by exact filename match
+          let existingRecording = await prisma.recording.findFirst({
             where: {
               filename: filename,
             },
-          });
-          
-          if (existingByFilename) {
-            console.log(`[Recordings API] Skipping ${filename} - recording already exists with this filename: ${existingByFilename.id}`);
-            // Add existing recording to the list if it belongs to this client
-            if (existingByFilename.roomId === matchedRoom.id) {
-              const existingWithRoom = await prisma.recording.findUnique({
-                where: { id: existingByFilename.id },
-                include: {
-                  room: {
-                    select: {
-                      id: true,
-                      name: true,
-                      hostLink: true,
-                    },
-                  },
+            include: {
+              room: {
+                select: {
+                  id: true,
+                  name: true,
+                  hostLink: true,
+                  clientId: true,
                 },
-              });
-              if (existingWithRoom && !recordings.find(r => r.id === existingWithRoom.id)) {
-                recordings.push(existingWithRoom);
-              }
-            }
-            continue;
-          }
-          
-          // Also check if recording exists for this room at similar time (additional check)
-          const existingSimilar = await prisma.recording.findFirst({
-            where: {
-              roomId: matchedRoom.id,
-              startedAt: {
-                gte: new Date(fileStartTime.getTime() - 5 * 60 * 1000), // 5 minutes before
-                lte: new Date(fileStartTime.getTime() + 5 * 60 * 1000), // 5 minutes after
               },
             },
           });
           
-          if (existingSimilar) {
-            console.log(`[Recordings API] Skipping ${filename} - similar recording exists: ${existingSimilar.id}`);
+          // 2. If no filename match, check by timestamp + file size (within 5 minutes, same size)
+          if (!existingRecording) {
+            const timeWindowStart = new Date(fileStartTime.getTime() - 5 * 60 * 1000);
+            const timeWindowEnd = new Date(fileStartTime.getTime() + 5 * 60 * 1000);
+            
+            existingRecording = await prisma.recording.findFirst({
+              where: {
+                roomId: matchedRoom.id,
+                fileSize: fileStat.size, // Exact file size match
+                startedAt: {
+                  gte: timeWindowStart,
+                  lte: timeWindowEnd,
+                },
+              },
+              include: {
+                room: {
+                  select: {
+                    id: true,
+                    name: true,
+                    hostLink: true,
+                    clientId: true,
+                  },
+                },
+              },
+            });
+            
+            if (existingRecording) {
+              console.log(`[Recordings API] Found existing recording by timestamp+size match: ${existingRecording.id} for file ${filename}`);
+            }
+          }
+          
+          if (existingRecording) {
+            // Check if it belongs to this client
+            if (existingRecording.room.clientId !== session.clientId) {
+              console.log(`[Recordings API] Skipping ${filename} - existing recording belongs to different client`);
+              continue;
+            }
+            
+            // Update existing recording if filename is missing or incorrect
+            if (existingRecording.filename !== filename || !existingRecording.storagePath || !existsSync(existingRecording.storagePath)) {
+              console.log(`[Recordings API] Updating existing recording ${existingRecording.id} with correct filename: ${filename}`);
+              try {
+                existingRecording = await prisma.recording.update({
+                  where: { id: existingRecording.id },
+                  data: {
+                    filename: filename,
+                    storagePath: filePath,
+                    fileSize: fileStat.size,
+                    // Update endedAt if file is newer
+                    endedAt: fileStat.mtime > (existingRecording.endedAt || existingRecording.startedAt) 
+                      ? fileStat.mtime 
+                      : existingRecording.endedAt,
+                  },
+                  include: {
+                    room: {
+                      select: {
+                        id: true,
+                        name: true,
+                        hostLink: true,
+                        clientId: true,
+                      },
+                    },
+                  },
+                });
+                console.log(`[Recordings API] ✅ Updated recording ${existingRecording.id} with file ${filename}`);
+              } catch (updateError) {
+                console.error(`[Recordings API] Error updating recording ${existingRecording.id}:`, updateError);
+              }
+            } else {
+              console.log(`[Recordings API] Recording ${existingRecording.id} already has correct filename: ${filename}`);
+            }
+            
+            // Add existing recording to the list if not already present
+            if (!recordings.find(r => r.id === existingRecording!.id)) {
+              recordings.push(existingRecording);
+            }
             continue;
           }
           
-          // Get file stats
-          const filePath = pathJoin(recordingsDir, filename);
-          const fileStat = await stat(filePath);
-          
-          // Generate unique egressId
-          const egressId = `SYNCED_${Date.now()}_${filename.substring(0, 20)}`;
+          // No existing recording found - create new one
+          // Generate unique egressId (check for uniqueness)
+          let egressId = `SYNCED_${Date.now()}_${filename.substring(0, 20)}`;
+          let attempts = 0;
+          while (attempts < 5) {
+            const existing = await prisma.recording.findUnique({
+              where: { egressId },
+            });
+            if (!existing) break;
+            egressId = `SYNCED_${Date.now()}_${Math.random().toString(36).substring(7)}_${filename.substring(0, 15)}`;
+            attempts++;
+          }
           
           // Create recording record
           const syncedRecording = await prisma.recording.create({
@@ -213,19 +290,21 @@ export async function GET(request: NextRequest) {
               startedAt: fileStartTime,
               endedAt: fileStat.mtime,
             },
+            include: {
+              room: {
+                select: {
+                  id: true,
+                  name: true,
+                  hostLink: true,
+                },
+              },
+            },
           });
           
           console.log(`[Recordings API] ✅ Auto-synced orphaned file: ${filename} -> recording ${syncedRecording.id}`);
           
           // Add to recordings array so it appears in this response
-          recordings.push({
-            ...syncedRecording,
-            room: {
-              id: matchedRoom.id,
-              name: matchedRoom.name,
-              hostLink: matchedRoom.hostLink,
-            },
-          });
+          recordings.push(syncedRecording);
         } catch (syncError) {
           console.error(`[Recordings API] Error syncing orphaned file ${filename}:`, syncError);
         }
@@ -256,7 +335,9 @@ export async function GET(request: NextRequest) {
     }
     
     // Track which files have been assigned to avoid duplicates
+    // Create reverse map: file -> recording to prevent conflicts
     const assignedFiles = new Set<string>();
+    const fileToRecordingMap = new Map<string, string>(); // file -> recordingId
     
     // Sort recordings by creation time (oldest first) to match files chronologically
     // This ensures each recording gets its own file in the correct order
@@ -264,13 +345,21 @@ export async function GET(request: NextRequest) {
       new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
     
+    // First pass: Mark files that are already correctly assigned
+    for (const recording of sortedRecordings) {
+      if (recording.filename && recording.filename !== 'recording.mp4' && recording.storagePath && existsSync(recording.storagePath)) {
+        // File already exists and is correct - mark it as assigned
+        assignedFiles.add(recording.filename);
+        fileToRecordingMap.set(recording.filename, recording.id);
+        console.log(`[Recordings API] ✅ Recording ${recording.id} already has correct filename: ${recording.filename}`);
+      }
+    }
+    
     const updatedRecordings = await Promise.all(
       sortedRecordings.map(async (recording) => {
-        // Mark existing correct filenames as assigned to prevent duplicate assignment
+        // Skip if already has correct file
         if (recording.filename && recording.filename !== 'recording.mp4' && recording.storagePath && existsSync(recording.storagePath)) {
-          // File already exists and is correct - mark it as assigned
-          assignedFiles.add(recording.filename);
-          console.log(`[Recordings API] ✅ Recording ${recording.id} already has correct filename: ${recording.filename}`);
+          return recording;
         }
         
         // If filename is "recording.mp4" or file doesn't exist, try to find the actual file
@@ -280,13 +369,17 @@ export async function GET(request: NextRequest) {
             // Then try to match by room name + timestamp pattern
             let matchingFile: string | undefined;
             
-            // First, try to find file by egressId (most specific)
+            // First, try to find file by egressId (most specific and reliable)
             if (recording.egressId) {
-              matchingFile = allFiles.find(file => 
-                file.endsWith('.mp4') && 
-                file.includes(recording.egressId) &&
-                !assignedFiles.has(file) // Don't assign files that are already assigned
-              );
+              matchingFile = allFiles.find(file => {
+                if (!file.endsWith('.mp4') || assignedFiles.has(file)) return false;
+                // Check if file contains egressId
+                const hasEgressId = file.includes(recording.egressId);
+                if (hasEgressId) {
+                  console.log(`[Recordings API] 🎯 Found file by egressId match: ${file} for recording ${recording.id} (egressId: ${recording.egressId})`);
+                }
+                return hasEgressId;
+              });
             }
             
             // If no match by egressId, try to match by room name + created date
@@ -310,7 +403,9 @@ export async function GET(request: NextRequest) {
             // Last resort: match by room name + timestamp pattern (chronological matching)
             if (!matchingFile && recording.room.hostLink) {
               // Use startedAt instead of createdAt for better matching (startedAt is when recording actually started)
-              const recordingTime = new Date(recording.startedAt).getTime();
+              // Defensive check: use createdAt as fallback if startedAt is missing
+              const startTime = recording.startedAt || recording.createdAt;
+              const recordingTime = new Date(startTime).getTime();
               
               // Find files that match the room and are closest to the recording time
               const roomFiles = allFiles
@@ -413,43 +508,57 @@ export async function GET(request: NextRequest) {
             }
             
             if (matchingFile) {
-              const correctPath = pathJoin(recordingsDir, matchingFile);
-              const fileStat = await stat(correctPath);
-              
-              // CRITICAL: Mark this file as assigned BEFORE updating database to prevent race conditions
-              assignedFiles.add(matchingFile);
-              
-              console.log(`[Recordings API] 📝 Assigning file ${matchingFile} to recording ${recording.id}`);
-              console.log(`  - Recording egressId: ${recording.egressId}`);
-              console.log(`  - Recording startedAt: ${recording.startedAt}`);
-              console.log(`  - File size: ${fileStat.size} bytes`);
-              console.log(`  - Assigned files so far: ${Array.from(assignedFiles).join(', ')}`);
-              
-              // Update the database record with the correct filename
-              await prisma.recording.update({
-                where: { id: recording.id },
-                data: {
+              // Check if this file is already assigned to a different recording
+              const existingRecordingId = fileToRecordingMap.get(matchingFile);
+              if (existingRecordingId && existingRecordingId !== recording.id) {
+                console.warn(`[Recordings API] ⚠️ File ${matchingFile} is already assigned to recording ${existingRecordingId}, skipping assignment to ${recording.id}`);
+                // Don't assign - continue to look for another file or leave unmatched
+                matchingFile = undefined;
+              } else {
+                const correctPath = pathJoin(recordingsDir, matchingFile);
+                const fileStat = await stat(correctPath);
+                
+                // CRITICAL: Mark this file as assigned BEFORE updating database to prevent race conditions
+                assignedFiles.add(matchingFile);
+                fileToRecordingMap.set(matchingFile, recording.id);
+                
+                console.log(`[Recordings API] 📝 Assigning file ${matchingFile} to recording ${recording.id}`);
+                console.log(`  - Recording egressId: ${recording.egressId}`);
+                console.log(`  - Recording startedAt: ${recording.startedAt}`);
+                console.log(`  - File size: ${fileStat.size} bytes`);
+                console.log(`  - Matching method: ${recording.egressId && matchingFile.includes(recording.egressId) ? 'egressId' : 'timestamp/room'}`);
+                
+                // Update the database record with the correct filename
+                await prisma.recording.update({
+                  where: { id: recording.id },
+                  data: {
+                    filename: matchingFile,
+                    storagePath: correctPath,
+                    fileSize: fileStat.size,
+                  },
+                });
+                
+                console.log(`[Recordings API] ✅ Updated recording ${recording.id} (egressId: ${recording.egressId}) with filename: ${matchingFile}`);
+                
+                return {
+                  ...recording,
                   filename: matchingFile,
                   storagePath: correctPath,
                   fileSize: fileStat.size,
-                },
-              });
-              
-              console.log(`[Recordings API] ✅ Updated recording ${recording.id} (egressId: ${recording.egressId}) with filename: ${matchingFile}`);
-              
-              return {
-                ...recording,
-                filename: matchingFile,
-                storagePath: correctPath,
-                fileSize: fileStat.size,
-              };
-            } else {
+                };
+              }
+            }
+            
+            // If no matching file found, log detailed warning but still return the recording
+            if (!matchingFile) {
               console.warn(`[Recordings API] ⚠️ Could not find matching file for recording ${recording.id}`);
-              console.warn(`  - egressId: ${recording.egressId}`);
-              console.warn(`  - room: ${recording.room.hostLink}`);
-              console.warn(`  - startedAt: ${recording.startedAt}`);
-              console.warn(`  - Available files: ${allFiles.filter(f => f.endsWith('.mp4') && f.includes(recording.room.hostLink)).join(', ')}`);
-              console.warn(`  - Already assigned: ${Array.from(assignedFiles).join(', ')}`);
+              console.warn(`  - egressId: ${recording.egressId || 'N/A'}`);
+              console.warn(`  - room: ${recording.room?.hostLink || 'N/A'}`);
+              console.warn(`  - startedAt: ${recording.startedAt || 'N/A'}`);
+              console.warn(`  - current filename: ${recording.filename || 'N/A'}`);
+              const availableFiles = allFiles.filter(f => f.endsWith('.mp4') && recording.room?.hostLink && f.includes(recording.room.hostLink));
+              console.warn(`  - Available files for room: ${availableFiles.length > 0 ? availableFiles.join(', ') : 'none'}`);
+              console.warn(`  - Already assigned files: ${Array.from(assignedFiles).join(', ') || 'none'}`);
             }
           } catch (error) {
             console.error(`[Recordings API] Error fixing filename for recording ${recording.id}:`, error);
@@ -459,6 +568,45 @@ export async function GET(request: NextRequest) {
       })
     );
     
+    // Phase 2 & 4: Validation and logging for unmatched files and recordings
+    const recordingsWithFiles = updatedRecordings.filter(r => 
+      r.filename && r.filename !== 'recording.mp4' && r.storagePath && existsSync(r.storagePath)
+    );
+    const recordingsWithoutFiles = updatedRecordings.filter(r => 
+      !r.filename || r.filename === 'recording.mp4' || !r.storagePath || !existsSync(r.storagePath)
+    );
+    
+    // Find files that weren't assigned to any recording
+    const unassignedFiles = allFiles.filter(file => 
+      file.endsWith('.mp4') && !assignedFiles.has(file)
+    );
+    
+    // Log comprehensive summary
+    console.log(`[Recordings API] 📊 File Matching Summary:`);
+    console.log(`  - Total recordings: ${updatedRecordings.length}`);
+    console.log(`  - Recordings with files: ${recordingsWithFiles.length}`);
+    console.log(`  - Recordings without files: ${recordingsWithoutFiles.length}`);
+    console.log(`  - Total files in directory: ${allFiles.filter(f => f.endsWith('.mp4')).length}`);
+    console.log(`  - Assigned files: ${assignedFiles.size}`);
+    console.log(`  - Unassigned files: ${unassignedFiles.length}`);
+    
+    if (recordingsWithoutFiles.length > 0) {
+      console.warn(`[Recordings API] ⚠️ ${recordingsWithoutFiles.length} recordings without matching files:`);
+      recordingsWithoutFiles.forEach(r => {
+        console.warn(`  - Recording ${r.id} (egressId: ${r.egressId || 'N/A'}, filename: ${r.filename || 'N/A'})`);
+      });
+    }
+    
+    if (unassignedFiles.length > 0) {
+      console.warn(`[Recordings API] ⚠️ ${unassignedFiles.length} files not assigned to any recording:`);
+      unassignedFiles.slice(0, 10).forEach(file => {
+        console.warn(`  - ${file}`);
+      });
+      if (unassignedFiles.length > 10) {
+        console.warn(`  - ... and ${unassignedFiles.length - 10} more files`);
+      }
+    }
+    
     // Debug: Log first recording if any
     if (updatedRecordings.length > 0) {
       console.log(`[Recordings API] First recording:`, {
@@ -466,6 +614,7 @@ export async function GET(request: NextRequest) {
         roomId: updatedRecordings[0].roomId,
         roomName: updatedRecordings[0].room.name,
         filename: updatedRecordings[0].filename,
+        hasFile: updatedRecordings[0].filename && updatedRecordings[0].filename !== 'recording.mp4' && updatedRecordings[0].storagePath && existsSync(updatedRecordings[0].storagePath),
       });
     } else {
       console.log(`[Recordings API] No recordings found. Checking if any recordings exist for this client...`);
@@ -495,26 +644,44 @@ export async function GET(request: NextRequest) {
       console.log(`[Recordings API] Debug: Found ${allRecordingsForClient.length} recordings for client (unfiltered):`, allRecordingsForClient);
     }
 
-    // Format response
-    const formattedRecordings = updatedRecordings.map((recording) => ({
-      id: recording.id,
-      roomId: recording.roomId,
-      roomName: recording.room.name,
-      egressId: recording.egressId,
-      filename: recording.filename,
-      originalName: recording.originalName,
-      fileSize: recording.fileSize,
-      duration: recording.duration,
-      status: recording.status,
-      storageType: recording.storageType,
-      storagePath: recording.storagePath,
-      startedAt: recording.startedAt.toISOString(),
-      endedAt: recording.endedAt?.toISOString() || null,
-      createdAt: recording.createdAt.toISOString(),
-      // Ensure unique stream URL with recording ID and timestamp to prevent caching issues
-      streamUrl: `/api/client/recordings/${recording.id}/stream?recordingId=${recording.id}&filename=${encodeURIComponent(recording.filename)}`,
-      downloadUrl: `/api/client/recordings/${recording.id}/download`,
-    }));
+    // Format response - include ALL recordings, even if file matching failed
+    const formattedRecordings = updatedRecordings.map((recording) => {
+      // Defensive checks for required fields
+      const startedAt = recording.startedAt || recording.createdAt;
+      
+      // Check if file actually exists
+      const fileExists = recording.filename && 
+                        recording.filename !== 'recording.mp4' && 
+                        recording.storagePath && 
+                        existsSync(recording.storagePath);
+      
+      return {
+        id: recording.id,
+        roomId: recording.roomId,
+        roomName: recording.room?.name || 'Unknown Room',
+        egressId: recording.egressId,
+        filename: recording.filename || 'recording.mp4',
+        originalName: recording.originalName || recording.filename || 'Recording',
+        fileSize: recording.fileSize,
+        duration: recording.duration,
+        status: recording.status,
+        storageType: recording.storageType,
+        storagePath: recording.storagePath,
+        startedAt: startedAt.toISOString(),
+        endedAt: recording.endedAt?.toISOString() || null,
+        createdAt: recording.createdAt.toISOString(),
+        fileExists: fileExists, // Flag indicating if file actually exists
+        // Ensure unique stream URL with recording ID and timestamp to prevent caching issues
+        streamUrl: `/api/client/recordings/${recording.id}/stream?recordingId=${recording.id}&filename=${encodeURIComponent(recording.filename || 'recording.mp4')}`,
+        downloadUrl: `/api/client/recordings/${recording.id}/download`,
+      };
+    });
+    
+    // Log display summary
+    console.log(`[Recordings API] 📋 Display Summary:`);
+    console.log(`  - Total recordings to display: ${formattedRecordings.length}`);
+    console.log(`  - Recordings with existing files: ${formattedRecordings.filter(r => r.fileExists).length}`);
+    console.log(`  - Recordings without files: ${formattedRecordings.filter(r => !r.fileExists).length}`);
     
     // Debug: Log all recordings with their unique identifiers
     console.log(`[Recordings API] Formatted ${formattedRecordings.length} recordings:`, 
@@ -536,8 +703,18 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('Get recordings error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error('Error details:', {
+      message: errorMessage,
+      stack: errorStack,
+      error: error,
+    });
     return NextResponse.json(
-      { error: 'حدث خطأ أثناء جلب التسجيلات' },
+      { 
+        error: 'حدث خطأ أثناء جلب التسجيلات',
+        details: process.env.NODE_ENV === 'development' ? errorMessage : undefined,
+      },
       { status: 500 }
     );
   }

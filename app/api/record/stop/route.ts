@@ -317,66 +317,134 @@ export async function GET(req: NextRequest) {
           
           // Save recording to database
           let recording;
-          try {
-            console.log(`[Recording Stop] Attempting to save recording:`, {
-              roomId: room.id,
-              clientId: room.clientId,
-              egressId: info.egressId,
-              filename: baseFilename,
-            });
+          let isUpdate = false;
+          
+          // Check if recording with same egressId already exists (prevent duplicates)
+          const existingRecording = await prisma.recording.findUnique({
+            where: { egressId: info.egressId },
+          });
+          
+          if (existingRecording) {
+            console.log(`[Recording Stop] Recording with egressId ${info.egressId} already exists (ID: ${existingRecording.id}), updating instead of creating duplicate`);
+            isUpdate = true;
             
-            recording = await prisma.recording.create({
-              data: {
+            // Update existing record with latest information
+            // Only update if we have better/newer information
+            const updateData: any = {
+              status: 'COMPLETED',
+              endedAt: new Date(),
+            };
+            
+            // Update filename if we have a better one (not "recording.mp4")
+            if (baseFilename && baseFilename !== 'recording.mp4' && baseFilename !== existingRecording.filename) {
+              updateData.filename = baseFilename;
+              updateData.storagePath = localFilePath;
+              console.log(`[Recording Stop] Updating filename from "${existingRecording.filename}" to "${baseFilename}"`);
+            }
+            
+            // Update file size if we have it and it's different
+            if (fileSize !== null && fileSize !== existingRecording.fileSize) {
+              updateData.fileSize = fileSize;
+              console.log(`[Recording Stop] Updating fileSize from ${existingRecording.fileSize} to ${fileSize}`);
+            }
+            
+            // Update originalName if missing or generic
+            if (!existingRecording.originalName || existingRecording.originalName === 'Recording') {
+              updateData.originalName = originalName;
+            }
+            
+            try {
+              recording = await prisma.recording.update({
+                where: { egressId: info.egressId },
+                data: updateData,
+              });
+              
+              console.log(`[Recording Stop] ✅ Successfully updated existing recording in database:`, {
+                recordingId: recording.id,
                 roomId: room.id,
+                clientId: room.clientId,
+                egressId: info.egressId,
+                filename: recording.filename,
+                updatedFields: Object.keys(updateData),
+              });
+            } catch (updateError: any) {
+              console.error(`[Recording Stop] ❌ Failed to update existing recording:`, updateError);
+              // Fall back to using existing recording
+              recording = existingRecording;
+              console.log(`[Recording Stop] Using existing recording without updates: ${recording.id}`);
+            }
+          } else {
+            // No existing recording, create new one
+            try {
+              console.log(`[Recording Stop] Attempting to create new recording:`, {
+                roomId: room.id,
+                clientId: room.clientId,
                 egressId: info.egressId,
                 filename: baseFilename,
-                originalName: originalName,
-                fileSize: fileSize,
-                status: 'COMPLETED', // Will be updated when R2 upload completes
-                storageType: 'LOCAL',
-                storagePath: localFilePath,
-                startedAt: startedAt,
-                endedAt: new Date(),
-              }
-            });
-            
-            console.log(`[Recording Stop] ✅ Successfully saved recording to database:`, {
-              recordingId: recording.id,
-              roomId: room.id,
-              clientId: room.clientId,
-              egressId: info.egressId,
-            });
-          } catch (dbError: any) {
-            console.error(`[Recording Stop] ❌ Failed to save recording to database:`, dbError);
-            console.error(`[Recording Stop] Error details:`, {
-              message: dbError.message,
-              code: dbError.code,
-              meta: dbError.meta,
-            });
-            
-            // Check if it's a unique constraint violation (duplicate egressId)
-            if (dbError.code === 'P2002' || (dbError instanceof Error && dbError.message.includes('Unique constraint'))) {
-              console.log(`[Recording Stop] Recording with egressId ${info.egressId} already exists, fetching existing record`);
-              // Try to get existing recording
-              recording = await prisma.recording.findUnique({
-                where: { egressId: info.egressId },
               });
-              if (recording) {
-                console.log(`[Recording Stop] Found existing recording: ${recording.id}`);
+              
+              recording = await prisma.recording.create({
+                data: {
+                  roomId: room.id,
+                  egressId: info.egressId,
+                  filename: baseFilename,
+                  originalName: originalName,
+                  fileSize: fileSize,
+                  status: 'COMPLETED', // Will be updated when R2 upload completes
+                  storageType: 'LOCAL',
+                  storagePath: localFilePath,
+                  startedAt: startedAt,
+                  endedAt: new Date(),
+                }
+              });
+              
+              console.log(`[Recording Stop] ✅ Successfully created new recording in database:`, {
+                recordingId: recording.id,
+                roomId: room.id,
+                clientId: room.clientId,
+                egressId: info.egressId,
+                filename: baseFilename,
+                fileSize: fileSize,
+              });
+            } catch (dbError: any) {
+              console.error(`[Recording Stop] ❌ Failed to create recording in database:`, dbError);
+              console.error(`[Recording Stop] Error details:`, {
+                message: dbError.message,
+                code: dbError.code,
+                meta: dbError.meta,
+              });
+              
+              // Check if it's a unique constraint violation (duplicate egressId)
+              // This shouldn't happen if we checked above, but handle it just in case
+              if (dbError.code === 'P2002' || (dbError instanceof Error && dbError.message.includes('Unique constraint'))) {
+                console.warn(`[Recording Stop] ⚠️ Unique constraint violation despite pre-check, fetching existing record`);
+                recording = await prisma.recording.findUnique({
+                  where: { egressId: info.egressId },
+                });
+                if (recording) {
+                  console.log(`[Recording Stop] Found existing recording: ${recording.id}`);
+                  isUpdate = true;
+                }
+              } else {
+                // Re-throw if it's not a duplicate error
+                throw dbError;
               }
-            } else {
-              // Re-throw if it's not a duplicate error
-              throw dbError;
             }
           }
           
           // CRITICAL: Ensure recording was saved before proceeding
           if (!recording) {
-            console.error(`[Recording Stop] ❌ CRITICAL: Failed to create recording record for egressId: ${info.egressId}`);
+            console.error(`[Recording Stop] ❌ CRITICAL: Failed to save recording record for egressId: ${info.egressId}`);
             throw new Error(`Failed to save recording to database for egressId: ${info.egressId}`);
           }
 
-          console.log(`[Recording Stop] ✅ Recording saved successfully: ${recording.id} for room ${room.id} (clientId: ${room.clientId})`);
+          console.log(`[Recording Stop] ✅ Recording ${isUpdate ? 'updated' : 'saved'} successfully: ${recording.id} for room ${room.id} (clientId: ${room.clientId})`, {
+            action: isUpdate ? 'UPDATE' : 'CREATE',
+            recordingId: recording.id,
+            egressId: info.egressId,
+            filename: recording.filename,
+            fileSize: recording.fileSize,
+          });
 
           // Trigger background R2 upload (non-blocking)
           uploadRecordingToR2(

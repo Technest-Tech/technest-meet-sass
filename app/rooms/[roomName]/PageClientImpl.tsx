@@ -767,6 +767,7 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
   const screenShareTrackRef = React.useRef<LocalTrack | null>(null);
   const screenShareLockRef = React.useRef(false);
   const screenShareHealthCheckRef = React.useRef<NodeJS.Timeout | null>(null);
+  const screenShareStartTimeRef = React.useRef<number | null>(null);
 
   // Track participant state changes
   React.useEffect(() => {
@@ -797,6 +798,7 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
 
       if (isScreenShareVideo || isScreenShareAudio) {
         setIsScreenSharing(false);
+        screenShareStartTimeRef.current = null;
       }
     };
 
@@ -897,6 +899,7 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
           } catch (error) {
             logger.error('Error in handleTrackUnpublished for screen share:', error);
             setIsScreenSharing(false);
+            screenShareStartTimeRef.current = null;
           }
         }, 300);
       } else if (publication.source === Track.Source.Camera) {
@@ -997,7 +1000,16 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
         clearInterval(screenShareHealthCheckRef.current);
         screenShareHealthCheckRef.current = null;
       }
+      // Reset start time when screen sharing stops
+      if (!isScreenSharing) {
+        screenShareStartTimeRef.current = null;
+      }
       return;
+    }
+
+    // Set start time when screen sharing begins (if not already set)
+    if (!screenShareStartTimeRef.current) {
+      screenShareStartTimeRef.current = Date.now();
     }
 
     const healthCheckInterval = setInterval(() => {
@@ -1012,39 +1024,66 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
           return;
         }
 
+        // CRITICAL FIX: Don't show errors if we're currently toggling screen share
+        if (isTogglingScreenShare) {
+          logger.debug('Screen share is being toggled, skipping health check');
+          return;
+        }
+
+        // CRITICAL FIX: Grace period of 5 seconds after starting screen share
+        // This prevents false positives when the track is still being published
+        const gracePeriodMs = 5000;
+        const timeSinceStart = screenShareStartTimeRef.current 
+          ? Date.now() - screenShareStartTimeRef.current 
+          : Infinity;
+        
         const screenSharePublication = localParticipant.getTrackPublication(Track.Source.ScreenShare);
         const track = screenSharePublication?.track;
         
         if (!track) {
-          // Track disappeared - browser might have stopped it
-          logger.warn('Screen share track disappeared during health check');
-          setIsScreenSharing(false);
-          screenShareLockRef.current = false;
-          if (screenShareTrackRef.current) {
-            const cleanup = (screenShareTrackRef.current as any).__cleanupEnded;
-            if (cleanup) cleanup();
-            screenShareTrackRef.current = null;
+          // Only show error if we're past the grace period
+          if (timeSinceStart > gracePeriodMs) {
+            // Track disappeared - browser might have stopped it
+            logger.warn('Screen share track disappeared during health check');
+            setIsScreenSharing(false);
+            screenShareLockRef.current = false;
+            screenShareStartTimeRef.current = null;
+            if (screenShareTrackRef.current) {
+              const cleanup = (screenShareTrackRef.current as any).__cleanupEnded;
+              if (cleanup) cleanup();
+              screenShareTrackRef.current = null;
+            }
+            toast.error('Screen sharing was stopped unexpectedly.', {
+              duration: 4000,
+            });
+          } else {
+            // Still in grace period - track might not be published yet
+            logger.debug('Screen share track not found, but still in grace period', {
+              timeSinceStart,
+              gracePeriodMs,
+            });
           }
-          toast.error('Screen sharing was stopped unexpectedly.', {
-            duration: 4000,
-          });
           return;
         }
 
         // Check if MediaStreamTrack is still active
         const mediaStreamTrack = track.mediaStreamTrack;
         if (mediaStreamTrack && mediaStreamTrack.readyState === 'ended') {
-          logger.warn('Screen share MediaStreamTrack ended');
-          setIsScreenSharing(false);
-          screenShareLockRef.current = false;
-          if (screenShareTrackRef.current) {
-            const cleanup = (screenShareTrackRef.current as any).__cleanupEnded;
-            if (cleanup) cleanup();
-            screenShareTrackRef.current = null;
+          // Only show error if we're past the grace period
+          if (timeSinceStart > gracePeriodMs) {
+            logger.warn('Screen share MediaStreamTrack ended');
+            setIsScreenSharing(false);
+            screenShareLockRef.current = false;
+            screenShareStartTimeRef.current = null;
+            if (screenShareTrackRef.current) {
+              const cleanup = (screenShareTrackRef.current as any).__cleanupEnded;
+              if (cleanup) cleanup();
+              screenShareTrackRef.current = null;
+            }
+            toast.error('Screen sharing was stopped by your browser.', {
+              duration: 4000,
+            });
           }
-          toast.error('Screen sharing was stopped by your browser.', {
-            duration: 4000,
-          });
         }
       } catch (error) {
         logger.error('Error in screen share health check:', error);
@@ -1064,7 +1103,7 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
         screenShareHealthCheckRef.current = null;
       }
     };
-  }, [localParticipant, isScreenSharing, room]);
+  }, [localParticipant, isScreenSharing, room, isTogglingScreenShare]);
 
   // Toggle microphone
   const toggleMicrophone = async () => {
@@ -1316,6 +1355,7 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
               setIsScreenSharing(false);
               setIsTogglingScreenShare(false);
               screenShareLockRef.current = false;
+              screenShareStartTimeRef.current = null;
               
               // Notify user
               toast.error('Screen sharing was stopped by your browser. Click the button to share again.', {
@@ -1353,6 +1393,9 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
             throw publishError;
           }
         }
+
+        // CRITICAL FIX: Set start time after successful publish to start grace period
+        screenShareStartTimeRef.current = Date.now();
       } else {
         // Disable screen share
         // Clean up track reference
@@ -1361,6 +1404,9 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
           if (cleanup) cleanup();
           screenShareTrackRef.current = null;
         }
+        
+        // Reset start time when stopping screen share
+        screenShareStartTimeRef.current = null;
         
         await localParticipant.setScreenShareEnabled(false);
       }
@@ -1385,11 +1431,35 @@ function CustomControlButtons({ onLeave }: { onLeave: () => void }) {
         screenShareTrackRef.current = null;
       }
 
+      // Reset start time on error
+      screenShareStartTimeRef.current = null;
+
       logger.error('Failed to toggle screen share:', error);
 
       // Handle specific error types with user-friendly messages
       if (error instanceof Error) {
-        if (error.name === 'NotAllowedError' || error.message.includes('Permission denied') || error.message.includes('permission')) {
+        // CRITICAL FIX: User cancellation of screen share dialog is expected behavior
+        // When user clicks cancel on the browser's share dialog, it throws NotAllowedError or AbortError
+        // We should handle this silently without showing an error message
+        // Note: When createScreenTracks is called, if user cancels, it's most likely a cancellation
+        // Real permission denials at browser level usually prevent the dialog from showing
+        const isUserCancellation = 
+          error.name === 'AbortError' ||
+          (error.name === 'NotAllowedError' && 
+           (error.message === '' ||
+            error.message.toLowerCase().includes('user denied') ||
+            error.message.toLowerCase().includes('user cancelled') ||
+            error.message.toLowerCase().includes('aborted') ||
+            // DOMException with NotAllowedError from getDisplayMedia cancellation
+            (error instanceof DOMException && error.name === 'NotAllowedError')));
+        
+        if (isUserCancellation) {
+          // User cancelled the screen share dialog - this is expected, don't show error
+          logger.debug('User cancelled screen share dialog - this is expected behavior');
+          // Silently handle cancellation - no error message needed
+          return;
+        } else if (error.name === 'NotAllowedError' || error.message.includes('Permission denied') || error.message.includes('permission')) {
+          // This is a real permission denial (not user cancellation)
           toast.error('Screen sharing permission was denied. Please allow screen sharing when prompted.');
         } else if (error.name === 'NotReadableError' || error.message.includes('NotReadableError') || error.message.includes('not readable')) {
           toast.error('Screen sharing is not available. Another application may be using it.');

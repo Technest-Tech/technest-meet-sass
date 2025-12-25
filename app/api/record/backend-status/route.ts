@@ -420,8 +420,84 @@ export async function GET(req: NextRequest) {
         response.partialRecording = true;
       }
     } else if (status === 1) {
-      // Active
-      response.startedAt = toISOString(egressInfo.startedAt);
+      // Active - check for time limit
+      try {
+        response.startedAt = toISOString(egressInfo.startedAt);
+      } catch (dateError) {
+        console.warn(`[Recording Status] Error converting startedAt to ISO string:`, dateError);
+        // Try to get startedAt using helper function
+        const startedAtTime = getTime(egressInfo.startedAt);
+        if (startedAtTime > 0) {
+          response.startedAt = new Date(startedAtTime).toISOString();
+        }
+      }
+      
+      // Check if recording has exceeded time limit
+      const maxDurationSeconds = parseInt(process.env.RECORDING_MAX_DURATION_SECONDS || '7200', 10); // Default 2 hours
+      
+      if (maxDurationSeconds > 0 && egressInfo.startedAt) {
+        try {
+          // Handle BigInt or regular number/Date for startedAt
+          let startedAtTime: number;
+          if (typeof egressInfo.startedAt === 'bigint') {
+            // Convert BigInt nanoseconds to milliseconds
+            startedAtTime = Number(egressInfo.startedAt) / 1000000;
+          } else if (typeof egressInfo.startedAt === 'number') {
+            // If it's already a number, check if it's in milliseconds or seconds
+            startedAtTime = egressInfo.startedAt > 1e12 ? egressInfo.startedAt : egressInfo.startedAt * 1000;
+          } else if (egressInfo.startedAt instanceof Date) {
+            startedAtTime = egressInfo.startedAt.getTime();
+          } else if (typeof egressInfo.startedAt === 'string') {
+            startedAtTime = new Date(egressInfo.startedAt).getTime();
+          } else {
+            // Use the helper function
+            startedAtTime = getTime(egressInfo.startedAt);
+          }
+          
+          // Validate the time is reasonable (not NaN, not 0, not in the future)
+          if (isNaN(startedAtTime) || startedAtTime <= 0 || startedAtTime > Date.now()) {
+            console.warn(`[Recording Status] Invalid startedAt time: ${startedAtTime}, skipping time limit check`);
+          } else {
+            const now = new Date();
+            const elapsedSeconds = Math.floor((now.getTime() - startedAtTime) / 1000);
+            
+            if (elapsedSeconds >= maxDurationSeconds) {
+              // Recording has exceeded time limit - auto-stop it
+              console.log(`[Recording Status] ⏰ Recording ${egressInfo.egressId} has exceeded time limit (${elapsedSeconds}s >= ${maxDurationSeconds}s), auto-stopping...`);
+              
+              try {
+                // Use the existing egressClient that was created earlier
+                await egressClient.stopEgress(egressInfo.egressId);
+                console.log(`[Recording Status] ✅ Auto-stopped recording ${egressInfo.egressId} due to time limit`);
+                
+                // Return status indicating it was auto-stopped
+                response.status = 2; // Completed
+                response.message = 'Recording automatically stopped due to time limit';
+                status = 2;
+              } catch (stopError) {
+                console.error(`[Recording Status] ❌ Error auto-stopping recording ${egressInfo.egressId}:`, stopError);
+                // Continue with normal response - the recording will be stopped on next check
+                response.warning = 'Recording exceeded time limit but could not be automatically stopped. Please stop manually.';
+              }
+            } else {
+              // Calculate time remaining and add to response
+              const remainingSeconds = maxDurationSeconds - elapsedSeconds;
+              response.timeRemaining = remainingSeconds;
+              response.maxDuration = maxDurationSeconds;
+              
+              // Add warning if approaching limit
+              const warningThreshold = parseInt(process.env.RECORDING_WARNING_THRESHOLD_SECONDS || '300', 10); // Default 5 minutes
+              if (remainingSeconds <= warningThreshold && remainingSeconds > 0) {
+                const minutesRemaining = Math.ceil(remainingSeconds / 60);
+                response.warning = `Recording will automatically stop in ${minutesRemaining} minute${minutesRemaining !== 1 ? 's' : ''}`;
+              }
+            }
+          }
+        } catch (timeLimitError) {
+          console.error(`[Recording Status] Error checking time limit for recording ${egressInfo.egressId}:`, timeLimitError);
+          // Don't fail the entire request if time limit check fails - just log and continue
+        }
+      }
     }
     
     // Handle status 5 separately (after status mapping)
