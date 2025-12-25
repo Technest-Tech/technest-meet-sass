@@ -51,6 +51,8 @@ export async function GET(
     }
 
     // getRecordingFile handles R2 first (if storageType is R2), then falls back to local
+    console.log(`[Download Recording] Looking for file - storageType: ${recording.storageType || 'LOCAL'}, storagePath: ${recording.storagePath || 'N/A'}, filename: ${recording.filename || 'N/A'}, localFilePath: ${localFilePath || 'N/A'}`);
+    
     const fileBuffer = await getRecordingFile(
       recording.storageType || 'LOCAL',
       recording.storagePath,
@@ -69,6 +71,9 @@ export async function GET(
       });
     }
 
+    // File not found - log details for debugging
+    console.error(`[Download Recording] ❌ File not found - recordingId: ${recording.id}, storageType: ${recording.storageType || 'LOCAL'}, storagePath: ${recording.storagePath || 'N/A'}, filename: ${recording.filename || 'N/A'}, egressId: ${recording.egressId || 'N/A'}`);
+    
     return new NextResponse('Recording file not found', { status: 404 });
   } catch (error) {
     console.error('Download recording error:', error);

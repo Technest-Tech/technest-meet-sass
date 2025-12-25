@@ -105,9 +105,11 @@ export async function getRecordingFile(
   try {
     if (storageType === 'R2' && storagePath) {
       // Try to get from R2
+      console.log(`[Recording Storage] Attempting to get file from R2: ${storagePath}`);
       const { downloadFile } = await import('./r2Storage');
       const fileBuffer = await downloadFile(storagePath);
       if (fileBuffer) {
+        console.log(`[Recording Storage] ✅ Successfully retrieved file from R2: ${storagePath} (${fileBuffer.length} bytes)`);
         return fileBuffer;
       }
       // Fallback to local if R2 fails
@@ -116,9 +118,21 @@ export async function getRecordingFile(
     
     // Fallback to local storage
     if (localFilePath) {
-      return await readFile(localFilePath);
+      console.log(`[Recording Storage] Attempting to get file from local: ${localFilePath}`);
+      try {
+        const fileBuffer = await readFile(localFilePath);
+        console.log(`[Recording Storage] ✅ Successfully retrieved file from local: ${localFilePath} (${fileBuffer.length} bytes)`);
+        return fileBuffer;
+      } catch (localError: any) {
+        if (localError.code === 'ENOENT') {
+          console.warn(`[Recording Storage] Local file not found: ${localFilePath}`);
+        } else {
+          console.error(`[Recording Storage] Error reading local file: ${localError.message}`);
+        }
+      }
     }
     
+    console.warn(`[Recording Storage] File not found in R2 or local storage`);
     return null;
   } catch (error) {
     console.error('[Recording Storage] Error getting recording file:', error);
