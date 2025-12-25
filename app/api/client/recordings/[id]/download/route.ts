@@ -181,16 +181,39 @@ export async function GET(
         const { promisify } = await import('util');
         const execAsync = promisify(exec);
         
-        // Find the file on the egress server by egressId or room name
-        // Priority: 1) egressId, 2) room hostLink, 3) any file for this room
-        const egressIdSearch = recording.egressId.replace('EG_', '');
-        const findFileCmd = `ssh -o StrictHostKeyChecking=no root@${serverIp} "docker exec ${containerName} find /recordings -name '*.mp4' | grep -E '(${recording.egressId}|${egressIdSearch}|${recording.room.hostLink})' | head -1"`;
+        // First, try to get filename from egress JSON file
+        let remoteFilePath: string | null = null;
+        try {
+          const jsonFileCmd = `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@${serverIp} "docker exec ${containerName} cat /recordings/${recording.egressId}.json 2>/dev/null" || echo ""`;
+          console.log(`[Download Recording] Reading egress JSON file for ${recording.egressId}...`);
+          const { stdout: jsonContent } = await execAsync(jsonFileCmd);
+          
+          if (jsonContent && jsonContent.trim()) {
+            try {
+              const egressInfo = JSON.parse(jsonContent.trim());
+              if (egressInfo.files && egressInfo.files.length > 0 && egressInfo.files[0].filename) {
+                remoteFilePath = egressInfo.files[0].filename;
+                console.log(`[Download Recording] ✅ Found filename from JSON: ${remoteFilePath}`);
+              }
+            } catch (parseError) {
+              console.warn(`[Download Recording] Failed to parse JSON:`, parseError);
+            }
+          }
+        } catch (jsonError) {
+          console.warn(`[Download Recording] Could not read JSON file, trying file search...`);
+        }
         
-        console.log(`[Download Recording] Searching for file on ${serverIp} (egressId: ${recording.egressId}, room: ${recording.room.hostLink})...`);
-        const { stdout: filePath } = await execAsync(findFileCmd);
-        const remoteFilePath = filePath.trim();
+        // If JSON didn't work, search for file by egressId or room name
+        if (!remoteFilePath) {
+          const egressIdSearch = recording.egressId.replace('EG_', '');
+          const findFileCmd = `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 root@${serverIp} "docker exec ${containerName} find /recordings -name '*.mp4' | grep -E '(${recording.egressId}|${egressIdSearch}|${recording.room.hostLink})' | head -1" || echo ""`;
+          
+          console.log(`[Download Recording] Searching for file on ${serverIp} (egressId: ${recording.egressId}, room: ${recording.room.hostLink})...`);
+          const { stdout: filePath } = await execAsync(findFileCmd);
+          remoteFilePath = filePath.trim() || null;
+        }
         
-        if (remoteFilePath) {
+        if (remoteFilePath && remoteFilePath !== '') {
           console.log(`[Download Recording] ✅ Found file on server: ${remoteFilePath}`);
           
           // Copy file from LiveKit server to backend server
